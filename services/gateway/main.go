@@ -20,6 +20,12 @@ type healthResponse struct {
 	Status  string `json:"status"`
 }
 
+type serviceInfoResponse struct {
+	Service    string `json:"service"`
+	APIVersion string `json:"api_version"`
+	Status     string `json:"status"`
+}
+
 func newHandler() http.Handler {
 	mux := http.NewServeMux()
 	health := requireMethod(http.MethodGet, func(writer http.ResponseWriter, _ *http.Request) {
@@ -31,6 +37,16 @@ func newHandler() http.Handler {
 
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
+	mux.HandleFunc("/api/v1", requireMethod(http.MethodGet, func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSON(writer, http.StatusOK, serviceInfoResponse{
+			Service:    "gateway",
+			APIVersion: "v1",
+			Status:     "ok",
+		})
+	}))
+	mux.HandleFunc("/api/v1/", requireMethod(http.MethodGet, func(writer http.ResponseWriter, request *http.Request) {
+		writeAPIError(writer, request, http.StatusNotFound, "route_not_found", "请求的接口不存在")
+	}))
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, http.StatusNotFound, "route_not_found", "请求的接口不存在")
 	})

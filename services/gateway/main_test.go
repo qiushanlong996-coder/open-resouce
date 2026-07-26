@@ -139,3 +139,45 @@ func TestAccessLogContainsRequestMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIVersionEntry(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
+	}
+
+	var body serviceInfoResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Service != "gateway" || body.APIVersion != "v1" || body.Status != "ok" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
+
+func TestUnknownVersionedRoute(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, response.Code)
+	}
+
+	var body errorResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "route_not_found" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
