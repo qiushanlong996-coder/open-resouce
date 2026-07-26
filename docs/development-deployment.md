@@ -202,6 +202,12 @@ http://192.168.1.100:5173
 npm run build
 ```
 
+修改 Gateway API 后还必须校验 OpenAPI 契约：
+
+```bash
+node scripts/validate-openapi.mjs
+```
+
 ## 5. 前端配置说明
 
 前端默认通过同源 `/api` 访问 Gateway。开发服务器会将 `/api` 代理到
