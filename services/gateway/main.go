@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 )
 
 const defaultPort = "8080"
+const defaultHost = "127.0.0.1"
 
 type healthResponse struct {
 	Service string `json:"service"`
@@ -35,14 +37,23 @@ func newHandler() http.Handler {
 	return mux
 }
 
-func main() {
+func listenAddress() string {
+	host := os.Getenv("HOST")
+	if host == "" {
+		host = defaultHost
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = defaultPort
 	}
 
+	return net.JoinHostPort(host, port)
+}
+
+func main() {
 	server := &http.Server{
-		Addr:              ":" + port,
+		Addr:              listenAddress(),
 		Handler:           newHandler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -67,4 +78,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-

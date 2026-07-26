@@ -3,4 +3,5 @@
 .codex-go-cache/
 .codex-go-tmp/
 .codex-go.zip
+.codex-gateway
 .codex-gateway.test

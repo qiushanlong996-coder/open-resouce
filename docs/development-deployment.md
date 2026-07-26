@@ -47,7 +47,7 @@
 go run ./services/gateway
 ```
 
-默认监听 `8080` 端口，可通过 `PORT` 环境变量覆盖。服务提供：
+默认监听 `127.0.0.1:8080`，可通过 `HOST` 和 `PORT` 环境变量覆盖。服务提供：
 
 ```text
 GET /healthz
@@ -256,6 +256,26 @@ server {
 ```
 
 当前 Demo 使用前端路由状态切换，部署为静态站点时必须保留 `try_files ... /index.html`，否则刷新非首页路径可能返回 404。
+
+### 6.4 Gateway 服务器部署
+
+生产服务器没有安装 Go 时，可在开发机交叉编译 Linux 二进制：
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o gateway ./services/gateway
+```
+
+将二进制上传到 `/opt/open-resouce/current/bin/gateway`，将
+`deploy/systemd/open-resouce-gateway.service` 安装到 `/etc/systemd/system/`，然后执行：
+
+```bash
+systemctl daemon-reload
+systemctl enable --now open-resouce-gateway
+systemctl status open-resouce-gateway
+curl http://127.0.0.1:18080/healthz
+```
+
+Gateway 仅监听项目预留的 `18080` 端口。为避免影响同机已有业务，在独立域名或 Nginx 路由确认前，不要修改现有站点配置。
 
 ## 7. 后端阶段环境规划
 

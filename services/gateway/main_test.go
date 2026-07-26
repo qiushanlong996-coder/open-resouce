@@ -48,3 +48,16 @@ func TestUnsupportedRoute(t *testing.T) {
 	}
 }
 
+func TestListenAddress(t *testing.T) {
+	t.Setenv("HOST", "")
+	t.Setenv("PORT", "")
+	if address := listenAddress(); address != "127.0.0.1:8080" {
+		t.Fatalf("unexpected default address: %s", address)
+	}
+
+	t.Setenv("HOST", "0.0.0.0")
+	t.Setenv("PORT", "18080")
+	if address := listenAddress(); address != "0.0.0.0:18080" {
+		t.Fatalf("unexpected configured address: %s", address)
+	}
+}

@@ -32,7 +32,7 @@
 - 已使用 Go 1.24.6 完成 Linux/amd64 测试二进制编译。
 - 已在生产服务器隔离目录运行完整测试，健康检查和未知路由测试全部通过。
 - Windows 本机应用控制策略禁止执行临时编译的测试程序，因此采用交叉编译后在 Linux 服务器运行的验证方式。
-- 待完成：部署后请求 `http://127.0.0.1:18080/healthz`
+- 已部署并验证 `http://127.0.0.1:18080/healthz`。
 
 ### 服务器现状与注意事项
 
@@ -47,7 +47,54 @@
 
 ### 下一步
 
-1. 完成 Go 1.24 环境中的测试。
-2. 增加 Gateway 多阶段 Dockerfile。
-3. 将 Gateway 隔离部署到服务器 `18080`。
-4. 验证健康检查后，再考虑新增独立 API 子域名或 Nginx 路由。
+- [x] 完成 Go 1.24 环境中的测试。
+- [ ] 增加 Gateway 多阶段 Dockerfile。
+- [x] 将 Gateway 隔离部署到服务器 `18080`。
+- [ ] 确定独立 API 子域名或 Nginx 路由。
+
+## 2026-07-26：Gateway systemd 隔离部署
+
+### 已完成
+
+- Gateway 默认监听地址调整为 `127.0.0.1:8080`。
+- 新增 `HOST` 与 `PORT` 环境变量，支持按环境覆盖监听地址。
+- 新增监听地址配置测试。
+- 新增 `deploy/systemd/open-resouce-gateway.service`。
+- 使用 Go 1.24.6 交叉编译静态 Linux/amd64 二进制。
+- 部署目录：`/opt/open-resouce/current/bin/gateway`。
+- systemd 服务名：`open-resouce-gateway`。
+- 服务已设置为开机启动。
+
+### 验证
+
+- 更新后的全量 Gateway 测试在服务器运行通过。
+- `systemctl is-active open-resouce-gateway` 返回 `active`。
+- `curl http://127.0.0.1:18080/healthz` 返回：
+
+```json
+{"service":"gateway","status":"ok"}
+```
+
+- `ss -lntp` 确认服务只监听 `127.0.0.1:18080`。
+
+### 运维命令
+
+```bash
+systemctl status open-resouce-gateway
+journalctl -u open-resouce-gateway -n 100 --no-pager
+systemctl restart open-resouce-gateway
+curl http://127.0.0.1:18080/healthz
+```
+
+### 注意事项
+
+- 当前 Gateway 仅供服务器本机访问，公网和现有域名不会转发到该端口。
+- 未确定独立 API 域名之前，不修改现有 `www.lovenuaa.xyz` 的 Nginx 路由。
+- 后续部署必须先通过测试，再替换二进制并重启 systemd 服务。
+- 若部署失败，检查 `journalctl -u open-resouce-gateway`，不要停止占用 `8080` 的既有 Java 服务。
+
+### 下一步
+
+1. 新增统一 JSON 响应、请求 ID 和访问日志中间件。
+2. 增加 API 版本入口 `/api/v1`。
+3. 为前端准备可配置的 Gateway 基础地址。
