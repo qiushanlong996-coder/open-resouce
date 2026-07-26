@@ -52,7 +52,12 @@ go run ./services/gateway
 ```text
 GET /healthz
 GET /readyz
+GET /api/v1
+GET /api/v1/projects
 ```
+
+项目列表支持 `page`、`page_size`、`q`、`category` 和 `sort` 查询参数。
+`sort` 可选值为 `updated`、`downloads` 或 `stars`。
 
 验证命令：
 

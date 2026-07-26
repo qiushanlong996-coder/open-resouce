@@ -1,0 +1,208 @@
+package main
+
+import (
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+const (
+	defaultProjectPageSize = 12
+	maxProjectPageSize     = 50
+)
+
+type projectSummary struct {
+	ID         string         `json:"id"`
+	Slug       string         `json:"slug"`
+	Name       string         `json:"name"`
+	Summary    string         `json:"summary"`
+	Category   string         `json:"category"`
+	Tags       []string       `json:"tags"`
+	Stack      []string       `json:"stack"`
+	License    string         `json:"license"`
+	Status     string         `json:"status"`
+	Maintainer string         `json:"maintainer"`
+	UpdatedAt  string         `json:"updated_at"`
+	Metrics    projectMetrics `json:"metrics"`
+}
+
+type projectMetrics struct {
+	Downloads int `json:"downloads"`
+	Stars     int `json:"stars"`
+	Comments  int `json:"comments"`
+}
+
+type pagination struct {
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
+}
+
+type projectListResponse struct {
+	Data       []projectSummary `json:"data"`
+	Pagination pagination       `json:"pagination"`
+	RequestID  string           `json:"request_id"`
+}
+
+var seedProjects = []projectSummary{
+	{
+		ID:         "atlas",
+		Slug:       "atlas-agent",
+		Name:       "Atlas Agent",
+		Summary:    "面向复杂任务的多 Agent 协作运行时",
+		Category:   "Multi-Agent",
+		Tags:       []string{"多智能体", "工作流", "可观测"},
+		Stack:      []string{"Python", "LangGraph", "OpenAI"},
+		License:    "Apache-2.0",
+		Status:     "活跃维护",
+		Maintainer: "北岛实验室",
+		UpdatedAt:  "2026-07-26T12:00:00Z",
+		Metrics:    projectMetrics{Downloads: 12800, Stars: 2400, Comments: 18},
+	},
+	{
+		ID:         "paperclip",
+		Slug:       "paperclip-rag",
+		Name:       "Paperclip RAG",
+		Summary:    "为团队知识库设计的轻量 RAG Agent",
+		Category:   "RAG Agent",
+		Tags:       []string{"知识库", "引用回答", "中文"},
+		Stack:      []string{"TypeScript", "LlamaIndex", "Elasticsearch"},
+		License:    "MIT",
+		Status:     "生产可用",
+		Maintainer: "Paperclip",
+		UpdatedAt:  "2026-07-25T08:30:00Z",
+		Metrics:    projectMetrics{Downloads: 8100, Stars: 1800, Comments: 12},
+	},
+	{
+		ID:         "forge",
+		Slug:       "forge-runner",
+		Name:       "Forge Runner",
+		Summary:    "让 Coding Agent 安全执行真实工程任务",
+		Category:   "Coding Agent",
+		Tags:       []string{"代码 Agent", "沙箱", "工具调用"},
+		Stack:      []string{"Go", "React", "Docker"},
+		License:    "MIT",
+		Status:     "实验项目",
+		Maintainer: "Forge Team",
+		UpdatedAt:  "2026-07-23T09:15:00Z",
+		Metrics:    projectMetrics{Downloads: 5600, Stars: 960, Comments: 9},
+	},
+	{
+		ID:         "relay",
+		Slug:       "relay-mcp",
+		Name:       "Relay MCP",
+		Summary:    "面向工具调用的 MCP 服务编排层",
+		Category:   "Agent Framework",
+		Tags:       []string{"MCP", "工具调用", "服务治理"},
+		Stack:      []string{"Go", "MCP", "Redis"},
+		License:    "Apache-2.0",
+		Status:     "活跃维护",
+		Maintainer: "Relay Open",
+		UpdatedAt:  "2026-07-19T10:00:00Z",
+		Metrics:    projectMetrics{Downloads: 4200, Stars: 742, Comments: 7},
+	},
+}
+
+func projectListHandler(writer http.ResponseWriter, request *http.Request) {
+	page, ok := positiveQueryInteger(request, writer, "page", 1, 1, 1_000_000)
+	if !ok {
+		return
+	}
+	pageSize, ok := positiveQueryInteger(request, writer, "page_size", defaultProjectPageSize, 1, maxProjectPageSize)
+	if !ok {
+		return
+	}
+
+	query := strings.TrimSpace(request.URL.Query().Get("q"))
+	if len([]rune(query)) > 100 {
+		writeAPIError(writer, request, http.StatusBadRequest, "invalid_query", "搜索关键词不能超过 100 个字符")
+		return
+	}
+	category := strings.TrimSpace(request.URL.Query().Get("category"))
+	sortBy := strings.TrimSpace(request.URL.Query().Get("sort"))
+	if sortBy == "" {
+		sortBy = "updated"
+	}
+	if sortBy != "updated" && sortBy != "downloads" && sortBy != "stars" {
+		writeAPIError(writer, request, http.StatusBadRequest, "invalid_query", "sort 仅支持 updated、downloads 或 stars")
+		return
+	}
+
+	filtered := filterProjects(seedProjects, query, category)
+	sortProjects(filtered, sortBy)
+
+	total := len(filtered)
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := min(start+pageSize, total)
+
+	writeJSON(writer, http.StatusOK, projectListResponse{
+		Data: filtered[start:end],
+		Pagination: pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+		RequestID: requestIDFromContext(request.Context()),
+	})
+}
+
+func positiveQueryInteger(request *http.Request, writer http.ResponseWriter, name string, fallback, minimum, maximum int) (int, bool) {
+	rawValue := strings.TrimSpace(request.URL.Query().Get(name))
+	if rawValue == "" {
+		return fallback, true
+	}
+
+	value, err := strconv.Atoi(rawValue)
+	if err != nil || value < minimum || value > maximum {
+		writeAPIError(writer, request, http.StatusBadRequest, "invalid_query",
+			name+" 必须是 "+strconv.Itoa(minimum)+" 到 "+strconv.Itoa(maximum)+" 之间的整数")
+		return 0, false
+	}
+	return value, true
+}
+
+func filterProjects(projects []projectSummary, query, category string) []projectSummary {
+	normalizedQuery := strings.ToLower(query)
+	filtered := make([]projectSummary, 0, len(projects))
+
+	for _, project := range projects {
+		if category != "" && !strings.EqualFold(project.Category, category) {
+			continue
+		}
+		haystack := strings.ToLower(strings.Join([]string{
+			project.Name,
+			project.Summary,
+			project.Category,
+			strings.Join(project.Tags, " "),
+			strings.Join(project.Stack, " "),
+		}, " "))
+		if normalizedQuery != "" && !strings.Contains(haystack, normalizedQuery) {
+			continue
+		}
+		filtered = append(filtered, project)
+	}
+	return filtered
+}
+
+func sortProjects(projects []projectSummary, sortBy string) {
+	sort.SliceStable(projects, func(left, right int) bool {
+		switch sortBy {
+		case "downloads":
+			return projects[left].Metrics.Downloads > projects[right].Metrics.Downloads
+		case "stars":
+			return projects[left].Metrics.Stars > projects[right].Metrics.Stars
+		default:
+			return projects[left].UpdatedAt > projects[right].UpdatedAt
+		}
+	})
+}

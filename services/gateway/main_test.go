@@ -164,7 +164,7 @@ func TestAPIVersionEntry(t *testing.T) {
 func TestUnknownVersionedRoute(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)
 	response := httptest.NewRecorder()
 
 	newHandler().ServeHTTP(response, request)
@@ -253,5 +253,96 @@ func TestCORSRejectsUnknownPreflightOrigin(t *testing.T) {
 	}
 	if body.Error.Code != "origin_not_allowed" {
 		t.Fatalf("unexpected response: %#v", body)
+	}
+}
+
+func TestProjectListDefaults(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
+	}
+
+	var body projectListResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data) != 4 || body.Pagination.Total != 4 || body.Pagination.Page != 1 {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+	if body.RequestID == "" {
+		t.Fatal("expected request ID")
+	}
+}
+
+func TestProjectListFiltersAndPaginates(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects?q=Agent&category=RAG%20Agent&page_size=1", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	var body projectListResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data) != 1 || body.Data[0].ID != "paperclip" {
+		t.Fatalf("unexpected projects: %#v", body.Data)
+	}
+	if body.Pagination.Total != 1 || body.Pagination.TotalPages != 1 {
+		t.Fatalf("unexpected pagination: %#v", body.Pagination)
+	}
+}
+
+func TestProjectListSortsByStars(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects?sort=stars&page_size=2", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	var body projectListResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data) != 2 || body.Data[0].ID != "atlas" || body.Data[1].ID != "paperclip" {
+		t.Fatalf("unexpected order: %#v", body.Data)
+	}
+}
+
+func TestProjectListRejectsInvalidQuery(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"/api/v1/projects?page=0",
+		"/api/v1/projects?page_size=51",
+		"/api/v1/projects?sort=unknown",
+	} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			response := httptest.NewRecorder()
+			newHandler().ServeHTTP(response, request)
+
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d", http.StatusBadRequest, response.Code)
+			}
+			var body errorResponse
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Error.Code != "invalid_query" {
+				t.Fatalf("unexpected response: %#v", body)
+			}
+		})
 	}
 }

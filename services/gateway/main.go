@@ -44,6 +44,7 @@ func newHandler() http.Handler {
 			Status:     "ok",
 		})
 	}))
+	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
 	mux.HandleFunc("/api/v1/", requireMethod(http.MethodGet, func(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, http.StatusNotFound, "route_not_found", "请求的接口不存在")
 	}))
