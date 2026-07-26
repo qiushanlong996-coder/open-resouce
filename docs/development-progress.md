@@ -757,3 +757,34 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 镜像源恢复后完成 Gateway 镜像构建并验证非 root 运行。
 2. 增加容器健康检查和 Compose 服务定义。
 3. 部署 MongoDB 8.0 并实现文档仓库。
+
+## 2026-07-27：Gateway 容器健康检查模式
+
+### 已完成
+
+- Gateway 增加 `healthcheck` 命令模式，由二进制自身请求本机 `/healthz`。
+- 健康检查固定访问容器回环地址，并跟随 `PORT` 环境变量。
+- 检查请求增加 3 秒超时，非 200 响应或连接失败时返回非零退出码。
+- Dockerfile 默认设置 `HOST=0.0.0.0`，确保发布端口能够从容器外访问。
+- scratch 镜像增加 Docker `HEALTHCHECK`，无需额外安装 curl 或 wget。
+- 健康检查使用与服务相同的非 root 二进制执行。
+
+### 验证
+
+- Go 全量测试通过。
+- 新增健康、非健康状态和自定义端口测试。
+- Linux/amd64 全量测试二进制在服务器运行通过。
+- Gateway 已原子替换并重启，systemd 状态为 `active`。
+- 服务器执行 `PORT=18080 gateway healthcheck` 返回退出码 0。
+
+### 卡点与注意事项
+
+- Docker 镜像仍因基础层下载过慢未完成最终构建；健康检查命令已在同一 Linux 二进制上验证。
+- systemd 当前继续使用外部 curl/服务状态检查；二进制健康检查主要用于 scratch 容器。
+- 本功能没有新增人工安装事项。
+
+### 下一步
+
+1. 镜像源恢复后完成容器构建和 Docker 健康状态验证。
+2. 增加 MongoDB Compose 服务和持久化卷。
+3. 实现 MongoDB 文档仓库。

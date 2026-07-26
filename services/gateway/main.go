@@ -78,7 +78,41 @@ func listenAddress() string {
 	return net.JoinHostPort(host, port)
 }
 
+func healthcheckURL() string {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = defaultPort
+	}
+	return "http://" + net.JoinHostPort("127.0.0.1", port) + "/healthz"
+}
+
+func checkHealth(ctx context.Context, url string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return errors.New("health endpoint returned " + response.Status)
+	}
+	return nil
+}
+
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := checkHealth(ctx, healthcheckURL()); err != nil {
+			slog.Error("gateway healthcheck failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	server := &http.Server{
 		Addr:              listenAddress(),
 		Handler:           newHandler(),
