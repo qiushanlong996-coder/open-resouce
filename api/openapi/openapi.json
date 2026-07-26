@@ -168,6 +168,79 @@
           }
         }
       }
+    },
+    "/api/v1/projects/{slug}/documents": {
+      "get": {
+        "summary": "获取项目文档目录",
+        "operationId": "listProjectDocuments",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目文档目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/documents/{documentSlug}": {
+      "get": {
+        "summary": "获取项目文档正文",
+        "operationId": "getProjectDocument",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "documentSlug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown 文档正文、大纲和稳定内容块",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -422,6 +495,160 @@
           }
         }
       },
+      "DocumentNode": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "title",
+          "order",
+          "children"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentNode"
+            }
+          }
+        }
+      },
+      "DocumentListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentNode"
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentOutlineItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "level"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          }
+        }
+      },
+      "DocumentBlock": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "slug",
+          "title",
+          "version",
+          "updated_at",
+          "markdown",
+          "outline",
+          "blocks"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "outline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentOutlineItem"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentBlock"
+            }
+          }
+        }
+      },
+      "DocumentDetailResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DocumentDetail"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
       "ErrorDetail": {
         "type": "object",
         "required": [
@@ -455,4 +682,3 @@
     }
   }
 }
-

@@ -420,3 +420,79 @@ func TestProjectDetailMethodNotAllowed(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", body)
 	}
 }
+
+func TestDocumentList(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects/atlas-agent/documents", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
+	}
+	var body documentListResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data) != 1 || body.Data[0].Slug != "quick-start" || body.RequestID == "" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
+
+func TestDocumentDetail(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects/atlas-agent/documents/quick-start", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
+	}
+	var body documentDetailResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.ID != "doc-atlas-quick-start" || body.Data.Markdown == "" {
+		t.Fatalf("unexpected document: %#v", body.Data)
+	}
+	if len(body.Data.Outline) != 4 || len(body.Data.Blocks) != 4 {
+		t.Fatalf("expected outline and stable blocks, got %#v", body.Data)
+	}
+}
+
+func TestDocumentErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		code string
+	}{
+		{path: "/api/v1/projects/not-found/documents", code: "project_not_found"},
+		{path: "/api/v1/projects/atlas-agent/documents/not-found", code: "document_not_found"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.path, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			response := httptest.NewRecorder()
+			newHandler().ServeHTTP(response, request)
+
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("expected status %d, got %d", http.StatusNotFound, response.Code)
+			}
+			var body errorResponse
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Error.Code != test.code {
+				t.Fatalf("expected error %q, got %#v", test.code, body)
+			}
+		})
+	}
+}

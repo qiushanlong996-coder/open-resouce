@@ -410,6 +410,42 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 
 ### 下一步
 
-1. 实现文档目录与正文只读 API。
-2. 为文档内容定义稳定的块 ID 和 Markdown 字段。
-3. 将在线文档页面从静态示例迁移到 API。
+- [x] 实现文档目录与正文只读 API。
+- [x] 为文档内容定义稳定的块 ID 和 Markdown 字段。
+- [ ] 将在线文档页面从静态示例迁移到 API。
+
+## 2026-07-26：文档目录与正文只读 API
+
+### 已完成
+
+- 新增 `GET /api/v1/projects/{slug}/documents`。
+- 新增 `GET /api/v1/projects/{slug}/documents/{documentSlug}`。
+- 文档目录节点包含稳定 ID、slug、标题、顺序和子节点。
+- 文档正文包含 Markdown、版本、更新时间和标题大纲。
+- 文档正文包含稳定内容块 ID、块类型和纯文本，用于后续选区评论锚定。
+- 为 4 个种子项目提供快速开始文档，Atlas 提供完整示例正文。
+- 同步更新 OpenAPI 路径与文档 schema。
+
+### 验证
+
+- Go 1.24.6 Linux/amd64 编译成功。
+- 文档目录、正文、项目不存在和文档不存在测试全部通过。
+- Gateway 全量测试及子测试全部通过。
+- OpenAPI 校验通过：7 个路径、16 个 schema。
+- 已部署并重启 `open-resouce-gateway`。
+- Atlas 文档目录返回 `quick-start`。
+- Atlas 正文返回 4 项大纲和 4 个稳定内容块。
+- systemd 服务状态为 `active`。
+
+### 卡点与注意事项
+
+- 当前每个项目只有一篇种子“快速开始”，后续由 MongoDB 文档树替换。
+- 稳定块 ID 一旦被评论引用，不应因普通正文编辑而变化。
+- Markdown 在进入前端渲染前仍需执行 HTML/XSS 安全策略。
+- 本功能没有新增人工安装事项。
+
+### 下一步
+
+1. 将在线文档页面从静态示例迁移到 API。
+2. 使用 `react-markdown`、GFM 和代码高亮渲染正文。
+3. 根据 API 大纲生成文档侧栏导航。

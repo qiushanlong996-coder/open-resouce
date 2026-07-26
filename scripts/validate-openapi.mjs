@@ -9,6 +9,8 @@ const requiredPaths = [
   '/api/v1',
   '/api/v1/projects',
   '/api/v1/projects/{slug}',
+  '/api/v1/projects/{slug}/documents',
+  '/api/v1/projects/{slug}/documents/{documentSlug}',
 ]
 
 if (contract.openapi !== '3.1.0') {
@@ -49,4 +51,3 @@ function validateReferences(value, location = '#') {
 
 validateReferences(contract)
 console.log(`OpenAPI contract valid: ${Object.keys(contract.paths).length} paths, ${Object.keys(schemas).length} schemas`)
-
