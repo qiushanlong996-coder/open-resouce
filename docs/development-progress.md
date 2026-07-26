@@ -581,3 +581,14 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 前端加载评论 API，并按稳定 block ID 展示。
 2. 前端发布评论和解决评论改为调用 API。
 3. 服务器公钥配置完成后部署并补记线上验证结果。
+
+### 服务器部署补记
+
+- 项目负责人已将专用部署公钥加入服务器，SSH 公钥认证验证成功。
+- Linux/amd64 全量测试二进制已上传服务器运行，全部测试通过。
+- 新 Gateway 二进制已通过 `gateway.next` 原子替换，并保留上一版本 `gateway.previous` 用于快速回退。
+- `open-resouce-gateway` 已重启，systemd 状态为 `active`。
+- 在线健康检查返回 `{"service":"gateway","status":"ok"}`。
+- 在线评论列表返回种子评论及稳定锚点 `block-atlas-collaboration`。
+- 在线发布请求使用不存在的稳定块时返回 HTTP 422 和 `block_not_found`。
+- 服务器部署阻塞已解除；后续部署统一使用 `id_ed25519_lovenuaa_deploy` 公钥认证。
