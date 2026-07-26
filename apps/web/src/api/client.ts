@@ -4,6 +4,36 @@ export type ServiceInfo = {
   status: string
 }
 
+export type ProjectSummary = {
+  id: string
+  slug: string
+  name: string
+  summary: string
+  category: string
+  tags: string[]
+  stack: string[]
+  license: string
+  status: string
+  maintainer: string
+  updated_at: string
+  metrics: {
+    downloads: number
+    stars: number
+    comments: number
+  }
+}
+
+export type ProjectListResponse = {
+  data: ProjectSummary[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+  request_id: string
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -54,3 +84,17 @@ export function getServiceInfo(signal?: AbortSignal) {
   return apiRequest<ServiceInfo>('/api/v1', { signal })
 }
 
+export function getProjects(
+  filters: { query?: string; category?: string; page?: number; pageSize?: number; sort?: 'updated' | 'downloads' | 'stars' },
+  signal?: AbortSignal,
+) {
+  const parameters = new URLSearchParams()
+  if (filters.query) parameters.set('q', filters.query)
+  if (filters.category) parameters.set('category', filters.category)
+  if (filters.page) parameters.set('page', String(filters.page))
+  if (filters.pageSize) parameters.set('page_size', String(filters.pageSize))
+  if (filters.sort) parameters.set('sort', filters.sort)
+  const queryString = parameters.toString()
+
+  return apiRequest<ProjectListResponse>(`/api/v1/projects${queryString ? `?${queryString}` : ''}`, { signal })
+}

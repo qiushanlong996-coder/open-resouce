@@ -32,7 +32,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { getServiceInfo, type ServiceInfo } from './api/client'
+import { getProjects, getServiceInfo, type ProjectSummary, type ServiceInfo } from './api/client'
 import './App.css'
 
 type Project = {
@@ -72,6 +72,7 @@ type GatewayState =
   | { status: 'checking' }
   | { status: 'online'; info: ServiceInfo }
   | { status: 'offline' }
+type CatalogState = 'checking' | 'online' | 'offline'
 
 const categories = ['全部项目', 'Multi-Agent', 'RAG Agent', 'Coding Agent', 'Workflow Agent', 'Agent Framework']
 
@@ -187,6 +188,32 @@ const codeFiles = [
   { name: 'config.example.yaml', type: 'yaml', size: '1.8 KB' },
 ]
 
+const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
+
+function mapProjectSummary(project: ProjectSummary): Project {
+  const demoProject = projects.find((item) => item.id === project.id)
+  return {
+    id: project.id,
+    name: project.name,
+    slug: project.slug,
+    summary: project.summary,
+    description: demoProject?.description ?? project.summary,
+    category: project.category,
+    tags: project.tags,
+    stack: project.stack,
+    license: project.license,
+    updated: new Date(project.updated_at).toLocaleDateString('zh-CN'),
+    downloads: compactNumber.format(project.metrics.downloads).toLowerCase(),
+    stars: compactNumber.format(project.metrics.stars).toLowerCase(),
+    comments: project.metrics.comments,
+    maintainer: project.maintainer,
+    initials: demoProject?.initials ?? project.name.slice(0, 1).toUpperCase(),
+    accent: demoProject?.accent ?? 'blue',
+    status: project.status,
+    repo: demoProject?.repo ?? '',
+  }
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('探索')
   const [activeCategory, setActiveCategory] = useState('全部项目')
@@ -211,6 +238,8 @@ function App() {
   })
   const [themePanelOpen, setThemePanelOpen] = useState(false)
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
+  const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
+  const [catalogState, setCatalogState] = useState<CatalogState>('checking')
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -230,16 +259,43 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setCatalogState('checking')
+      getProjects({
+        query: search.trim() || undefined,
+        category: activeCategory === '全部项目' ? undefined : activeCategory,
+        pageSize: 50,
+        sort: 'updated',
+      }, controller.signal)
+        .then((response) => {
+          setCatalogProjects(response.data.map(mapProjectSummary))
+          setCatalogState('online')
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          setCatalogProjects(projects)
+          setCatalogState('offline')
+        })
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [activeCategory, search])
+
   const filteredProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
-    return projects.filter((project) => {
+    return catalogProjects.filter((project) => {
       const matchesCategory = activeCategory === '全部项目' || project.category === activeCategory
       const haystack = [project.name, project.summary, project.category, ...project.tags, ...project.stack]
         .join(' ')
         .toLowerCase()
       return matchesCategory && (!normalizedSearch || haystack.includes(normalizedSearch))
     })
-  }, [activeCategory, search])
+  }, [activeCategory, catalogProjects, search])
 
   const showToast = (message: string) => {
     setToast(message)
@@ -357,6 +413,7 @@ function App() {
           onOpenProject={openProject}
           onToggleSaved={toggleSaved}
           gatewayState={gatewayState}
+          catalogState={catalogState}
         />
       )}
 
@@ -375,6 +432,7 @@ function Home({
   onOpenProject,
   onToggleSaved,
   gatewayState,
+  catalogState,
 }: {
   activeTab: string
   activeCategory: string
@@ -384,6 +442,7 @@ function Home({
   onOpenProject: (project: Project) => void
   onToggleSaved: (projectId: string) => void
   gatewayState: GatewayState
+  catalogState: CatalogState
 }) {
   return (
     <main>
@@ -428,6 +487,13 @@ function Home({
           <button className="filter-more"><Tag size={14} /> 更多筛选 <ChevronDown size={14} /></button>
         </div>
 
+        {catalogState !== 'online' && (
+          <div className={`catalog-notice ${catalogState}`}>
+            <span className="gateway-state-dot" />
+            {catalogState === 'checking' ? '正在同步项目目录…' : '当前展示演示数据，项目 API 暂时不可用。'}
+          </div>
+        )}
+
         {filteredProjects.length ? (
           <div className="project-grid">
             {filteredProjects.map((project) => <ProjectCard key={project.id} project={project} isSaved={saved.includes(project.id)} onOpen={() => onOpenProject(project)} onToggleSaved={() => onToggleSaved(project.id)} />)}
@@ -464,11 +530,12 @@ function Home({
 }
 
 function ProjectCard({ project, isSaved, onOpen, onToggleSaved }: { project: Project; isSaved: boolean; onOpen: () => void; onToggleSaved: () => void }) {
+  const projectIndex = projects.findIndex((item) => item.id === project.id)
   return (
     <article className="project-card">
       <button className={`project-cover ${project.accent}`} onClick={onOpen} aria-label={`打开 ${project.name}`}>
         <div className="cover-orbit orbit-one" /><div className="cover-orbit orbit-two" /><div className="cover-orbit orbit-three" />
-        <span className="cover-monogram">{project.name.slice(0, 1)}</span><span className="cover-index">0{projects.indexOf(project) + 1} / 04</span>
+        <span className="cover-monogram">{project.name.slice(0, 1)}</span><span className="cover-index">0{Math.max(projectIndex, 0) + 1} / 04</span>
       </button>
       <div className="project-card-body">
         <div className="card-title-row"><div><span className="project-category">{project.category}</span><h3><button onClick={onOpen}>{project.name}</button></h3></div><button className={`icon-button ${isSaved ? 'saved' : ''}`} title={isSaved ? '取消收藏' : '收藏项目'} aria-label={isSaved ? '取消收藏' : '收藏项目'} onClick={onToggleSaved}><Heart size={17} fill={isSaved ? 'currentColor' : 'none'} /></button></div>
