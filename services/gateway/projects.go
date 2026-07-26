@@ -46,6 +46,20 @@ type projectListResponse struct {
 	RequestID  string           `json:"request_id"`
 }
 
+type projectDetail struct {
+	projectSummary
+	Description    string   `json:"description"`
+	Highlights     []string `json:"highlights"`
+	UseCases       []string `json:"use_cases"`
+	Repository     string   `json:"repository"`
+	CurrentVersion string   `json:"current_version"`
+}
+
+type projectDetailResponse struct {
+	Data      projectDetail `json:"data"`
+	RequestID string        `json:"request_id"`
+}
+
 var seedProjects = []projectSummary{
 	{
 		ID:         "atlas",
@@ -105,6 +119,41 @@ var seedProjects = []projectSummary{
 	},
 }
 
+var seedProjectDetails = map[string]projectDetail{
+	"atlas-agent": {
+		projectSummary: seedProjects[0],
+		Description:    "把规划、检索、执行和复盘拆成可观察的 Agent 节点，让复杂任务保持清晰、可控、可复用。",
+		Highlights:     []string{"可观察的多 Agent 运行时", "节点级失败策略", "完整任务链路回放"},
+		UseCases:       []string{"复杂研究任务", "多工具自动化", "长流程任务编排"},
+		Repository:     "https://github.com/atlas-lab/agent",
+		CurrentVersion: "0.8.0",
+	},
+	"paperclip-rag": {
+		projectSummary: seedProjects[1],
+		Description:    "从文档清洗、切分、检索到带引用回答，提供一条适合内部知识库的可视化链路。",
+		Highlights:     []string{"回答引用可追溯", "中文文档优化", "轻量部署"},
+		UseCases:       []string{"团队知识库", "内部文档问答", "客户支持助手"},
+		Repository:     "https://github.com/paperclip-ai/rag",
+		CurrentVersion: "1.4.2",
+	},
+	"forge-runner": {
+		projectSummary: seedProjects[2],
+		Description:    "提供沙箱、工具调用、补丁预览和测试回放，让编码 Agent 的每一步都能被开发者检查。",
+		Highlights:     []string{"隔离执行沙箱", "补丁预览", "测试过程回放"},
+		UseCases:       []string{"代码维护 Agent", "自动化修复", "工程任务评测"},
+		Repository:     "https://github.com/forge-runner/core",
+		CurrentVersion: "0.6.1",
+	},
+	"relay-mcp": {
+		projectSummary: seedProjects[3],
+		Description:    "把分散的工具能力整理成可发现、可授权、可审计的服务目录，降低 Agent 接入成本。",
+		Highlights:     []string{"MCP 服务发现", "细粒度工具授权", "调用审计"},
+		UseCases:       []string{"企业工具目录", "Agent 工具治理", "多服务编排"},
+		Repository:     "https://github.com/relay-open/mcp",
+		CurrentVersion: "0.5.0",
+	},
+}
+
 func projectListHandler(writer http.ResponseWriter, request *http.Request) {
 	page, ok := positiveQueryInteger(request, writer, "page", 1, 1, 1_000_000)
 	if !ok {
@@ -152,6 +201,25 @@ func projectListHandler(writer http.ResponseWriter, request *http.Request) {
 			Total:      total,
 			TotalPages: totalPages,
 		},
+		RequestID: requestIDFromContext(request.Context()),
+	})
+}
+
+func projectDetailHandler(writer http.ResponseWriter, request *http.Request) {
+	slug := strings.TrimPrefix(request.URL.Path, "/api/v1/projects/")
+	if slug == "" || strings.Contains(slug, "/") {
+		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
+		return
+	}
+
+	project, found := seedProjectDetails[slug]
+	if !found {
+		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, projectDetailResponse{
+		Data:      project,
 		RequestID: requestIDFromContext(request.Context()),
 	})
 }

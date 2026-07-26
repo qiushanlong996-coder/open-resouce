@@ -346,3 +346,77 @@ func TestProjectListRejectsInvalidQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectDetail(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/projects/atlas-agent", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
+	}
+
+	var body projectDetailResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Slug != "atlas-agent" || body.Data.CurrentVersion != "0.8.0" {
+		t.Fatalf("unexpected project: %#v", body.Data)
+	}
+	if len(body.Data.Highlights) == 0 || len(body.Data.UseCases) == 0 || body.RequestID == "" {
+		t.Fatalf("incomplete response: %#v", body)
+	}
+}
+
+func TestProjectDetailNotFound(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"/api/v1/projects/",
+		"/api/v1/projects/not-found",
+		"/api/v1/projects/atlas-agent/extra",
+	} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			response := httptest.NewRecorder()
+			newHandler().ServeHTTP(response, request)
+
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("expected status %d, got %d", http.StatusNotFound, response.Code)
+			}
+			var body errorResponse
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Error.Code != "project_not_found" {
+				t.Fatalf("unexpected response: %#v", body)
+			}
+		})
+	}
+}
+
+func TestProjectDetailMethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/projects/atlas-agent", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, response.Code)
+	}
+	var body errorResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "method_not_allowed" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
