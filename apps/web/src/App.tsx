@@ -32,7 +32,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { getProjects, getServiceInfo, type ProjectSummary, type ServiceInfo } from './api/client'
+import { getProject, getProjects, getServiceInfo, type ProjectDetail as APIProjectDetail, type ProjectSummary, type ServiceInfo } from './api/client'
 import './App.css'
 
 type Project = {
@@ -54,6 +54,9 @@ type Project = {
   accent: string
   status: string
   repo: string
+  highlights?: string[]
+  useCases?: string[]
+  currentVersion?: string
 }
 
 type CommentItem = {
@@ -211,6 +214,20 @@ function mapProjectSummary(project: ProjectSummary): Project {
     accent: demoProject?.accent ?? 'blue',
     status: project.status,
     repo: demoProject?.repo ?? '',
+    highlights: demoProject?.highlights,
+    useCases: demoProject?.useCases,
+    currentVersion: demoProject?.currentVersion,
+  }
+}
+
+function mapProjectDetail(project: APIProjectDetail): Project {
+  return {
+    ...mapProjectSummary(project),
+    description: project.description,
+    highlights: project.highlights,
+    useCases: project.use_cases,
+    repo: project.repository,
+    currentVersion: project.current_version,
   }
 }
 
@@ -240,6 +257,7 @@ function App() {
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
   const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
   const [catalogState, setCatalogState] = useState<CatalogState>('checking')
+  const [detailState, setDetailState] = useState<CatalogState>('online')
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -305,6 +323,13 @@ function App() {
   const openProject = (project: Project) => {
     setSelectedProject(project)
     setDetailTab('文档阅读')
+    setDetailState('checking')
+    getProject(project.slug)
+      .then((response) => {
+        setSelectedProject((current) => current?.slug === project.slug ? mapProjectDetail(response.data) : current)
+        setDetailState('online')
+      })
+      .catch(() => setDetailState('offline'))
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -402,6 +427,7 @@ function App() {
           onSubmitComment={submitComment}
           onResolveComment={resolveComment}
           showToast={showToast}
+          detailState={detailState}
         />
       ) : (
         <Home
@@ -566,6 +592,7 @@ function ProjectDetail({
   onSubmitComment,
   onResolveComment,
   showToast,
+  detailState,
 }: {
   project: Project
   detailTab: string
@@ -585,16 +612,23 @@ function ProjectDetail({
   onSubmitComment: () => void
   onResolveComment: (commentId: number) => void
   showToast: (message: string) => void
+  detailState: CatalogState
 }) {
   return (
     <main className="detail-page">
       <div className="detail-topbar"><button className="back-button" onClick={onBack}><ArrowLeft size={16} /> 返回项目索引</button><span className="breadcrumb">/ {project.category} / {project.name}</span></div>
+      {detailState !== 'online' && (
+        <div className={`detail-sync-state ${detailState}`}>
+          <span className="gateway-state-dot" />
+          {detailState === 'checking' ? '正在同步项目详情…' : '详情 API 暂时不可用，当前展示缓存内容。'}
+        </div>
+      )}
       <section className="detail-intro">
         <div className={`detail-mark ${project.accent}`}><span>{project.name.slice(0, 1)}</span></div>
         <div className="detail-copy"><span className="eyebrow">{project.status} · 最后更新于 {project.updated}</span><h1>{project.name}</h1><p>{project.description}</p><div className="detail-meta"><span><CircleUserRound size={15} /> {project.maintainer}</span><span><GitBranch size={15} /> {project.repo}</span><span><Tag size={15} /> {project.license}</span></div></div>
         <div className="detail-actions"><button className={`outline-button ${isSaved ? 'is-saved' : ''}`} onClick={onToggleSaved}><Heart size={15} fill={isSaved ? 'currentColor' : 'none'} /> {isSaved ? '已收藏' : '收藏'}</button><button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button><button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button></div>
       </section>
-      <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>v0.8.2</strong><span>当前版本</span></div></div>
+      <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
       {detailTab === '文档阅读' && <DocumentView project={project} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
@@ -632,7 +666,9 @@ function CommentCard({ comment, onResolve }: { comment: CommentItem; onResolve: 
 }
 
 function OverviewView({ project, onRead }: { project: Project; onRead: () => void }) {
-  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><p>{project.description} Atlas Agent 的设计目标是让复杂任务既能自动化，也能被开发者逐步理解。</p><div className="feature-list"><div><Check size={16} /><span>可回放的任务链路</span></div><div><Check size={16} /><span>工具调用和输出可审计</span></div><div><Check size={16} /><span>支持自定义 Agent 节点</span></div></div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>RUNTIME / 0.8.2</span><span>READY</span></div><div className="overview-lines"><span>planner</span><span>retriever</span><span>executor</span><span>reviewer</span></div><div className="overview-bottom"><span>4 个核心节点</span><span>trace enabled</span></div></div></section>
+  const highlights = project.highlights ?? ['项目结构清晰', '文档公开可读', '支持快速复用']
+  const useCases = project.useCases ?? project.tags
+  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><p>{project.description}</p><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '—'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
 }
 
 function CodeView({ project, onCopy }: { project: Project; onCopy: () => void }) {

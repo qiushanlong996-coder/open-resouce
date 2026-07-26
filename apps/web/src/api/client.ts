@@ -34,6 +34,19 @@ export type ProjectListResponse = {
   request_id: string
 }
 
+export type ProjectDetail = ProjectSummary & {
+  description: string
+  highlights: string[]
+  use_cases: string[]
+  repository: string
+  current_version: string
+}
+
+export type ProjectDetailResponse = {
+  data: ProjectDetail
+  request_id: string
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -97,4 +110,8 @@ export function getProjects(
   const queryString = parameters.toString()
 
   return apiRequest<ProjectListResponse>(`/api/v1/projects${queryString ? `?${queryString}` : ''}`, { signal })
+}
+
+export function getProject(slug: string, signal?: AbortSignal) {
+  return apiRequest<ProjectDetailResponse>(`/api/v1/projects/${encodeURIComponent(slug)}`, { signal })
 }
