@@ -61,6 +61,14 @@ go test ./services/gateway
 curl http://127.0.0.1:8080/healthz
 ```
 
+本地前端需要跨域访问 Gateway 时，按逗号分隔精确配置允许来源：
+
+```text
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+未配置时不向任何跨域来源返回授权响应头。不要在生产环境使用 `*`。
+
 ## 2. 获取代码
 
 ### 2.1 使用 SSH 克隆
@@ -295,6 +303,9 @@ Gateway 仅监听项目预留的 `18080` 端口。为避免影响同机已有业
 
 ```text
 APP_ENV=local
+HOST=127.0.0.1
+PORT=8080
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 DATABASE_URL=mysql://...
 MONGO_URI=mongodb://...
 REDIS_URL=redis://...

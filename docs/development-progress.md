@@ -168,6 +168,44 @@ curl http://127.0.0.1:18080/healthz
 
 ### 下一步
 
-1. 增加安全响应头与 CORS 基础策略。
-2. 为前端准备统一 API Client 和开发代理。
+- [x] 增加安全响应头与 CORS 基础策略。
+- [ ] 为前端准备统一 API Client 和开发代理。
+- [ ] 开始项目列表只读 API 的数据契约设计。
+
+## 2026-07-26：安全响应头与 CORS
+
+### 已完成
+
+- 新增 API 安全响应头中间件。
+- 增加 CSP、Permissions Policy、Referrer Policy、`nosniff` 和禁止 iframe 嵌入策略。
+- 新增基于 `CORS_ALLOWED_ORIGINS` 的精确来源白名单。
+- 支持逗号分隔配置多个前端来源。
+- 允许跨域请求携带 `Authorization`、`Content-Type` 和 `X-Request-ID`。
+- 向浏览器暴露 `X-Request-ID`，预检缓存 600 秒。
+- 未配置白名单时，跨域预检统一返回 `origin_not_allowed` JSON 错误。
+
+### 验证
+
+- Go 1.24.6 Linux/amd64 编译成功。
+- 更新后的 13 组测试及子测试全部通过。
+- 已部署并重启 `open-resouce-gateway`。
+- `/api/v1` 响应包含全部预期安全响应头。
+- 未授权来源 `https://untrusted.example` 的 OPTIONS 预检返回 HTTP 403。
+
+### 配置与注意事项
+
+- 本地前端联调时设置：
+
+```text
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+- 生产环境必须填写准确域名，不使用 `*`。
+- 服务器当前未配置允许来源，因为 Gateway 尚未通过 Nginx 暴露，不影响现有服务。
+- 本功能没有新增人工安装事项。
+
+### 下一步
+
+1. 为前端准备统一 API Client 和开发代理。
+2. 在页面展示 Gateway 连通状态。
 3. 开始项目列表只读 API 的数据契约设计。

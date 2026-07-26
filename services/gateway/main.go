@@ -52,7 +52,10 @@ func newHandler() http.Handler {
 	})
 
 	logger := slog.Default()
-	return requestIDMiddleware(accessLogMiddleware(logger, mux))
+	handler := corsMiddleware(allowedOriginsFromEnvironment(), mux)
+	handler = accessLogMiddleware(logger, handler)
+	handler = securityHeadersMiddleware(handler)
+	return requestIDMiddleware(handler)
 }
 
 func listenAddress() string {

@@ -181,3 +181,77 @@ func TestUnknownVersionedRoute(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", body)
 	}
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	response := httptest.NewRecorder()
+
+	newHandler().ServeHTTP(response, request)
+
+	expectedHeaders := map[string]string{
+		"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+		"Permissions-Policy":      "camera=(), geolocation=(), microphone=()",
+		"Referrer-Policy":         "strict-origin-when-cross-origin",
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
+	}
+	for header, expected := range expectedHeaders {
+		if actual := response.Header().Get(header); actual != expected {
+			t.Errorf("expected %s header %q, got %q", header, expected, actual)
+		}
+	}
+}
+
+func TestCORSPreflight(t *testing.T) {
+	t.Parallel()
+
+	handler := requestIDMiddleware(corsMiddleware(map[string]struct{}{
+		"http://127.0.0.1:5173": {},
+	}, http.NotFoundHandler()))
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1", nil)
+	request.Header.Set("Origin", "http://127.0.0.1:5173")
+	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, response.Code)
+	}
+	if origin := response.Header().Get("Access-Control-Allow-Origin"); origin != "http://127.0.0.1:5173" {
+		t.Fatalf("unexpected allowed origin: %q", origin)
+	}
+	if vary := response.Header().Get("Vary"); vary != "Origin" {
+		t.Fatalf("expected Vary Origin, got %q", vary)
+	}
+}
+
+func TestCORSRejectsUnknownPreflightOrigin(t *testing.T) {
+	t.Parallel()
+
+	handler := requestIDMiddleware(corsMiddleware(map[string]struct{}{
+		"http://127.0.0.1:5173": {},
+	}, http.NotFoundHandler()))
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1", nil)
+	request.Header.Set("Origin", "https://untrusted.example")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, response.Code)
+	}
+	if allowedOrigin := response.Header().Get("Access-Control-Allow-Origin"); allowedOrigin != "" {
+		t.Fatalf("expected no allowed origin, got %q", allowedOrigin)
+	}
+
+	var body errorResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "origin_not_allowed" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
