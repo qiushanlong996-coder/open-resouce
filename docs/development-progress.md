@@ -545,3 +545,39 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 将文档评论与稳定内容块 ID 关联。
 2. 设计评论只读与写入 API。
 3. 增加评论加载、发布和解决状态。
+
+## 2026-07-26：文档评论读写 API
+
+### 已完成
+
+- 新增 `GET /api/v1/projects/{slug}/documents/{documentSlug}/comments`。
+- 新增 `POST /api/v1/projects/{slug}/documents/{documentSlug}/comments`。
+- 新增 `PATCH /api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}`。
+- 评论数据包含文档 ID、稳定块 ID、作者、引用、正文、状态和时间字段。
+- 发布评论时校验稳定 block ID 必须属于当前文档，防止评论锚点漂移到其他正文。
+- 增加作者、引用和正文长度限制，并拒绝未知 JSON 字段和多段 JSON。
+- 解决评论接口为幂等操作，仅允许将状态更新为 `resolved`。
+- 内存评论仓库增加读写锁，保证并发请求安全。
+- CORS 预检允许方法扩展为 `GET, POST, PATCH, OPTIONS`。
+- OpenAPI 同步增加评论路径、请求和响应 schema。
+
+### 验证
+
+- Go 全量测试通过。
+- 评论列表、发布、稳定块校验、解决状态、错误方法、错误正文和评论不存在用例通过。
+- Linux/amd64 测试二进制交叉编译成功。
+- OpenAPI 校验通过：9 个路径、21 个 schema。
+
+### 卡点与注意事项
+
+- 阻塞部署但不阻塞开发：当前终端安全策略禁止将服务器密码注入自动部署进程，服务器又尚未接受本机公钥，因此本次 Gateway 代码暂未部署。
+- 已生成专用服务器部署公钥 `id_ed25519_lovenuaa_deploy`，等待项目负责人追加到服务器 `/root/.ssh/authorized_keys`；完成后立即补做服务器全量测试、原子替换、systemd 重启和在线接口验证。
+- 当前评论仓库是进程内存数据，服务重启后新增评论会丢失；仅用于冻结 API 契约，接入 MongoDB 后保持字段兼容。
+- 写接口尚未接入身份认证，当前作者来自请求正文；生产开放前必须接入登录身份并忽略客户端伪造作者。
+- 本功能没有新增必须手工安装的软件。
+
+### 下一步
+
+1. 前端加载评论 API，并按稳定 block ID 展示。
+2. 前端发布评论和解决评论改为调用 API。
+3. 服务器公钥配置完成后部署并补记线上验证结果。

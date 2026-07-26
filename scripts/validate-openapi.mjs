@@ -11,6 +11,7 @@ const requiredPaths = [
   '/api/v1/projects/{slug}',
   '/api/v1/projects/{slug}/documents',
   '/api/v1/projects/{slug}/documents/{documentSlug}',
+  '/api/v1/projects/{slug}/documents/{documentSlug}/comments',
 ]
 
 if (contract.openapi !== '3.1.0') {
@@ -20,6 +21,17 @@ if (contract.openapi !== '3.1.0') {
 for (const path of requiredPaths) {
   if (!contract.paths?.[path]?.get?.responses?.['200']) {
     throw new Error(`missing GET 200 response for ${path}`)
+  }
+}
+
+const requiredOperations = [
+  ['post', '/api/v1/projects/{slug}/documents/{documentSlug}/comments', '201'],
+  ['patch', '/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}', '200'],
+]
+
+for (const [method, path, status] of requiredOperations) {
+  if (!contract.paths?.[path]?.[method]?.responses?.[status]) {
+    throw new Error(`missing ${method.toUpperCase()} ${status} response for ${path}`)
   }
 }
 

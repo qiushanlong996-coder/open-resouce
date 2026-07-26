@@ -241,6 +241,70 @@
           }
         }
       }
+    },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments": {
+      "get": {
+        "summary": "获取文档评论",
+        "operationId": "listDocumentComments",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "文档评论列表",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentListResponse" } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "summary": "发布文档评论",
+        "operationId": "createDocumentComment",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommentRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "评论已发布",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": {
+            "description": "评论字段或稳定块锚点无效",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}": {
+      "patch": {
+        "summary": "解决文档评论",
+        "operationId": "resolveDocumentComment",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCommentRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "评论已解决",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -647,6 +711,56 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "DocumentComment": {
+        "type": "object",
+        "required": ["id", "document_id", "block_id", "author", "quote", "body", "status", "created_at", "resolved_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "document_id": { "type": "string" },
+          "block_id": { "type": "string" },
+          "author": { "type": "string" },
+          "quote": { "type": "string" },
+          "body": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "resolved"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "resolved_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "CommentListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentComment" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CommentResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/DocumentComment" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CreateCommentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "author", "body"],
+        "properties": {
+          "block_id": { "type": "string", "minLength": 1 },
+          "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "quote": { "type": "string", "maxLength": 500 },
+          "body": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      },
+      "UpdateCommentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["resolved"] }
         }
       },
       "ErrorDetail": {

@@ -45,6 +45,8 @@ func newHandler() http.Handler {
 		})
 	}))
 	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}", documentCommentHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments", documentCommentsHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents", requireMethod(http.MethodGet, documentListHandler))
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}", requireMethod(http.MethodGet, documentDetailHandler))
 	mux.HandleFunc("/api/v1/projects/", requireMethod(http.MethodGet, projectDetailHandler))

@@ -104,7 +104,7 @@ func corsMiddleware(allowedOrigins map[string]struct{}, next http.Handler) http.
 		}
 
 		writer.Header().Set("Access-Control-Allow-Origin", origin)
-		writer.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 		writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
 		writer.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		writer.Header().Set("Access-Control-Max-Age", "600")

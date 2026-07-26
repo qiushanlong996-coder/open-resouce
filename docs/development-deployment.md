@@ -57,6 +57,9 @@ GET /api/v1/projects
 GET /api/v1/projects/{slug}
 GET /api/v1/projects/{slug}/documents
 GET /api/v1/projects/{slug}/documents/{documentSlug}
+GET /api/v1/projects/{slug}/documents/{documentSlug}/comments
+POST /api/v1/projects/{slug}/documents/{documentSlug}/comments
+PATCH /api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}
 ```
 
 项目列表支持 `page`、`page_size`、`q`、`category` 和 `sort` 查询参数。
