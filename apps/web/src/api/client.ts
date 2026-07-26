@@ -89,6 +89,28 @@ export type DocumentDetailResponse = {
   request_id: string
 }
 
+export type DocumentComment = {
+  id: string
+  document_id: string
+  block_id: string
+  author: string
+  quote: string
+  body: string
+  status: 'open' | 'resolved'
+  created_at: string
+  resolved_at: string | null
+}
+
+export type CommentListResponse = {
+  data: DocumentComment[]
+  request_id: string
+}
+
+export type CommentResponse = {
+  data: DocumentComment
+  request_id: string
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -166,5 +188,30 @@ export function getDocument(projectSlug: string, documentSlug: string, signal?: 
   return apiRequest<DocumentDetailResponse>(
     `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}`,
     { signal },
+  )
+}
+
+export function getDocumentComments(projectSlug: string, documentSlug: string, signal?: AbortSignal) {
+  return apiRequest<CommentListResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments`,
+    { signal },
+  )
+}
+
+export function createDocumentComment(
+  projectSlug: string,
+  documentSlug: string,
+  input: { block_id: string; author: string; quote: string; body: string },
+) {
+  return apiRequest<CommentResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
+  )
+}
+
+export function resolveDocumentComment(projectSlug: string, documentSlug: string, commentID: string) {
+  return apiRequest<CommentResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'resolved' }) },
   )
 }

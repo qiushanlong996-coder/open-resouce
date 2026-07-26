@@ -36,11 +36,15 @@ import {
   X,
 } from 'lucide-react'
 import {
+  createDocumentComment,
   getDocument,
+  getDocumentComments,
   getDocuments,
   getProject,
   getProjects,
   getServiceInfo,
+  resolveDocumentComment,
+  type DocumentComment as APIDocumentComment,
   type DocumentDetail,
   type DocumentNode,
   type ProjectDetail as APIProjectDetail,
@@ -74,7 +78,8 @@ type Project = {
 }
 
 type CommentItem = {
-  id: number
+  id: string
+  blockId: string
   user: string
   initials: string
   time: string
@@ -178,7 +183,8 @@ const projects: Project[] = [
 
 const initialComments: CommentItem[] = [
   {
-    id: 1,
+    id: 'demo-comment-1',
+    blockId: 'block-atlas-collaboration',
     user: '林默',
     initials: '林',
     time: '18 分钟前',
@@ -187,7 +193,8 @@ const initialComments: CommentItem[] = [
     status: 'open',
   },
   {
-    id: 2,
+    id: 'demo-comment-2',
+    blockId: 'block-atlas-task',
     user: '苏打',
     initials: '苏',
     time: '昨天',
@@ -245,6 +252,19 @@ function mapProjectDetail(project: APIProjectDetail): Project {
   }
 }
 
+function mapDocumentComment(comment: APIDocumentComment): CommentItem {
+  return {
+    id: comment.id,
+    blockId: comment.block_id,
+    user: comment.author,
+    initials: comment.author.slice(0, 1),
+    time: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(comment.created_at)),
+    quote: comment.quote,
+    text: comment.body,
+    status: comment.status,
+  }
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('探索')
   const [activeCategory, setActiveCategory] = useState('全部项目')
@@ -256,6 +276,7 @@ function App() {
   const [draftComment, setDraftComment] = useState('')
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [selectedQuote, setSelectedQuote] = useState('每个节点都需要声明输入、输出和失败策略。')
+  const [selectedBlockID, setSelectedBlockID] = useState('block-atlas-collaboration')
   const [toast, setToast] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -322,6 +343,19 @@ function App() {
       controller.abort()
     }
   }, [activeCategory, search])
+
+  useEffect(() => {
+    if (!selectedProject || !activeDocument) return
+    setSelectedBlockID(activeDocument.blocks[0]?.id ?? '')
+    const controller = new AbortController()
+    getDocumentComments(selectedProject.slug, activeDocument.slug, controller.signal)
+      .then((response) => setComments(response.data.map(mapDocumentComment)))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        showToast('评论 API 暂时不可用，当前展示缓存评论')
+      })
+    return () => controller.abort()
+  }, [activeDocument, selectedProject])
 
   const filteredProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -402,32 +436,39 @@ function App() {
     const selection = window.getSelection()?.toString().trim()
     if (selection) {
       setSelectedQuote(selection)
+      const block = activeDocument?.blocks.find((item) => item.text.includes(selection) || selection.includes(item.text))
+      if (block) setSelectedBlockID(block.id)
       setCommentComposerOpen(true)
     }
   }
 
-  const submitComment = () => {
-    if (!draftComment.trim()) return
-    setComments((current) => [
-      {
-        id: Date.now(),
-        user: '我',
-        initials: '我',
-        time: '刚刚',
+  const submitComment = async () => {
+    if (!draftComment.trim() || !selectedProject || !activeDocument) return
+    try {
+      const response = await createDocumentComment(selectedProject.slug, activeDocument.slug, {
+        block_id: selectedBlockID,
+        author: '我',
         quote: selectedQuote,
-        text: draftComment.trim(),
-        status: 'open',
-      },
-      ...current,
-    ])
-    setDraftComment('')
-    setCommentComposerOpen(false)
-    showToast('评论已发布，已同步到当前文档')
+        body: draftComment.trim(),
+      })
+      setComments((current) => [mapDocumentComment(response.data), ...current])
+      setDraftComment('')
+      setCommentComposerOpen(false)
+      showToast('评论已发布，已同步到当前文档')
+    } catch {
+      showToast('评论发布失败，请稍后重试')
+    }
   }
 
-  const resolveComment = (commentId: number) => {
-    setComments((current) => current.map((comment) => (comment.id === commentId ? { ...comment, status: 'resolved' } : comment)))
-    showToast('评论已标记为已解决')
+  const resolveComment = async (commentId: string) => {
+    if (!selectedProject || !activeDocument) return
+    try {
+      const response = await resolveDocumentComment(selectedProject.slug, activeDocument.slug, commentId)
+      setComments((current) => current.map((comment) => (comment.id === commentId ? mapDocumentComment(response.data) : comment)))
+      showToast('评论已标记为已解决')
+    } catch {
+      showToast('评论状态更新失败，请稍后重试')
+    }
   }
 
   return (
@@ -678,7 +719,7 @@ function ProjectDetail({
   setDraftComment: (value: string) => void
   onSelection: () => void
   onSubmitComment: () => void
-  onResolveComment: (commentId: number) => void
+  onResolveComment: (commentId: string) => void
   showToast: (message: string) => void
   detailState: CatalogState
   documentState: CatalogState
@@ -711,7 +752,7 @@ function ProjectDetail({
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void; showToast: (message: string) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
     const title = Array.isArray(children) ? children.join('') : String(children ?? '')
     return activeDocument?.outline.find((item) => item.title === title)?.id
