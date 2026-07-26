@@ -703,7 +703,7 @@ function ProjectDetail({
       <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
-      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
+      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} showToast={showToast} />}
       {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
       {detailTab === '下载资源' && <DownloadView onDownload={onDownload} />}
       {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
@@ -711,7 +711,7 @@ function ProjectDetail({
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
     const title = Array.isArray(children) ? children.join('') : String(children ?? '')
     return activeDocument?.outline.find((item) => item.title === title)?.id
@@ -724,12 +724,27 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
       {node.children.length > 0 && renderDocumentNodes(node.children, depth + 1)}
     </div>
   ))
+  const copyDocumentLink = async () => {
+    if (!activeDocument) return
+    const anchor = activeDocument.outline[0]?.id
+    const url = new URL(window.location.href)
+    url.hash = anchor ? `#${anchor}` : ''
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      showToast('文档链接已复制')
+    } catch {
+      showToast('浏览器未允许复制，请手动复制地址栏链接')
+    }
+  }
+  const markdownDownloadURL = activeDocument
+    ? `data:text/markdown;charset=utf-8,${encodeURIComponent(activeDocument.markdown)}`
+    : undefined
 
   return (
     <section className="doc-workspace">
       <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <button className="tree-item active"><FileText size={15} /> 快速开始</button>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">{activeDocument ? `${activeDocument.slug.toUpperCase()} / 01` : 'QUICK START / 01'}</span><div><button className="tool-button" title="复制标题链接"><Copy size={14} /> 链接</button><button className="tool-button" title="下载 Markdown"><Download size={14} /> 下载</button></div></div>
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? `${activeDocument.slug.toUpperCase()} / 01` : 'QUICK START / 01'}</span><div><button className="tool-button" title="复制标题链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
         {documentState !== 'online' && <div className={`document-sync-state ${documentState}`}><span className="gateway-state-dot" />{documentState === 'checking' ? '正在加载在线文档…' : '文档 API 暂时不可用，当前展示缓存内容。'}</div>}
         <div className="article-content">
           {activeDocument ? (
