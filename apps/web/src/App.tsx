@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -17,13 +17,17 @@ import {
   Heart,
   Menu,
   MessageSquare,
+  MonitorCog,
+  Moon,
   MoreHorizontal,
+  Palette,
   Play,
   Search,
   Send,
   Share2,
   Sparkles,
   Star,
+  Sun,
   Tag,
   Upload,
   X,
@@ -60,6 +64,9 @@ type CommentItem = {
   text: string
   status: 'open' | 'resolved'
 }
+
+type ThemeMode = 'light' | 'dark' | 'system'
+type Skin = 'ocean' | 'violet' | 'mint'
 
 const categories = ['全部项目', 'Multi-Agent', 'RAG Agent', 'Coding Agent', 'Workflow Agent', 'Agent Framework']
 
@@ -189,6 +196,22 @@ function App() {
   const [toast, setToast] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const stored = window.localStorage.getItem('xinyuan-theme-mode')
+    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+  })
+  const [skin, setSkin] = useState<Skin>(() => {
+    const stored = window.localStorage.getItem('xinyuan-skin')
+    return stored === 'ocean' || stored === 'violet' || stored === 'mint' ? stored : 'ocean'
+  })
+  const [themePanelOpen, setThemePanelOpen] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.dataset.themeMode = themeMode
+    document.documentElement.dataset.skin = skin
+    window.localStorage.setItem('xinyuan-theme-mode', themeMode)
+    window.localStorage.setItem('xinyuan-skin', skin)
+  }, [themeMode, skin])
 
   const filteredProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -250,7 +273,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme-mode={themeMode} data-skin={skin}>
       <header className="site-header">
         <button className="brand" onClick={() => setSelectedProject(null)} aria-label="返回首页">
           <span className="brand-mark">新</span>
@@ -274,6 +297,12 @@ function App() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索项目、文档或技术栈" />
             <kbd>⌘ K</kbd>
           </label>
+          <div className="theme-control">
+            <button className="icon-button quiet" title="切换主题" aria-label="切换主题" aria-expanded={themePanelOpen} onClick={() => setThemePanelOpen((open) => !open)}>
+              {themeMode === 'dark' ? <Moon size={18} /> : themeMode === 'light' ? <Sun size={18} /> : <MonitorCog size={18} />}
+            </button>
+            {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); setThemePanelOpen(false) }} onSkinChange={setSkin} />}
+          </div>
           <button className="icon-button quiet" title="通知" aria-label="通知" onClick={() => showToast('暂时没有新的通知')}><Bell size={18} /></button>
           <button className="login-button" onClick={() => setLoginOpen(true)}><CircleUserRound size={16} /> 登录</button>
           <button className="icon-button mobile-only" title="打开菜单" aria-label="打开菜单" onClick={() => setMobileMenuOpen((open) => !open)}><Menu size={19} /></button>
@@ -514,6 +543,33 @@ function CodeView({ project, onCopy }: { project: Project; onCopy: () => void })
 
 function DownloadView({ onDownload }: { onDownload: () => void }) {
   return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES / 04</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p><button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button></div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>atlas-agent-v0.8.2.tar.gz</strong><small>代码包 · 2.8 MB · MIT</small></div><span>v0.8.2</span><button className="icon-button" title="下载代码包" aria-label="下载代码包" onClick={onDownload}><Download size={16} /></button></div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档.pdf</strong><small>文档 · 1.2 MB · 更新于昨天</small></div><span>PDF</span><button className="icon-button" title="下载文档" aria-label="下载文档" onClick={onDownload}><Download size={16} /></button></div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链 · 06:42</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
+}
+
+function ThemePanel({ themeMode, skin, onModeChange, onSkinChange }: { themeMode: ThemeMode; skin: Skin; onModeChange: (mode: ThemeMode) => void; onSkinChange: (nextSkin: Skin) => void }) {
+  const modes: { id: ThemeMode; label: string; icon: ReactNode }[] = [
+    { id: 'light', label: '浅色', icon: <Sun size={15} /> },
+    { id: 'dark', label: '深色', icon: <Moon size={15} /> },
+    { id: 'system', label: '跟随系统', icon: <MonitorCog size={15} /> },
+  ]
+  const skins: { id: Skin; label: string; color: string }[] = [
+    { id: 'ocean', label: '海蓝', color: '#0066cc' },
+    { id: 'violet', label: '暮紫', color: '#7259c8' },
+    { id: 'mint', label: '薄荷', color: '#16846a' },
+  ]
+
+  return (
+    <div className="theme-popover" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="theme-popover-heading"><span><Palette size={15} /> 外观</span><small>偏好设置</small></div>
+      <div className="theme-mode-list">
+        {modes.map((mode) => <button key={mode.id} className={themeMode === mode.id ? 'selected' : ''} onClick={() => onModeChange(mode.id)}>{mode.icon}<span>{mode.label}</span>{themeMode === mode.id && <Check size={14} />}</button>)}
+      </div>
+      <div className="theme-popover-divider" />
+      <span className="theme-section-label">主题色</span>
+      <div className="skin-list">
+        {skins.map((item) => <button key={item.id} className={skin === item.id ? 'selected' : ''} onClick={() => onSkinChange(item.id)}><span className="skin-swatch" style={{ background: item.color }} /><span>{item.label}</span>{skin === item.id && <Check size={14} />}</button>)}
+      </div>
+    </div>
+  )
 }
 
 function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
