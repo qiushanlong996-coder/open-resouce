@@ -280,6 +280,9 @@ function App() {
   const [detailTab, setDetailTab] = useState('文档阅读')
   const [saved, setSaved] = useState<string[]>([])
   const [comments, setComments] = useState(initialComments)
+  const [commentsState, setCommentsState] = useState<CatalogState>('online')
+  const [commentSubmitting, setCommentSubmitting] = useState(false)
+  const [resolvingCommentID, setResolvingCommentID] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState('')
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [selectedQuote, setSelectedQuote] = useState('每个节点都需要声明输入、输出和失败策略。')
@@ -354,11 +357,16 @@ function App() {
   useEffect(() => {
     if (!selectedProject || !activeDocument) return
     setSelectedBlockID(activeDocument.blocks[0]?.id ?? '')
+    setCommentsState('checking')
     const controller = new AbortController()
     getDocumentComments(selectedProject.slug, activeDocument.slug, controller.signal)
-      .then((response) => setComments(response.data.map(mapDocumentComment)))
+      .then((response) => {
+        setComments(response.data.map(mapDocumentComment))
+        setCommentsState('online')
+      })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
+        setCommentsState('offline')
         showToast('评论 API 暂时不可用，当前展示缓存评论')
       })
     return () => controller.abort()
@@ -457,6 +465,7 @@ function App() {
 
   const submitComment = async () => {
     if (!draftComment.trim() || !selectedProject || !activeDocument) return
+    setCommentSubmitting(true)
     try {
       const response = await createDocumentComment(selectedProject.slug, activeDocument.slug, {
         block_id: selectedBlockID,
@@ -470,17 +479,22 @@ function App() {
       showToast('评论已发布，已同步到当前文档')
     } catch {
       showToast('评论发布失败，请稍后重试')
+    } finally {
+      setCommentSubmitting(false)
     }
   }
 
   const resolveComment = async (commentId: string) => {
     if (!selectedProject || !activeDocument) return
+    setResolvingCommentID(commentId)
     try {
       const response = await resolveDocumentComment(selectedProject.slug, activeDocument.slug, commentId)
       setComments((current) => current.map((comment) => (comment.id === commentId ? mapDocumentComment(response.data) : comment)))
       showToast('评论已标记为已解决')
     } catch {
       showToast('评论状态更新失败，请稍后重试')
+    } finally {
+      setResolvingCommentID(null)
     }
   }
 
@@ -546,6 +560,9 @@ function App() {
           documentTree={documentTree}
           activeDocument={activeDocument}
           onOpenDocument={openDocument}
+          commentsState={commentsState}
+          commentSubmitting={commentSubmitting}
+          resolvingCommentID={resolvingCommentID}
         />
       ) : (
         <Home
@@ -715,6 +732,9 @@ function ProjectDetail({
   documentTree,
   activeDocument,
   onOpenDocument,
+  commentsState,
+  commentSubmitting,
+  resolvingCommentID,
 }: {
   project: Project
   detailTab: string
@@ -739,6 +759,9 @@ function ProjectDetail({
   documentTree: DocumentNode[]
   activeDocument: DocumentDetail | null
   onOpenDocument: (documentSlug: string) => void
+  commentsState: CatalogState
+  commentSubmitting: boolean
+  resolvingCommentID: string | null
 }) {
   return (
     <main className="detail-page">
@@ -757,7 +780,7 @@ function ProjectDetail({
       <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
-      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} showToast={showToast} />}
+      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} showToast={showToast} />}
       {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
       {detailTab === '下载资源' && <DownloadView onDownload={onDownload} />}
       {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
@@ -765,7 +788,7 @@ function ProjectDetail({
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; showToast: (message: string) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
     const title = reactNodeText(children)
     return activeDocument?.outline.find((item) => item.title === title)?.id
@@ -831,15 +854,15 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
             </>
           )}
         </div>
-        {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><button className="text-button" onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" onClick={onSubmitComment}><Send size={14} /> 发布评论</button></div></div>}
+        {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
-      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length}</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> 添加评论</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} onResolve={() => onResolveComment(comment.id)} />)}</div><div className="realtime-note"><span className="status-dot" /> 评论实时同步中</div></aside>
+      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length}</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} resolving={resolvingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
     </section>
   )
 }
 
-function CommentCard({ comment, onResolve }: { comment: CommentItem; onResolve: () => void }) {
-  return <article className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}><div className="comment-card-head"><span className="avatar small-avatar">{comment.initials}</span><div><strong>{comment.user}</strong><small>{comment.time}</small></div>{comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}</div><button className="comment-quote">“{comment.quote}”</button><p>{comment.text}</p>{comment.status === 'open' ? <div className="comment-actions"><button onClick={onResolve}>解决</button><button>回复</button></div> : <span className="resolved-label">已解决</span>}</article>
+function CommentCard({ comment, resolving, onResolve }: { comment: CommentItem; resolving: boolean; onResolve: () => void }) {
+  return <article className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}><div className="comment-card-head"><span className="avatar small-avatar">{comment.initials}</span><div><strong>{comment.user}</strong><small>{comment.time}</small></div>{comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}</div><button className="comment-quote">“{comment.quote}”</button><p>{comment.text}</p>{comment.status === 'open' ? <div className="comment-actions"><button disabled={resolving} onClick={onResolve}>{resolving ? '解决中…' : '解决'}</button><button disabled={resolving}>回复</button></div> : <span className="resolved-label">已解决</span>}</article>
 }
 
 function OverviewView({ project, onRead }: { project: Project; onRead: () => void }) {
