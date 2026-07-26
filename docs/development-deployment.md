@@ -93,6 +93,22 @@ docker run --rm -p 127.0.0.1:18080:8080 open-resouce-gateway:dev
 `65532:65532`。根目录 `.dockerignore` 会排除前端依赖、构建产物、文档和
 Codex 临时运行时，避免把无关文件或本地敏感数据发送到 Docker 构建上下文。
 
+### 1.5 MongoDB Compose
+
+MongoDB 配置位于 `deploy/compose/infrastructure.yml`。首次启动前：
+
+```bash
+cd deploy/compose
+cp .env.example .env
+# 修改 .env 中的 MONGO_ROOT_PASSWORD，禁止使用示例值
+docker compose -f infrastructure.yml config
+docker compose -f infrastructure.yml up -d mongodb
+docker compose -f infrastructure.yml ps
+```
+
+MongoDB 端口只绑定服务器 `127.0.0.1`，不会直接暴露到公网。`.env` 不得提交
+到 Git；生产密码应通过服务器密钥管理或受限配置文件提供。
+
 ## 2. 获取代码
 
 ### 2.1 使用 SSH 克隆

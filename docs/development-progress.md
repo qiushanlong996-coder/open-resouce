@@ -788,3 +788,38 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 镜像源恢复后完成容器构建和 Docker 健康状态验证。
 2. 增加 MongoDB Compose 服务和持久化卷。
 3. 实现 MongoDB 文档仓库。
+
+## 2026-07-27：MongoDB Compose 准备与服务器磁盘阻塞
+
+### 已完成
+
+- 新增 `deploy/compose/infrastructure.yml`，定义 MongoDB 8.0 服务。
+- MongoDB 仅绑定 `127.0.0.1`，不会直接暴露到公网。
+- 增加命名数据卷、独立后端网络、自动重启和 `mongosh` 健康检查。
+- root 用户名和密码使用必填环境变量，Compose 文件不包含生产密码。
+- 新增 `.env.example` 并明确忽略真实 `deploy/compose/.env`。
+- 开发部署文档增加配置、校验和启动命令。
+
+### 验证
+
+- 已人工检查 Compose 层级、变量表达式、回环端口、命名卷和健康检查命令。
+- 服务器 Docker Compose 版本为 v2.16.0。
+- 未启动 MongoDB，未创建生产数据卷。
+
+### 严重卡点与注意事项
+
+- 阻塞所有 Docker 和数据库部署：MongoDB 镜像层下载完成后，Docker 解压返回 `structure needs cleaning`。
+- 内核日志确认根卷 `/dev/mapper/centos-root` 的 XFS 出现 `XFS_WANT_CORRUPTED_GOTO` 元数据错误，不是普通镜像缓存问题。
+- 已停止服务器 Docker 拉取、构建和其他非必要写盘操作；Gateway 当前仍正常运行。
+- 项目负责人需要先备份重要数据，并通过控制台/KVM 进入 rescue 模式，在根卷未挂载时执行：
+  1. `xfs_repair -n /dev/mapper/centos-root`
+  2. 根据检查结果执行 `xfs_repair /dev/mapper/centos-root`
+  3. `xfs_repair -L` 仅可在普通修复因日志损坏无法继续时作为最后手段。
+- 内核同时记录 CPU 温度超过阈值并发生降频，维护窗口需要检查散热。
+- 文件系统修复并重启验证前，不得执行 MongoDB Compose、Docker pull/build 或大量服务器写盘。
+
+### 下一步
+
+1. 等待项目负责人完成 XFS 离线修复并确认服务器重启正常。
+2. 修复后复查 `dmesg`、Docker overlay2 和磁盘健康。
+3. 重新拉取 MongoDB 镜像，执行 `docker compose config` 后再启动服务。

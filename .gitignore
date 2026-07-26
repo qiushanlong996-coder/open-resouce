@@ -6,3 +6,4 @@
 .codex-gateway
 .codex-gateway.test
 .pnpm-store/
+deploy/compose/.env
