@@ -47,6 +47,48 @@ export type ProjectDetailResponse = {
   request_id: string
 }
 
+export type DocumentNode = {
+  id: string
+  slug: string
+  title: string
+  order: number
+  children: DocumentNode[]
+}
+
+export type DocumentOutlineItem = {
+  id: string
+  title: string
+  level: number
+}
+
+export type DocumentBlock = {
+  id: string
+  type: string
+  text: string
+}
+
+export type DocumentDetail = {
+  id: string
+  project_id: string
+  slug: string
+  title: string
+  version: string
+  updated_at: string
+  markdown: string
+  outline: DocumentOutlineItem[]
+  blocks: DocumentBlock[]
+}
+
+export type DocumentListResponse = {
+  data: DocumentNode[]
+  request_id: string
+}
+
+export type DocumentDetailResponse = {
+  data: DocumentDetail
+  request_id: string
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -114,4 +156,15 @@ export function getProjects(
 
 export function getProject(slug: string, signal?: AbortSignal) {
   return apiRequest<ProjectDetailResponse>(`/api/v1/projects/${encodeURIComponent(slug)}`, { signal })
+}
+
+export function getDocuments(projectSlug: string, signal?: AbortSignal) {
+  return apiRequest<DocumentListResponse>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/documents`, { signal })
+}
+
+export function getDocument(projectSlug: string, documentSlug: string, signal?: AbortSignal) {
+  return apiRequest<DocumentDetailResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}`,
+    { signal },
+  )
 }

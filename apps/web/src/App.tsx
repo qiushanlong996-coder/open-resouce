@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import rehypeHighlight from 'rehype-highlight'
+import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -32,7 +35,18 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { getProject, getProjects, getServiceInfo, type ProjectDetail as APIProjectDetail, type ProjectSummary, type ServiceInfo } from './api/client'
+import {
+  getDocument,
+  getDocuments,
+  getProject,
+  getProjects,
+  getServiceInfo,
+  type DocumentDetail,
+  type DocumentNode,
+  type ProjectDetail as APIProjectDetail,
+  type ProjectSummary,
+  type ServiceInfo,
+} from './api/client'
 import './App.css'
 
 type Project = {
@@ -258,6 +272,10 @@ function App() {
   const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
   const [catalogState, setCatalogState] = useState<CatalogState>('checking')
   const [detailState, setDetailState] = useState<CatalogState>('online')
+  const [documentState, setDocumentState] = useState<CatalogState>('online')
+  const [documentTree, setDocumentTree] = useState<DocumentNode[]>([])
+  const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null)
+  const selectedProjectSlug = useRef<string | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -320,16 +338,38 @@ function App() {
     window.setTimeout(() => setToast(''), 2400)
   }
 
+  const closeProject = () => {
+    selectedProjectSlug.current = null
+    setSelectedProject(null)
+  }
+
   const openProject = (project: Project) => {
+    selectedProjectSlug.current = project.slug
     setSelectedProject(project)
     setDetailTab('文档阅读')
     setDetailState('checking')
+    setDocumentState('checking')
+    setDocumentTree([])
+    setActiveDocument(null)
     getProject(project.slug)
       .then((response) => {
+        if (selectedProjectSlug.current !== project.slug) return
         setSelectedProject((current) => current?.slug === project.slug ? mapProjectDetail(response.data) : current)
         setDetailState('online')
       })
-      .catch(() => setDetailState('offline'))
+      .catch(() => {
+        if (selectedProjectSlug.current === project.slug) setDetailState('offline')
+      })
+    Promise.all([getDocuments(project.slug), getDocument(project.slug, 'quick-start')])
+      .then(([treeResponse, documentResponse]) => {
+        if (selectedProjectSlug.current !== project.slug) return
+        setDocumentTree(treeResponse.data)
+        setActiveDocument(documentResponse.data)
+        setDocumentState('online')
+      })
+      .catch(() => {
+        if (selectedProjectSlug.current === project.slug) setDocumentState('offline')
+      })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -373,7 +413,7 @@ function App() {
   return (
     <div className="app-shell" data-theme-mode={themeMode} data-skin={skin}>
       <header className="site-header">
-        <button className="brand" onClick={() => setSelectedProject(null)} aria-label="返回首页">
+        <button className="brand" onClick={closeProject} aria-label="返回首页">
           <span className="brand-mark">新</span>
           <span>
             <strong>新猿译码</strong>
@@ -383,7 +423,7 @@ function App() {
 
         <nav className={`main-nav ${mobileMenuOpen ? 'is-open' : ''}`}>
           {['探索', '趋势', '最新更新', '社区'].map((item) => (
-            <button key={item} className={activeTab === item ? 'active' : ''} onClick={() => { setActiveTab(item); setSelectedProject(null); setMobileMenuOpen(false) }}>
+            <button key={item} className={activeTab === item ? 'active' : ''} onClick={() => { setActiveTab(item); closeProject(); setMobileMenuOpen(false) }}>
               {item}
             </button>
           ))}
@@ -413,7 +453,7 @@ function App() {
           detailTab={detailTab}
           setDetailTab={setDetailTab}
           isSaved={saved.includes(selectedProject.id)}
-          onBack={() => setSelectedProject(null)}
+          onBack={closeProject}
           onToggleSaved={() => toggleSaved(selectedProject.id)}
           onShare={() => { navigator.clipboard?.writeText(window.location.href); showToast('项目链接已复制') }}
           onDownload={() => showToast('演示下载已开始')}
@@ -428,6 +468,9 @@ function App() {
           onResolveComment={resolveComment}
           showToast={showToast}
           detailState={detailState}
+          documentState={documentState}
+          documentTree={documentTree}
+          activeDocument={activeDocument}
         />
       ) : (
         <Home
@@ -593,6 +636,9 @@ function ProjectDetail({
   onResolveComment,
   showToast,
   detailState,
+  documentState,
+  documentTree,
+  activeDocument,
 }: {
   project: Project
   detailTab: string
@@ -613,6 +659,9 @@ function ProjectDetail({
   onResolveComment: (commentId: number) => void
   showToast: (message: string) => void
   detailState: CatalogState
+  documentState: CatalogState
+  documentTree: DocumentNode[]
+  activeDocument: DocumentDetail | null
 }) {
   return (
     <main className="detail-page">
@@ -631,7 +680,7 @@ function ProjectDetail({
       <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
-      {detailTab === '文档阅读' && <DocumentView project={project} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
+      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
       {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
       {detailTab === '下载资源' && <DownloadView onDownload={onDownload} />}
       {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
@@ -639,13 +688,41 @@ function ProjectDetail({
   )
 }
 
-function DocumentView({ project, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment }: { project: Project; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void }) {
+  const headingId = (children: ReactNode) => {
+    const title = Array.isArray(children) ? children.join('') : String(children ?? '')
+    return activeDocument?.outline.find((item) => item.title === title)?.id
+  }
+  const renderDocumentNodes = (nodes: DocumentNode[], depth = 0): ReactNode => nodes.map((node) => (
+    <div key={node.id}>
+      <button className={`tree-item ${node.slug === activeDocument?.slug ? 'active' : ''} ${depth ? 'indent' : ''}`}>
+        {node.children.length ? <ChevronRight size={14} /> : <FileText size={15} />} {node.title}
+      </button>
+      {node.children.length > 0 && renderDocumentNodes(node.children, depth + 1)}
+    </div>
+  ))
+
   return (
     <section className="doc-workspace">
-      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v0.8.2</small></div></div><nav className="doc-tree"><button className="tree-item active"><FileText size={15} /> 快速开始</button><button className="tree-item"><ChevronRight size={14} /> 架构设计</button><button className="tree-item indent"><FileText size={14} /> Agent Runtime</button><button className="tree-item indent"><FileText size={14} /> Tool Protocol</button><button className="tree-item"><ChevronRight size={14} /> 开发指南</button><button className="tree-item"><ChevronRight size={14} /> API Reference</button></nav><div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
+      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <button className="tree-item active"><FileText size={15} /> 快速开始</button>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">QUICK START / 01</span><div><button className="tool-button" title="复制标题链接"><Copy size={14} /> 链接</button><button className="tool-button" title="下载 Markdown"><Download size={14} /> 下载</button></div></div>
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? `${activeDocument.slug.toUpperCase()} / 01` : 'QUICK START / 01'}</span><div><button className="tool-button" title="复制标题链接"><Copy size={14} /> 链接</button><button className="tool-button" title="下载 Markdown"><Download size={14} /> 下载</button></div></div>
+        {documentState !== 'online' && <div className={`document-sync-state ${documentState}`}><span className="gateway-state-dot" />{documentState === 'checking' ? '正在加载在线文档…' : '文档 API 暂时不可用，当前展示缓存内容。'}</div>}
         <div className="article-content">
+          {activeDocument ? (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+              components={{
+                h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
+                h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
+                h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
+              }}
+            >
+              {activeDocument.markdown}
+            </ReactMarkdown>
+          ) : (
+            <>
           <h1>快速开始</h1><p className="article-lead">Atlas Agent 是一个面向复杂任务的多 Agent 协作运行时。它把任务拆成可观察、可组合的步骤，让每次执行都能被理解和复盘。</p>
           <div className="callout"><Sparkles size={17} /><div><strong>阅读提示</strong><p>试着选中正文中的一段文字，然后点击浮出的评论按钮。</p></div></div>
           <h2>从一个清晰的任务开始</h2><p>一个好的 Agent 系统，首先要让目标被准确表达。Atlas 会先接收自然语言任务，再由规划器拆出检索、工具调用和结果检查等步骤。</p>
@@ -653,6 +730,8 @@ function DocumentView({ project, comments, selectedQuote, commentComposerOpen, s
           <h2>节点之间如何协作</h2><p>每个节点都需要声明输入、输出和失败策略。规划器负责安排顺序，执行器负责调用工具，评审器会在输出前检查引用和结果质量。</p>
           <div className="workflow-preview"><div className="workflow-node"><span>01</span><strong>规划器</strong><small>拆解目标</small></div><div className="workflow-arrow">→</div><div className="workflow-node active"><span>02</span><strong>执行器</strong><small>调用工具</small></div><div className="workflow-arrow">→</div><div className="workflow-node"><span>03</span><strong>评审器</strong><small>检查结果</small></div></div>
           <h2>安装依赖</h2><p>建议使用 Python 3.11 及以上版本。创建虚拟环境后，通过以下命令安装运行时：</p><div className="inline-command">$ pip install atlas-agent <button title="复制命令"><Copy size={14} /></button></div>
+            </>
+          )}
         </div>
         {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><button className="text-button" onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" onClick={onSubmitComment}><Send size={14} /> 发布评论</button></div></div>}
       </article>
