@@ -32,6 +32,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { getServiceInfo, type ServiceInfo } from './api/client'
 import './App.css'
 
 type Project = {
@@ -67,6 +68,10 @@ type CommentItem = {
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type Skin = 'ocean' | 'violet' | 'mint'
+type GatewayState =
+  | { status: 'checking' }
+  | { status: 'online'; info: ServiceInfo }
+  | { status: 'offline' }
 
 const categories = ['全部项目', 'Multi-Agent', 'RAG Agent', 'Coding Agent', 'Workflow Agent', 'Agent Framework']
 
@@ -205,6 +210,7 @@ function App() {
     return stored === 'ocean' || stored === 'violet' || stored === 'mint' ? stored : 'ocean'
   })
   const [themePanelOpen, setThemePanelOpen] = useState(false)
+  const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -212,6 +218,17 @@ function App() {
     window.localStorage.setItem('xinyuan-theme-mode', themeMode)
     window.localStorage.setItem('xinyuan-skin', skin)
   }, [themeMode, skin])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getServiceInfo(controller.signal)
+      .then((info) => setGatewayState({ status: 'online', info }))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setGatewayState({ status: 'offline' })
+      })
+    return () => controller.abort()
+  }, [])
 
   const filteredProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -339,6 +356,7 @@ function App() {
           saved={saved}
           onOpenProject={openProject}
           onToggleSaved={toggleSaved}
+          gatewayState={gatewayState}
         />
       )}
 
@@ -356,6 +374,7 @@ function Home({
   saved,
   onOpenProject,
   onToggleSaved,
+  gatewayState,
 }: {
   activeTab: string
   activeCategory: string
@@ -364,6 +383,7 @@ function Home({
   saved: string[]
   onOpenProject: (project: Project) => void
   onToggleSaved: (projectId: string) => void
+  gatewayState: GatewayState
 }) {
   return (
     <main>
@@ -427,7 +447,18 @@ function Home({
           <div className="curated-copy"><span className="meta-label">编辑推荐 · 6 分钟阅读</span><h3>为什么 Agent 需要自己的“运行日志”？</h3><p>从单次回答到可回放的任务链路，观察每一步工具调用，才能让实验走向生产。</p><button className="text-button">打开文章 <ArrowUpRight size={15} /></button></div>
         </div>
       </section>
-      <footer className="site-footer"><span>© 2026 新猿译码</span><span>一套面向 Agent 开发者的开放索引</span><span>Made for useful work.</span></footer>
+      <footer className="site-footer">
+        <span>© 2026 新猿译码</span>
+        <span>一套面向 Agent 开发者的开放索引</span>
+        <span className={`gateway-state ${gatewayState.status}`}>
+          <span className="gateway-state-dot" />
+          {gatewayState.status === 'online'
+            ? `Gateway ${gatewayState.info.api_version} 已连接`
+            : gatewayState.status === 'checking'
+              ? '正在连接 Gateway'
+              : '演示数据 · Gateway 未连接'}
+        </span>
+      </footer>
     </main>
   )
 }

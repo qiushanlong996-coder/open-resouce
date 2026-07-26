@@ -198,14 +198,19 @@ npm run build
 
 ## 5. 前端配置说明
 
-当前 Demo 不需要 `.env` 文件，不需要配置 API 地址，也不需要填写 GitHub、微信或 AI 平台密钥。登录、评论、收藏、下载等功能目前使用前端演示状态。
+前端默认通过同源 `/api` 访问 Gateway。开发服务器会将 `/api` 代理到
+`http://127.0.0.1:18080`，一般不需要创建 `.env`。如需覆盖配置，复制
+`apps/web/.env.example` 为 `apps/web/.env.local`。
 
-未来接入后端后，前端可以使用 Vite 环境变量，例如：
+可用的前端环境变量：
 
 ```text
-VITE_API_BASE_URL=http://localhost:8080/api/v1
-VITE_APP_NAME=新猿译码
+VITE_API_BASE_URL=
+VITE_API_PROXY_TARGET=http://127.0.0.1:18080
 ```
+
+`VITE_API_BASE_URL` 用于浏览器实际请求地址；留空表示同源。`VITE_API_PROXY_TARGET`
+仅供 Vite 开发代理使用，不会进入生产构建。
 
 Vite 只会把以 `VITE_` 开头的变量暴露给浏览器，因此以下内容绝对不能放进前端 `.env`：
 

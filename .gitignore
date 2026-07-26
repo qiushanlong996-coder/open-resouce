@@ -5,3 +5,4 @@
 .codex-go.zip
 .codex-gateway
 .codex-gateway.test
+.pnpm-store/
