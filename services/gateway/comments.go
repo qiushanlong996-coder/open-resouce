@@ -43,11 +43,19 @@ type updateCommentRequest struct {
 	Status string `json:"status"`
 }
 
-var commentStore = struct {
+type commentRepository interface {
+	List(documentID string) []documentComment
+	Create(comment documentComment) documentComment
+	Resolve(documentID, commentID, resolvedAt string) (documentComment, bool)
+}
+
+type memoryCommentRepository struct {
 	sync.RWMutex
 	byDocument map[string][]documentComment
-}{
-	byDocument: map[string][]documentComment{
+}
+
+func newMemoryCommentRepository() *memoryCommentRepository {
+	return &memoryCommentRepository{byDocument: map[string][]documentComment{
 		"doc-atlas-quick-start": {
 			{
 				ID: "comment-atlas-001", DocumentID: "doc-atlas-quick-start",
@@ -57,8 +65,46 @@ var commentStore = struct {
 				Status: "open", CreatedAt: "2026-07-26T11:42:00Z",
 			},
 		},
-	},
+	}}
 }
+
+func (repository *memoryCommentRepository) List(documentID string) []documentComment {
+	repository.RLock()
+	defer repository.RUnlock()
+	comments := append([]documentComment(nil), repository.byDocument[documentID]...)
+	if comments == nil {
+		return []documentComment{}
+	}
+	return comments
+}
+
+func (repository *memoryCommentRepository) Create(comment documentComment) documentComment {
+	repository.Lock()
+	defer repository.Unlock()
+	repository.byDocument[comment.DocumentID] = append(repository.byDocument[comment.DocumentID], comment)
+	return comment
+}
+
+func (repository *memoryCommentRepository) Resolve(documentID, commentID, resolvedAt string) (documentComment, bool) {
+	repository.Lock()
+	defer repository.Unlock()
+	for index := range repository.byDocument[documentID] {
+		comment := &repository.byDocument[documentID][index]
+		if comment.ID != commentID {
+			continue
+		}
+		if comment.Status != "resolved" {
+			comment.Status = "resolved"
+			comment.ResolvedAt = &resolvedAt
+		}
+		return *comment, true
+	}
+	return documentComment{}, false
+}
+
+var commentRepositoryStore commentRepository = newMemoryCommentRepository()
+
+var _ commentRepository = (*memoryCommentRepository)(nil)
 
 func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) {
 	document, ok := findDocument(request, writer)
@@ -68,13 +114,8 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 
 	switch request.Method {
 	case http.MethodGet:
-		commentStore.RLock()
-		comments := append([]documentComment(nil), commentStore.byDocument[document.ID]...)
-		commentStore.RUnlock()
-		if comments == nil {
-			comments = []documentComment{}
-		}
-		writeJSON(writer, http.StatusOK, commentListResponse{Data: comments, RequestID: requestIDFromContext(request.Context())})
+		result := commentRepositoryStore.List(document.ID)
+		writeJSON(writer, http.StatusOK, commentListResponse{Data: result, RequestID: requestIDFromContext(request.Context())})
 	case http.MethodPost:
 		var input createCommentRequest
 		if err := decodeJSONBody(request, &input); err != nil {
@@ -98,9 +139,7 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 			Author: input.Author, Quote: input.Quote, Body: input.Body, Status: "open",
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
-		commentStore.Lock()
-		commentStore.byDocument[document.ID] = append(commentStore.byDocument[document.ID], comment)
-		commentStore.Unlock()
+		comment = commentRepositoryStore.Create(comment)
 		writeJSON(writer, http.StatusCreated, commentResponse{Data: comment, RequestID: requestIDFromContext(request.Context())})
 	default:
 		writer.Header().Set("Allow", "GET, POST")
@@ -124,18 +163,10 @@ func documentCommentHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	commentStore.Lock()
-	defer commentStore.Unlock()
-	for index := range commentStore.byDocument[document.ID] {
-		if commentStore.byDocument[document.ID][index].ID != request.PathValue("commentID") {
-			continue
-		}
-		if commentStore.byDocument[document.ID][index].Status != "resolved" {
-			resolvedAt := time.Now().UTC().Format(time.RFC3339)
-			commentStore.byDocument[document.ID][index].Status = "resolved"
-			commentStore.byDocument[document.ID][index].ResolvedAt = &resolvedAt
-		}
-		writeJSON(writer, http.StatusOK, commentResponse{Data: commentStore.byDocument[document.ID][index], RequestID: requestIDFromContext(request.Context())})
+	resolvedAt := time.Now().UTC().Format(time.RFC3339)
+	comment, found := commentRepositoryStore.Resolve(document.ID, request.PathValue("commentID"), resolvedAt)
+	if found {
+		writeJSON(writer, http.StatusOK, commentResponse{Data: comment, RequestID: requestIDFromContext(request.Context())})
 		return
 	}
 	writeAPIError(writer, request, http.StatusNotFound, "comment_not_found", "评论不存在")
