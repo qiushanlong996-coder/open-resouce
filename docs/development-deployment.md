@@ -80,6 +80,19 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 
 未配置时不向任何跨域来源返回授权响应头。不要在生产环境使用 `*`。
 
+### 1.4 Gateway 容器镜像
+
+从仓库根目录执行：
+
+```bash
+docker build -f services/gateway/Dockerfile -t open-resouce-gateway:dev .
+docker run --rm -p 127.0.0.1:18080:8080 open-resouce-gateway:dev
+```
+
+镜像使用 Go 1.24 Alpine 构建阶段和 `scratch` 运行阶段，运行用户为
+`65532:65532`。根目录 `.dockerignore` 会排除前端依赖、构建产物、文档和
+Codex 临时运行时，避免把无关文件或本地敏感数据发送到 Docker 构建上下文。
+
 ## 2. 获取代码
 
 ### 2.1 使用 SSH 克隆

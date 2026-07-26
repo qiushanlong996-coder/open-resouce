@@ -1,0 +1,11 @@
+.git
+.gitignore
+.codex-*
+apps
+docs
+api
+node_modules
+**/node_modules
+**/dist
+**/*.test
+README.md

@@ -725,3 +725,35 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 镜像源恢复后部署 MongoDB 8.0。
 2. 实现 MongoDB 文档仓库并增加契约测试。
 3. 为文档仓库增加启动探针和连接超时配置。
+
+## 2026-07-27：Gateway 多阶段 Dockerfile
+
+### 已完成
+
+- 新增 `services/gateway/Dockerfile`。
+- 构建阶段固定 Go 1.24 Alpine，并使用 `CGO_ENABLED=0` 生成静态 Linux/amd64 二进制。
+- 构建启用 `-trimpath` 和精简链接参数。
+- 运行阶段使用 `scratch`，不携带包管理器、Shell 或无关运行时。
+- 容器使用非 root 用户 `65532:65532`，默认暴露 8080。
+- 新增根目录 `.dockerignore`，排除前端依赖、构建产物、文档和 Codex 临时文件。
+- 开发部署文档增加镜像构建与本地运行命令。
+
+### 验证
+
+- Docker 23.0.1 成功解析 Dockerfile 和 `.dockerignore`。
+- 构建上下文压缩前传输量约 51 kB，未包含前端依赖和本地临时运行时。
+- 成功解析并固定 `golang:1.24-alpine` 镜像摘要。
+- 构建已进入基础镜像层下载阶段，Dockerfile 语法和 COPY 路径有效。
+
+### 卡点与注意事项
+
+- 非代码阻塞：服务器镜像层下载速度极慢，79 MB Go 基础层在 180 秒内仅下载约 2 MB，因此完整镜像构建未完成。
+- 该现象与 MongoDB manifest 超时属于同一镜像源问题，仍需项目负责人配置可用的高速镜像源。
+- 当前生产部署继续使用已验证的本地交叉编译二进制 + systemd，不受 Docker 构建速度影响。
+- 本功能没有新增本地人工安装事项。
+
+### 下一步
+
+1. 镜像源恢复后完成 Gateway 镜像构建并验证非 root 运行。
+2. 增加容器健康检查和 Compose 服务定义。
+3. 部署 MongoDB 8.0 并实现文档仓库。
