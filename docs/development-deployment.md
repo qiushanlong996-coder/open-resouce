@@ -2,7 +2,7 @@
 
 本文档用于指导新电脑上的环境准备、项目启动、构建部署和 Git 协作。
 
-当前仓库处于前端 Demo 阶段。现在可以直接运行的是 `apps/web` 前端，后端服务和 MySQL、MongoDB、Elasticsearch、Redis、MinIO、NATS 等基础设施已经写入技术设计，但尚未在仓库中提供可执行的后端服务和 Docker Compose 配置。
+当前仓库处于一期基础骨架阶段。`apps/web` 前端可以直接运行，`services/gateway` 已提供首个可执行的 Go 服务和健康检查接口。MySQL、MongoDB、Elasticsearch、Redis、MinIO、NATS 等基础设施已写入技术设计，后续将按功能逐步接入。
 
 ## 1. 当前版本基线
 
@@ -24,7 +24,7 @@
 1. Git Bash。
 2. PowerShell 7 或 Windows Terminal。
 
-### 1.2 当前 Demo 不需要的环境
+### 1.2 仅运行前端 Demo 不需要的环境
 
 运行当前前端 Demo 暂时不需要安装：
 
@@ -37,7 +37,29 @@
 7. NATS。
 8. Docker Desktop。
 
-这些工具属于后端实现阶段的环境，接入后端服务时再按技术设计和新的 Compose 文件安装。
+这些工具属于后端实现阶段的环境。开发 Gateway 需要 Go 1.24.x；如果只运行前端 Demo，则仍然不需要安装它们。
+
+### 1.3 Gateway 健康检查
+
+在仓库根目录启动 Gateway：
+
+```bash
+go run ./services/gateway
+```
+
+默认监听 `8080` 端口，可通过 `PORT` 环境变量覆盖。服务提供：
+
+```text
+GET /healthz
+GET /readyz
+```
+
+验证命令：
+
+```bash
+go test ./services/gateway
+curl http://127.0.0.1:8080/healthz
+```
 
 ## 2. 获取代码
 

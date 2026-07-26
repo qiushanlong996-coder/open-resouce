@@ -1,0 +1,6 @@
+.codex-ssh-runtime/
+.codex-go-sdk/
+.codex-go-cache/
+.codex-go-tmp/
+.codex-go.zip
+.codex-gateway.test
