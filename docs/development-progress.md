@@ -627,3 +627,37 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 为 Markdown 渲染结果注入稳定 `data-block-id`，精确支持选区评论。
 2. 增加评论加载和提交中的按钮状态，防止重复发布。
 3. 设计登录身份与评论作者的服务端绑定。
+
+## 2026-07-26：稳定内容块 DOM 锚点
+
+### 已完成
+
+- Markdown 渲染增加 ReactNode 纯文本提取，兼容标题和正文中的嵌套节点。
+- 段落按 API 块类型和纯文本匹配，渲染稳定 `data-block-id`。
+- 代码内容按 API code 块匹配并渲染稳定 `data-block-id`。
+- 选区评论优先从选区起点最近的 `data-block-id` 获取锚点。
+- 无 DOM 锚点时继续保留纯文本匹配兜底，兼容静态缓存正文。
+
+### 验证
+
+- TypeScript 和 Vite 生产构建通过，共转换 2239 个模块。
+- 使用 SSH 公钥隧道连接已部署 Gateway 完成真实正文验证。
+- Atlas 正文渲染出 4 个稳定 DOM 锚点：
+  - `block-atlas-intro`
+  - `block-atlas-task`
+  - `block-atlas-collaboration`
+  - `block-atlas-install`
+- 三个段落和一个代码块的标签、块 ID 与 API 数据完全一致。
+- 浏览器控制台无警告或错误。
+
+### 卡点与注意事项
+
+- 跨多个稳定块的选区当前锚定到选区起点所在块；后续评论模型若需要跨块范围，应增加结束 block ID 和字符偏移。
+- API 块纯文本必须与 Markdown 渲染文本保持一致，否则会走文本兜底或无法注入锚点。
+- 本功能没有新增人工安装事项。
+
+### 下一步
+
+1. 增加评论加载和提交中的按钮状态，防止重复发布。
+2. 设计登录身份与评论作者的服务端绑定。
+3. 将评论和文档内存仓库迁移到 MongoDB。

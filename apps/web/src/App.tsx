@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
@@ -265,6 +265,13 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
   }
 }
 
+function reactNodeText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(reactNodeText).join('')
+  if (isValidElement<{ children?: ReactNode }>(node)) return reactNodeText(node.props.children)
+  return ''
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('探索')
   const [activeCategory, setActiveCategory] = useState('全部项目')
@@ -433,11 +440,17 @@ function App() {
   }
 
   const handleSelection = () => {
-    const selection = window.getSelection()?.toString().trim()
-    if (selection) {
+    const browserSelection = window.getSelection()
+    const selection = browserSelection?.toString().trim()
+    if (selection && browserSelection) {
       setSelectedQuote(selection)
-      const block = activeDocument?.blocks.find((item) => item.text.includes(selection) || selection.includes(item.text))
-      if (block) setSelectedBlockID(block.id)
+      const anchorElement = browserSelection.anchorNode instanceof Element
+        ? browserSelection.anchorNode
+        : browserSelection.anchorNode?.parentElement
+      const stableBlockID = anchorElement?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
+      const matchedBlock = activeDocument?.blocks.find((item) => item.text.includes(selection) || selection.includes(item.text))
+      if (stableBlockID) setSelectedBlockID(stableBlockID)
+      else if (matchedBlock) setSelectedBlockID(matchedBlock.id)
       setCommentComposerOpen(true)
     }
   }
@@ -754,8 +767,12 @@ function ProjectDetail({
 
 function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
-    const title = Array.isArray(children) ? children.join('') : String(children ?? '')
+    const title = reactNodeText(children)
     return activeDocument?.outline.find((item) => item.title === title)?.id
+  }
+  const stableBlockID = (children: ReactNode, type: string) => {
+    const text = reactNodeText(children).trim()
+    return activeDocument?.blocks.find((item) => item.type === type && (item.text === text || item.text.includes(text) || text.includes(item.text)))?.id
   }
   const renderDocumentNodes = (nodes: DocumentNode[], depth = 0): ReactNode => nodes.map((node) => (
     <div key={node.id}>
@@ -796,6 +813,8 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
                 h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
                 h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
                 h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
+                p: ({ children }) => <p data-block-id={stableBlockID(children, 'paragraph')}>{children}</p>,
+                code: ({ children, className }) => <code className={className} data-block-id={stableBlockID(children, 'code')}>{children}</code>,
               }}
             >
               {activeDocument.markdown}
