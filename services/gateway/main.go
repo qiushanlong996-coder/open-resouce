@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -23,18 +22,21 @@ type healthResponse struct {
 
 func newHandler() http.Handler {
 	mux := http.NewServeMux()
-	health := func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(writer).Encode(healthResponse{
+	health := requireMethod(http.MethodGet, func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSON(writer, http.StatusOK, healthResponse{
 			Service: "gateway",
 			Status:  "ok",
 		})
-	}
+	})
 
-	mux.HandleFunc("GET /healthz", health)
-	mux.HandleFunc("GET /readyz", health)
+	mux.HandleFunc("/healthz", health)
+	mux.HandleFunc("/readyz", health)
+	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+		writeAPIError(writer, request, http.StatusNotFound, "route_not_found", "请求的接口不存在")
+	})
 
-	return mux
+	logger := slog.Default()
+	return requestIDMiddleware(accessLogMiddleware(logger, mux))
 }
 
 func listenAddress() string {
