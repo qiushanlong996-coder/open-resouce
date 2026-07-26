@@ -142,13 +142,12 @@ func documentCommentHandler(writer http.ResponseWriter, request *http.Request) {
 }
 
 func findDocument(request *http.Request, writer http.ResponseWriter) (documentDetail, bool) {
-	documents, found := seedDocuments[request.PathValue("slug")]
-	if !found {
+	document, projectFound, documentFound := documents.Get(request.PathValue("slug"), request.PathValue("documentSlug"))
+	if !projectFound {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return documentDetail{}, false
 	}
-	document, found := documents[request.PathValue("documentSlug")]
-	if !found {
+	if !documentFound {
 		writeAPIError(writer, request, http.StatusNotFound, "document_not_found", "文档不存在")
 		return documentDetail{}, false
 	}

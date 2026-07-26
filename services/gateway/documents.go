@@ -47,6 +47,15 @@ type documentDetailResponse struct {
 	RequestID string         `json:"request_id"`
 }
 
+type documentRepository interface {
+	List(projectSlug string) ([]documentNode, bool)
+	Get(projectSlug, documentSlug string) (documentDetail, bool, bool)
+}
+
+type seedDocumentRepository struct {
+	documents map[string]map[string]documentDetail
+}
+
 var seedDocuments = map[string]map[string]documentDetail{
 	"atlas-agent": {
 		"quick-start": {
@@ -82,6 +91,41 @@ var seedDocuments = map[string]map[string]documentDetail{
 	},
 }
 
+var documents documentRepository = seedDocumentRepository{documents: seedDocuments}
+
+func (repository seedDocumentRepository) List(projectSlug string) ([]documentNode, bool) {
+	projectDocuments, found := repository.documents[projectSlug]
+	if !found {
+		return nil, false
+	}
+	nodes := make([]documentNode, 0, len(projectDocuments))
+	for _, document := range projectDocuments {
+		nodes = append(nodes, documentNode{
+			ID:       document.ID,
+			Slug:     document.Slug,
+			Title:    document.Title,
+			Order:    1,
+			Children: []documentNode{},
+		})
+	}
+	sort.Slice(nodes, func(left, right int) bool {
+		if nodes[left].Order == nodes[right].Order {
+			return nodes[left].Slug < nodes[right].Slug
+		}
+		return nodes[left].Order < nodes[right].Order
+	})
+	return nodes, true
+}
+
+func (repository seedDocumentRepository) Get(projectSlug, documentSlug string) (documentDetail, bool, bool) {
+	projectDocuments, projectFound := repository.documents[projectSlug]
+	if !projectFound {
+		return documentDetail{}, false, false
+	}
+	document, documentFound := projectDocuments[documentSlug]
+	return document, true, documentFound
+}
+
 func basicQuickStartDocument(projectID, version, introduction string) documentDetail {
 	return documentDetail{
 		ID:        "doc-" + projectID + "-quick-start",
@@ -102,25 +146,11 @@ func basicQuickStartDocument(projectID, version, introduction string) documentDe
 
 func documentListHandler(writer http.ResponseWriter, request *http.Request) {
 	projectSlug := request.PathValue("slug")
-	documents, found := seedDocuments[projectSlug]
+	nodes, found := documents.List(projectSlug)
 	if !found {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return
 	}
-
-	nodes := make([]documentNode, 0, len(documents))
-	for _, document := range documents {
-		nodes = append(nodes, documentNode{
-			ID:       document.ID,
-			Slug:     document.Slug,
-			Title:    document.Title,
-			Order:    1,
-			Children: []documentNode{},
-		})
-	}
-	sort.Slice(nodes, func(left, right int) bool {
-		return nodes[left].Order < nodes[right].Order
-	})
 
 	writeJSON(writer, http.StatusOK, documentListResponse{
 		Data:      nodes,
@@ -131,13 +161,12 @@ func documentListHandler(writer http.ResponseWriter, request *http.Request) {
 func documentDetailHandler(writer http.ResponseWriter, request *http.Request) {
 	projectSlug := request.PathValue("slug")
 	documentSlug := request.PathValue("documentSlug")
-	documents, found := seedDocuments[projectSlug]
-	if !found {
+	document, projectFound, documentFound := documents.Get(projectSlug, documentSlug)
+	if !projectFound {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return
 	}
-	document, found := documents[documentSlug]
-	if !found {
+	if !documentFound {
 		writeAPIError(writer, request, http.StatusNotFound, "document_not_found", "文档不存在")
 		return
 	}
