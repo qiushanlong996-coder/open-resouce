@@ -276,6 +276,7 @@ function App() {
   const [documentTree, setDocumentTree] = useState<DocumentNode[]>([])
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null)
   const selectedProjectSlug = useRef<string | null>(null)
+  const documentRequestSequence = useRef(0)
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -340,6 +341,7 @@ function App() {
 
   const closeProject = () => {
     selectedProjectSlug.current = null
+    documentRequestSequence.current += 1
     setSelectedProject(null)
   }
 
@@ -351,6 +353,7 @@ function App() {
     setDocumentState('checking')
     setDocumentTree([])
     setActiveDocument(null)
+    const requestSequence = ++documentRequestSequence.current
     getProject(project.slug)
       .then((response) => {
         if (selectedProjectSlug.current !== project.slug) return
@@ -362,15 +365,32 @@ function App() {
       })
     Promise.all([getDocuments(project.slug), getDocument(project.slug, 'quick-start')])
       .then(([treeResponse, documentResponse]) => {
-        if (selectedProjectSlug.current !== project.slug) return
+        if (selectedProjectSlug.current !== project.slug || documentRequestSequence.current !== requestSequence) return
         setDocumentTree(treeResponse.data)
         setActiveDocument(documentResponse.data)
         setDocumentState('online')
       })
       .catch(() => {
-        if (selectedProjectSlug.current === project.slug) setDocumentState('offline')
+        if (selectedProjectSlug.current === project.slug && documentRequestSequence.current === requestSequence) setDocumentState('offline')
       })
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const openDocument = (documentSlug: string) => {
+    const projectSlug = selectedProjectSlug.current
+    if (!projectSlug || activeDocument?.slug === documentSlug) return
+    const requestSequence = ++documentRequestSequence.current
+    setDocumentState('checking')
+    getDocument(projectSlug, documentSlug)
+      .then((response) => {
+        if (selectedProjectSlug.current !== projectSlug || documentRequestSequence.current !== requestSequence) return
+        setActiveDocument(response.data)
+        setDocumentState('online')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      })
+      .catch(() => {
+        if (selectedProjectSlug.current === projectSlug && documentRequestSequence.current === requestSequence) setDocumentState('offline')
+      })
   }
 
   const toggleSaved = (projectId: string) => {
@@ -471,6 +491,7 @@ function App() {
           documentState={documentState}
           documentTree={documentTree}
           activeDocument={activeDocument}
+          onOpenDocument={openDocument}
         />
       ) : (
         <Home
@@ -639,6 +660,7 @@ function ProjectDetail({
   documentState,
   documentTree,
   activeDocument,
+  onOpenDocument,
 }: {
   project: Project
   detailTab: string
@@ -662,6 +684,7 @@ function ProjectDetail({
   documentState: CatalogState
   documentTree: DocumentNode[]
   activeDocument: DocumentDetail | null
+  onOpenDocument: (documentSlug: string) => void
 }) {
   return (
     <main className="detail-page">
@@ -680,7 +703,7 @@ function ProjectDetail({
       <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
-      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
+      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} />}
       {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
       {detailTab === '下载资源' && <DownloadView onDownload={onDownload} />}
       {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
@@ -688,14 +711,14 @@ function ProjectDetail({
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: number) => void }) {
   const headingId = (children: ReactNode) => {
     const title = Array.isArray(children) ? children.join('') : String(children ?? '')
     return activeDocument?.outline.find((item) => item.title === title)?.id
   }
   const renderDocumentNodes = (nodes: DocumentNode[], depth = 0): ReactNode => nodes.map((node) => (
     <div key={node.id}>
-      <button className={`tree-item ${node.slug === activeDocument?.slug ? 'active' : ''} ${depth ? 'indent' : ''}`}>
+      <button className={`tree-item ${node.slug === activeDocument?.slug ? 'active' : ''} ${depth ? 'indent' : ''}`} disabled={documentState === 'checking'} onClick={() => onOpenDocument(node.slug)}>
         {node.children.length ? <ChevronRight size={14} /> : <FileText size={15} />} {node.title}
       </button>
       {node.children.length > 0 && renderDocumentNodes(node.children, depth + 1)}
