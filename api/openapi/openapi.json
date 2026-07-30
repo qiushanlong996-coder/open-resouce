@@ -66,6 +66,350 @@
         }
       }
     },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "注册并创建会话",
+        "operationId": "register",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "注册成功",
+            "headers": { "Set-Cookie": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          },
+          "409": { "description": "邮箱已注册", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "注册字段无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "邮箱密码登录",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "headers": { "Set-Cookie": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          },
+          "401": { "description": "凭据无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "summary": "退出并销毁会话",
+        "operationId": "logout",
+        "security": [{ "cookieAuth": [] }],
+        "responses": { "204": { "description": "已退出" } }
+      }
+    },
+    "/api/v1/auth/logout-all": {
+      "post": {
+        "summary": "退出当前用户的全部设备",
+        "operationId": "logoutAll",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "全部会话已失效" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/sessions": {
+      "get": {
+        "summary": "获取当前用户的有效登录会话",
+        "operationId": "listAuthSessions",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "有效登录会话列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/sessions/{sessionID}": {
+      "delete": {
+        "summary": "撤销指定登录会话",
+        "operationId": "revokeAuthSession",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "sessionID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "指定会话已撤销" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "会话不存在或不属于当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/password": {
+      "put": {
+        "summary": "修改邮箱账号密码并撤销其他设备会话",
+        "operationId": "changePassword",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordChangeRequest" } } }
+        },
+        "responses": {
+          "204": { "description": "密码已修改，其他会话已撤销" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "未登录或当前密码错误", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "账号未设置密码或新密码不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/password-reset/request": {
+      "post": {
+        "summary": "请求密码重置邮件",
+        "operationId": "requestPasswordReset",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordResetRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "请求已接受；无论邮箱是否存在均返回相同响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AcceptedResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "422": { "description": "邮箱格式无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "邮件投递尚未配置", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/password-reset/confirm": {
+      "post": {
+        "summary": "使用一次性令牌设置新密码",
+        "operationId": "confirmPasswordReset",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordResetConfirmRequest" } } }
+        },
+        "responses": {
+          "204": { "description": "密码已重置且全部登录会话已撤销" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "422": { "description": "令牌无效、已使用、已过期或新密码无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "summary": "获取当前用户",
+        "operationId": "getCurrentUser",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "patch": {
+        "summary": "更新当前用户资料",
+        "operationId": "updateCurrentUser",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProfileUpdateRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "更新后的当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "昵称不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/oauth/{provider}/start": {
+      "get": {
+        "summary": "开始 GitHub 或微信 OAuth 登录",
+        "operationId": "startOAuthLogin",
+        "parameters": [
+          { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["github", "wechat"] } }
+        ],
+        "responses": {
+          "302": { "description": "跳转到第三方授权页" },
+          "503": { "description": "登录提供方尚未配置", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/oauth/{provider}/callback": {
+      "get": {
+        "summary": "处理第三方 OAuth 回调并创建会话",
+        "operationId": "completeOAuthLogin",
+        "parameters": [
+          { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["github", "wechat"] } },
+          { "name": "code", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "302": { "description": "登录成功并返回站点首页" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "503": { "description": "登录提供方尚未配置", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/favorites": {
+      "get": {
+        "summary": "获取当前用户收藏的项目 ID",
+        "operationId": "listFavorites",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "收藏项目 ID 列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FavoriteListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/favorite": {
+      "parameters": [
+        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "post": {
+        "summary": "收藏项目",
+        "operationId": "createFavorite",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已收藏；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "取消收藏项目",
+        "operationId": "deleteFavorite",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已取消收藏；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/files/presign-upload": {
+      "post": {
+        "summary": "获取 OSS 文件直传授权",
+        "operationId": "presignFileUpload",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectUploadRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "十分钟有效的 OSS PUT 授权", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectUploadResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "文件类型或大小不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/files/author-asset": {
+      "get": {
+        "summary": "预览当前作者上传的正文资源",
+        "operationId": "previewAuthorAsset",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "key", "in": "query", "required": true, "description": "Base64URL 编码的 OSS object key", "schema": { "type": "string" } }],
+        "responses": {
+          "307": { "description": "重定向到短时 OSS URL" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/assets": {
+      "get": {
+        "summary": "读取已发布项目 Markdown 正文引用的 OSS 资源",
+        "operationId": "getPublishedProjectAsset",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "key", "in": "query", "required": true, "description": "Base64URL 编码的 OSS object key", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "307": { "description": "重定向到短时 OSS URL" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/resources/{kind}": {
+      "get": {
+        "summary": "下载已发布项目的 OSS 资源",
+        "operationId": "downloadProjectResource",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "kind", "in": "path", "required": true, "schema": { "type": "string", "enum": ["cover", "document", "code"] } }
+        ],
+        "responses": {
+          "307": { "description": "重定向到短时有效的 OSS 下载 URL" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/author/projects": {
+      "get": {
+        "summary": "获取当前作者的项目",
+        "operationId": "listAuthorProjects",
+        "security": [{ "cookieAuth": [] }],
+        "responses": { "200": { "description": "作者项目列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectListResponse" } } } } }
+      },
+      "post": {
+        "summary": "创建项目草稿",
+        "operationId": "createAuthorProject",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectInput" } } } },
+        "responses": { "201": { "description": "项目草稿", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
+      }
+    },
+    "/api/v1/author/projects/{projectID}": {
+      "parameters": [{ "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": {
+        "summary": "更新项目草稿",
+        "operationId": "updateAuthorProject",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectInput" } } } },
+        "responses": { "200": { "description": "更新后的项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
+      },
+      "delete": {
+        "summary": "删除草稿或已驳回项目",
+        "operationId": "deleteAuthorProject",
+        "security": [{ "cookieAuth": [] }],
+        "responses": { "204": { "description": "已删除" } }
+      }
+    },
+    "/api/v1/author/projects/{projectID}/submit": {
+      "post": {
+        "summary": "提交项目审核",
+        "operationId": "submitAuthorProject",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "待审核项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
+      }
+    },
+    "/api/v1/admin/reviews": {
+      "get": {
+        "summary": "获取待审核项目",
+        "operationId": "listProjectReviews",
+        "security": [{ "cookieAuth": [] }],
+        "responses": { "200": { "description": "待审核项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectListResponse" } } } } }
+      }
+    },
+    "/api/v1/admin/reviews/{projectID}/{action}": {
+      "post": {
+        "summary": "通过或驳回项目",
+        "operationId": "reviewProject",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "action", "in": "path", "required": true, "schema": { "type": "string", "enum": ["approve", "reject"] } }
+        ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectReviewRequest" } } } },
+        "responses": { "200": { "description": "审核后的项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "summary": "获取项目列表",
@@ -166,6 +510,100 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/collaboration/access": {
+      "get": {
+        "summary": "获取当前用户的项目协作权限",
+        "operationId": "getProjectCollaborationAccess",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "当前用户的协作角色与能力",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CollaborationAccessResponse" } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/collaboration/ws": {
+      "get": {
+        "summary": "升级为项目文档实时协作 WebSocket",
+        "description": "使用当前 HttpOnly 会话完成鉴权。连接后交换 init、update、awareness、snapshot、saved 与 presence-* JSON 消息；二进制 Yjs 更新使用 Base64 编码。",
+        "operationId": "connectProjectCollaboration",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "101": { "description": "协议升级成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "当前用户没有编辑权限", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/collaborators": {
+      "get": {
+        "summary": "列出项目协作者",
+        "operationId": "listProjectCollaborators",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目协作者列表",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCollaboratorListResponse" } } }
+          },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "只有项目所有者或管理员可以管理协作者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "summary": "新增或更新项目协作者",
+        "operationId": "upsertProjectCollaborator",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCollaboratorInput" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "协作者权限已保存",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCollaboratorResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "没有权限管理协作者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "不能修改项目所有者角色", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "协作角色无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/collaborators/{userID}": {
+      "delete": {
+        "summary": "移除项目协作者",
+        "operationId": "deleteProjectCollaborator",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "userID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "204": { "description": "协作者已移除，活跃协作连接同时关闭" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "没有权限管理协作者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "不能移除项目所有者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -283,10 +721,32 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments/events": {
+      "get": {
+        "summary": "订阅文档评论实时事件",
+        "operationId": "streamDocumentCommentEvents",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events 评论事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}": {
       "patch": {
-        "summary": "解决文档评论",
-        "operationId": "resolveDocumentComment",
+        "summary": "编辑或解决自己的文档评论",
+        "operationId": "updateDocumentComment",
+        "security": [{ "cookieAuth": [] }],
         "parameters": [
           { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
           { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
@@ -298,16 +758,107 @@
         },
         "responses": {
           "200": {
-            "description": "评论已解决",
+            "description": "评论已更新",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentResponse" } } }
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "软删除自己的评论线程",
+        "operationId": "deleteDocumentComment",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "204": { "description": "评论线程已删除" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies": {
+      "post": {
+        "summary": "回复文档评论",
+        "operationId": "createDocumentCommentReply",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateReplyRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "回复已发布",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": {
+            "description": "回复字段无效",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies/{replyID}": {
+      "patch": {
+        "summary": "编辑文档评论回复",
+        "operationId": "updateDocumentCommentReply",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "replyID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateReplyRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "回复已更新",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": {
+            "description": "回复正文无效",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除文档评论回复",
+        "operationId": "deleteDocumentCommentReply",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "replyID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "204": { "description": "回复已删除" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "open_resouce_session"
+      }
+    },
     "responses": {
       "BadRequest": {
         "description": "查询参数无效",
@@ -515,7 +1066,8 @@
               "highlights",
               "use_cases",
               "repository",
-              "current_version"
+              "current_version",
+              "resources"
             ],
             "properties": {
               "description": {
@@ -539,6 +1091,15 @@
               },
               "current_version": {
                 "type": "string"
+              },
+              "resources": {
+                "type": "object",
+                "required": ["cover", "document", "code"],
+                "properties": {
+                  "cover": { "type": "boolean" },
+                  "document": { "type": "boolean" },
+                  "code": { "type": "boolean" }
+                }
               }
             }
           }
@@ -715,17 +1276,25 @@
       },
       "DocumentComment": {
         "type": "object",
-        "required": ["id", "document_id", "block_id", "author", "quote", "body", "status", "created_at", "resolved_at"],
+        "required": ["id", "document_id", "parent_id", "block_id", "author", "quote", "body", "status", "created_at", "updated_at", "resolved_at", "replies", "reply_count"],
         "properties": {
           "id": { "type": "string" },
           "document_id": { "type": "string" },
+          "parent_id": { "type": ["string", "null"] },
           "block_id": { "type": "string" },
+          "author_id": { "type": "string" },
           "author": { "type": "string" },
           "quote": { "type": "string" },
           "body": { "type": "string" },
           "status": { "type": "string", "enum": ["open", "resolved"] },
           "created_at": { "type": "string", "format": "date-time" },
-          "resolved_at": { "type": ["string", "null"], "format": "date-time" }
+          "updated_at": { "type": "string", "format": "date-time" },
+          "resolved_at": { "type": ["string", "null"], "format": "date-time" },
+          "replies": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DocumentComment" }
+          },
+          "reply_count": { "type": "integer", "minimum": 0 }
         }
       },
       "CommentListResponse": {
@@ -747,20 +1316,287 @@
       "CreateCommentRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "author", "body"],
+        "required": ["block_id", "body"],
         "properties": {
           "block_id": { "type": "string", "minLength": 1 },
-          "author": { "type": "string", "minLength": 1, "maxLength": 80 },
           "quote": { "type": "string", "maxLength": 500 },
           "body": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      },
+      "CreateReplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["body"],
+        "properties": {
+          "body": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      },
+      "AuthUser": {
+        "type": "object",
+        "required": ["id", "email", "display_name", "has_password", "is_admin"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "display_name": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "has_password": { "type": "boolean" },
+          "is_admin": { "type": "boolean" }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AuthUser" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AuthSession": {
+        "type": "object",
+        "required": ["id", "created_at", "expires_at", "current"],
+        "properties": {
+          "id": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "current": { "type": "boolean" }
+        }
+      },
+      "SessionListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AuthSession" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ManagedProjectInput": {
+        "type": "object",
+        "required": ["slug", "name", "summary", "description", "category", "tags", "tech_stack", "license", "repository_url", "cover_object_key", "document_object_key", "code_object_key", "current_version"],
+        "properties": {
+          "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 80 },
+          "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+          "summary": { "type": "string", "minLength": 10, "maxLength": 300 },
+          "description": { "type": "string", "minLength": 20, "maxLength": 50000 },
+          "category": { "type": "string", "maxLength": 80 },
+          "tags": { "type": "array", "maxItems": 10, "items": { "type": "string" } },
+          "tech_stack": { "type": "array", "maxItems": 10, "items": { "type": "string" } },
+          "license": { "type": "string", "maxLength": 40 },
+          "repository_url": { "type": "string", "maxLength": 500 },
+          "cover_object_key": { "type": "string", "maxLength": 500 },
+          "document_object_key": { "type": "string", "maxLength": 500 },
+          "code_object_key": { "type": "string", "maxLength": 500 },
+          "current_version": { "type": "string", "maxLength": 40 }
+        }
+      },
+      "ManagedProject": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ManagedProjectInput" },
+          {
+            "type": "object",
+            "required": ["id", "owner_id", "status", "review_reason", "created_at", "updated_at"],
+            "properties": {
+              "id": { "type": "string" },
+              "owner_id": { "type": "string" },
+              "status": { "type": "string", "enum": ["draft", "pending_review", "published", "rejected", "archived"] },
+              "review_reason": { "type": "string" },
+              "submitted_at": { "type": "string", "format": "date-time" },
+              "published_at": { "type": "string", "format": "date-time" },
+              "created_at": { "type": "string", "format": "date-time" },
+              "updated_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        ]
+      },
+      "ManagedProjectResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/ManagedProject" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ManagedProjectListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ManagedProject" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ProjectReviewRequest": {
+        "type": "object",
+        "properties": { "reason": { "type": "string", "maxLength": 500 } }
+      },
+      "ObjectUploadRequest": {
+        "type": "object",
+        "required": ["filename", "content_type", "size", "kind"],
+        "properties": {
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size": { "type": "integer", "minimum": 1, "maximum": 524288000 },
+          "kind": { "type": "string", "enum": ["image", "document", "code"] }
+        }
+      },
+      "ObjectUploadAuthorization": {
+        "type": "object",
+        "required": ["object_key", "method", "url", "headers", "expires_at"],
+        "properties": {
+          "object_key": { "type": "string" },
+          "method": { "type": "string", "enum": ["PUT"] },
+          "url": { "type": "string", "format": "uri" },
+          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ObjectUploadResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/ObjectUploadAuthorization" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CollaborationAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "can_edit", "can_manage"],
+        "properties": {
+          "role": { "type": "string", "enum": ["owner", "editor", "viewer"] },
+          "can_edit": { "type": "boolean" },
+          "can_manage": { "type": "boolean" }
+        }
+      },
+      "CollaborationAccessResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/CollaborationAccess" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ProjectCollaborator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["project_id", "user_id", "email", "display_name", "role", "invited_by", "created_at", "updated_at"],
+        "properties": {
+          "project_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "display_name": { "type": "string" },
+          "role": { "type": "string", "enum": ["editor", "viewer"] },
+          "invited_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectCollaboratorInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "role"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "role": { "type": "string", "enum": ["editor", "viewer"] }
+        }
+      },
+      "ProjectCollaboratorResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/ProjectCollaborator" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ProjectCollaboratorListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ProjectCollaborator" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["current_password", "new_password"],
+        "properties": {
+          "current_password": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "new_password": { "type": "string", "minLength": 8, "maxLength": 128 }
+        }
+      },
+      "FavoriteListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "type": "string" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ProfileUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["display_name"],
+        "properties": {
+          "display_name": { "type": "string", "minLength": 2, "maxLength": 80 }
+        }
+      },
+      "PasswordResetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 }
+        }
+      },
+      "PasswordResetConfirmRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["token", "new_password"],
+        "properties": {
+          "token": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "new_password": { "type": "string", "minLength": 8, "maxLength": 128 }
+        }
+      },
+      "AcceptedResponse": {
+        "type": "object",
+        "required": ["request_id"],
+        "properties": {
+          "request_id": { "type": "string" }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "display_name", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "display_name": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "password": { "type": "string", "minLength": 8, "maxLength": 128 }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": { "type": "string", "minLength": 1, "maxLength": 128 }
         }
       },
       "UpdateCommentRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["status"],
+        "minProperties": 1,
+        "maxProperties": 1,
         "properties": {
-          "status": { "type": "string", "enum": ["resolved"] }
+          "status": { "type": "string", "enum": ["resolved"] },
+          "body": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      },
+      "UpdateReplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["body"],
+        "properties": {
+          "body": { "type": "string", "minLength": 1, "maxLength": 2000 }
         }
       },
       "ErrorDetail": {

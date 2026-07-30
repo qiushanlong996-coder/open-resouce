@@ -1197,8 +1197,8 @@ WECHAT_APP_SECRET
 ## 17. 二期技术演进
 
 1. GitHub 仓库同步。
-2. 在线文档富文本编辑器。
-3. 多人协同编辑。
+2. 在线文档富文本编辑器：已采用 Milkdown Crepe，持久化格式保持 Markdown。
+3. 多人协同编辑：已采用 Milkdown collaboration plugin + Yjs，自托管 WebSocket 同步与 MySQL 快照持久化服务；项目所有者可管理 `editor` / `viewer` 权限，编辑者在项目详情页直接修改已发布文档并看到在线成员与远程光标。
 4. 文档版本对比。
 5. AI 文档摘要、问答和代码解释。
 6. 公开 API。

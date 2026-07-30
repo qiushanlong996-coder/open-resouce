@@ -336,6 +336,15 @@ curl http://127.0.0.1:18080/healthz
 
 Gateway 仅监听项目预留的 `18080` 端口。为避免影响同机已有业务，在独立域名或 Nginx 路由确认前，不要修改现有站点配置。
 
+当前前后端部署目标为 `www.openresource.cn`。Nginx 配置位于
+`deploy/nginx/open-resouce.conf`，静态站点根目录为
+`/var/www/open-resouce/current`，同源 `/api/` 请求转发到
+`127.0.0.1:18080`。
+
+Gateway 从 `/etc/open-resouce/gateway.env` 读取 `DATABASE_URL`。该文件必须
+由 root 管理并设置为 `0600`，不得提交到仓库。服务启动时会连接并探活
+MySQL；部署检查应重试 `/readyz`，而不是在 systemd 启动后立即假定端口已监听。
+
 ## 7. 后端阶段环境规划
 
 以下是技术设计中的一期基础设施规划，不代表当前 Demo 已经接入。真正开始后端开发时，应将具体镜像版本固化到 `docker-compose.yml`，并同步更新本文档。
@@ -481,3 +490,83 @@ powershell -NoProfile
 6. 修改 Git 分支和发布流程。
 
 每次环境变更后，至少记录变更原因、影响范围和验证命令，避免跨电脑开发时出现隐式配置。
+
+## 12. Redis 认证限流
+
+Gateway 设置 `REDIS_URL` 后，注册、登录和修改密码的固定窗口限流存储在 Redis；未设置时仅用于本地开发的内存实现。
+
+```dotenv
+REDIS_URL=redis://:replace-with-the-redis-password@www.lovenuaa.xyz:6379/0
+```
+
+生产要求：
+
+1. `REDIS_URL` 只能保存在 `/etc/open-resouce/gateway.env`，文件权限必须为 `0600 root:root`。
+2. Redis TCP 6379 只允许应用服务器固定公网地址访问，不允许 `0.0.0.0/0` 防火墙放行。
+3. Gateway 启动时 Redis 探活失败会拒绝启动；运行期间 Redis 探活失败会使 `/readyz` 返回 503。
+4. 限流键使用 `open-resouce:auth-limit:` 前缀并设置窗口 TTL，不应手工批量删除生产键。
+
+## 13. 邮箱找回密码
+
+Gateway 配置以下变量后启用密码重置邮件投递：
+
+```dotenv
+SMTP_HOST=smtp.exmail.qq.com
+SMTP_PORT=465
+SMTP_USERNAME=replace-with-the-mailbox
+SMTP_PASSWORD=replace-with-the-mailbox-authorization-code
+SMTP_FROM=replace-with-the-sender-address
+PUBLIC_BASE_URL=https://103.236.98.166:8443
+```
+
+生产要求：
+
+1. SMTP 凭据只能保存在 `/etc/open-resouce/gateway.env`，不得写入仓库、日志或前端构建产物。
+2. `SMTP_PORT=465` 使用隐式 TLS，最低 TLS 版本为 1.2。
+3. `PUBLIC_BASE_URL` 决定邮件中的重置链接；域名备案和可信证书完成后应改为正式 HTTPS 域名。
+4. SMTP 配置不完整时 Gateway 会拒绝启用邮件投递；发送失败只记录不含凭据的错误，同时仍向客户端返回统一的 202 响应。
+
+## 14. 阿里云 OSS 文件存储
+
+```dotenv
+OSS_REGION=cn-guangzhou
+OSS_ENDPOINT=oss-cn-guangzhou.aliyuncs.com
+OSS_BUCKET=replace-with-the-bucket
+OSS_ACCESS_KEY_ID=replace-with-the-access-key-id
+OSS_ACCESS_KEY_SECRET=replace-with-the-access-key-secret
+ADMIN_EMAILS=replace-with-admin@example.com
+```
+
+生产要求：
+
+1. AccessKey 只能存放在 `/etc/open-resouce/gateway.env`，文件权限保持 `0600 root:root`。
+2. 浏览器先向 Gateway 请求十分钟有效的预签名 PUT URL，再直接上传 OSS；前端构建产物不包含 AccessKey。
+3. Bucket 保持私有，通过预签名 URL 控制上传和后续下载。
+4. RAM 身份只授予指定 Bucket 所需的最小对象读写权限，不应使用阿里云账号根 AccessKey。
+5. CORS 允许来源应随正式域名调整，不能使用 `*` 放开任意网站上传。
+
+## 15. 在线 Markdown 编辑器依赖
+
+作者项目中心使用以下开源前端依赖：
+
+- `@milkdown/crepe` 与 `@milkdown/kit`：所见即所得 Markdown 编辑，正文持久化格式仍为 Markdown。
+- `emoji-mart` Web Component 与 `@emoji-mart/data`：完整 Emoji 分类、搜索、最近使用和肤色选择；避免与 React 19 产生 peer 依赖冲突。
+
+两类依赖均通过动态导入按需加载。首次进入富文本模式或首次打开 Emoji 面板时会下载对应代码块，首页不会提前加载。
+
+多人协作采用 Milkdown 官方协作插件与 Yjs。生产接入时必须使用自托管 WebSocket 服务，并满足：
+
+1. WebSocket 握手复用 Gateway 的 `Secure`、`HttpOnly` 会话 Cookie，并在升级前查询发布项目和当前用户的实时编辑权限；不能只依赖可猜测的 room 名称。
+2. room 与项目 ID 一一映射，只有项目所有者、管理员和 `editor` 角色可以加入；`viewer` 只能阅读公开文档。
+3. Yjs 更新流持久化到 `project_collaboration_snapshots`，每次保存同时生成 Markdown 快照并更新已发布项目正文。
+4. Nginx 只对 `/api/v1/projects/{slug}/collaboration/ws` 升级 WebSocket，使用一小时读写超时，并保留浏览器 Origin 与完整 Host（包括 `:8443`）供 Gateway 执行同源检查。
+5. 变更协作者为只读或移除协作者时，Gateway 会主动关闭其已存在的协作连接。
+6. 当前协作房间驻留在单个 Gateway 进程中；扩展到多实例前需要增加 Redis/NATS 跨实例广播或固定会话路由。
+
+应用迁移顺序中必须包含：
+
+```text
+deploy/migrations/mysql/000006_create_project_collaboration.up.sql
+```
+
+该迁移创建协作者权限表和 Yjs 快照表。应用数据库账号需要在迁移阶段具备建表权限，运行阶段仍应使用最小权限账号。

@@ -10,7 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@milkdown/crepe": "^7.21.3",
+    "@milkdown/kit": "^7.21.3",
+    "@milkdown/plugin-collab": "7.21.3",
     "@tanstack/react-query": "^5.101.4",
+    "emoji-mart": "^5.6.0",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.27.0",
     "mermaid": "^11.16.0",
@@ -18,7 +23,9 @@
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "y-protocols": "1.0.6",
+    "yjs": "13.6.27"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

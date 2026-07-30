@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const defaultPort = "8080"
@@ -26,6 +31,8 @@ type serviceInfoResponse struct {
 	Status     string `json:"status"`
 }
 
+var readinessCheck = func(context.Context) error { return nil }
+
 func newHandler() http.Handler {
 	mux := http.NewServeMux()
 	health := requireMethod(http.MethodGet, func(writer http.ResponseWriter, _ *http.Request) {
@@ -36,7 +43,19 @@ func newHandler() http.Handler {
 	})
 
 	mux.HandleFunc("/healthz", health)
-	mux.HandleFunc("/readyz", health)
+	mux.HandleFunc("/readyz", requireMethod(http.MethodGet, func(writer http.ResponseWriter, request *http.Request) {
+		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+		defer cancel()
+		if err := readinessCheck(ctx); err != nil {
+			slog.ErrorContext(request.Context(), "gateway readiness check failed",
+				"request_id", requestIDFromContext(request.Context()),
+				"error", err,
+			)
+			writeAPIError(writer, request, http.StatusServiceUnavailable, "service_not_ready", "服务暂未就绪")
+			return
+		}
+		writeJSON(writer, http.StatusOK, healthResponse{Service: "gateway", Status: "ok"})
+	}))
 	mux.HandleFunc("/api/v1", requireMethod(http.MethodGet, func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, serviceInfoResponse{
 			Service:    "gateway",
@@ -44,7 +63,36 @@ func newHandler() http.Handler {
 			Status:     "ok",
 		})
 	}))
+	mux.HandleFunc("/api/v1/auth/register", authRegisterHandler)
+	mux.HandleFunc("/api/v1/auth/login", authLoginHandler)
+	mux.HandleFunc("/api/v1/auth/logout", authLogoutHandler)
+	mux.HandleFunc("/api/v1/auth/logout-all", authLogoutAllHandler)
+	mux.HandleFunc("/api/v1/auth/sessions", authSessionsHandler)
+	mux.HandleFunc("/api/v1/auth/sessions/{sessionID}", authSessionHandler)
+	mux.HandleFunc("/api/v1/auth/password", authPasswordHandler)
+	mux.HandleFunc("/api/v1/auth/password-reset/request", authPasswordResetRequestHandler)
+	mux.HandleFunc("/api/v1/auth/password-reset/confirm", authPasswordResetConfirmHandler)
+	mux.HandleFunc("/api/v1/auth/me", authMeHandler)
+	mux.HandleFunc("/api/v1/auth/oauth/{provider}/start", oauthStartHandler)
+	mux.HandleFunc("/api/v1/auth/oauth/{provider}/callback", oauthCallbackHandler)
+	mux.HandleFunc("/api/v1/favorites", favoritesHandler)
+	mux.HandleFunc("/api/v1/files/presign-upload", objectUploadAuthorizationHandler)
+	mux.HandleFunc("/api/v1/files/author-asset", authorInlineAssetHandler)
+	mux.HandleFunc("/api/v1/author/projects", authorProjectsHandler)
+	mux.HandleFunc("/api/v1/author/projects/", authorProjectHandler)
+	mux.HandleFunc("/api/v1/admin/reviews", adminReviewsHandler)
+	mux.HandleFunc("/api/v1/admin/reviews/", adminReviewActionHandler)
 	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
+	mux.HandleFunc("/api/v1/projects/{slug}/favorite", projectFavoriteHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/collaboration/access", collaborationAccessHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/collaboration/ws", projectCollaborationWebSocketHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/collaborators", projectCollaboratorsHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/collaborators/{userID}", projectCollaboratorHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/resources/{kind}", projectResourceDownloadHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/assets", projectInlineAssetHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/events", documentCommentEventsHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies/{replyID}", documentCommentReplyHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies", documentCommentRepliesHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}", documentCommentHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments", documentCommentsHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents", requireMethod(http.MethodGet, documentListHandler))
@@ -111,6 +159,93 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	var database *sql.DB
+	if databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); databaseURL != "" {
+		connectContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var err error
+		database, err = openMySQLDatabase(connectContext, databaseURL)
+		cancel()
+		if err != nil {
+			slog.Error("gateway database initialization failed", "error", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+		commentRepositoryStore = newMySQLCommentRepository(database)
+		authRepositoryStore = newMySQLAuthRepository(database)
+		favoriteRepositoryStore = newMySQLFavoriteRepository(database)
+		managedProjectRepositoryStore = newMySQLManagedProjectRepository(database)
+		collaborationRepositoryStore = newMySQLCollaborationRepository(database)
+		readinessCheck = database.PingContext
+		slog.Info("mysql comment repository enabled")
+	}
+
+	if redisURL := strings.TrimSpace(os.Getenv("REDIS_URL")); redisURL != "" {
+		options, err := redis.ParseURL(redisURL)
+		if err != nil {
+			slog.Error("gateway redis configuration is invalid", "error", err)
+			os.Exit(1)
+		}
+		redisClient := redis.NewClient(options)
+		connectContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = redisClient.Ping(connectContext).Err()
+		cancel()
+		if err != nil {
+			_ = redisClient.Close()
+			slog.Error("gateway redis initialization failed", "error", err)
+			os.Exit(1)
+		}
+		defer redisClient.Close()
+		authRateLimiter = newRedisAuthLimiter(redisClient)
+		previousReadinessCheck := readinessCheck
+		readinessCheck = func(ctx context.Context) error {
+			if err := previousReadinessCheck(ctx); err != nil {
+				return err
+			}
+			return redisClient.Ping(ctx).Err()
+		}
+		slog.Info("redis authentication rate limiter enabled")
+	}
+
+	if smtpHost := strings.TrimSpace(os.Getenv("SMTP_HOST")); smtpHost != "" {
+		smtpPort := 465
+		if rawPort := strings.TrimSpace(os.Getenv("SMTP_PORT")); rawPort != "" {
+			parsedPort, err := strconv.Atoi(rawPort)
+			if err != nil {
+				slog.Error("gateway SMTP port is invalid", "error", err)
+				os.Exit(1)
+			}
+			smtpPort = parsedPort
+		}
+		if strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")) == "" {
+			slog.Error("gateway password reset requires PUBLIC_BASE_URL")
+			os.Exit(1)
+		}
+		delivery, err := newSMTPPasswordResetDelivery(
+			smtpHost, smtpPort, os.Getenv("SMTP_USERNAME"),
+			os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM"),
+		)
+		if err != nil {
+			slog.Error("gateway SMTP configuration is invalid", "error", err)
+			os.Exit(1)
+		}
+		passwordResetDeliveryStore = delivery
+		slog.Info("SMTP password reset delivery enabled", "host", smtpHost, "port", smtpPort)
+	}
+
+	if accessKeyID := strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY_ID")); accessKeyID != "" {
+		storage, err := newAliyunObjectStorage(
+			os.Getenv("OSS_REGION"), os.Getenv("OSS_ENDPOINT"), os.Getenv("OSS_BUCKET"),
+			accessKeyID, os.Getenv("OSS_ACCESS_KEY_SECRET"),
+		)
+		if err != nil {
+			slog.Error("gateway OSS configuration is invalid", "error", err)
+			os.Exit(1)
+		}
+		objectStorageStore = storage
+		slog.Info("Aliyun OSS object storage enabled",
+			"region", os.Getenv("OSS_REGION"), "bucket", os.Getenv("OSS_BUCKET"))
 	}
 
 	server := &http.Server{

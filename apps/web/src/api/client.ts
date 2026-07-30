@@ -4,6 +4,122 @@ export type ServiceInfo = {
   status: string
 }
 
+export type AuthUser = {
+  id: string
+  email: string
+  display_name: string
+  has_password: boolean
+  is_admin: boolean
+}
+
+export type AuthResponse = {
+  data: AuthUser
+  request_id: string
+}
+
+export type AuthSession = {
+  id: string
+  created_at: string
+  expires_at: string
+  current: boolean
+}
+
+export type SessionListResponse = {
+  data: AuthSession[]
+  request_id: string
+}
+
+export type FavoriteListResponse = {
+  data: string[]
+  request_id: string
+}
+
+export type AcceptedResponse = {
+  request_id: string
+}
+
+export type ManagedProject = {
+  id: string
+  owner_id: string
+  slug: string
+  name: string
+  summary: string
+  description: string
+  category: string
+  tags: string[]
+  tech_stack: string[]
+  license: string
+  repository_url: string
+  cover_object_key: string
+  document_object_key: string
+  code_object_key: string
+  current_version: string
+  status: 'draft' | 'pending_review' | 'published' | 'rejected' | 'archived'
+  review_reason: string
+  submitted_at?: string
+  published_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export type ManagedProjectInput = {
+  slug: string
+  name: string
+  summary: string
+  description: string
+  category: string
+  tags: string[]
+  tech_stack: string[]
+  license: string
+  repository_url: string
+  cover_object_key: string
+  document_object_key: string
+  code_object_key: string
+  current_version: string
+}
+
+export type ManagedProjectListResponse = {
+  data: ManagedProject[]
+  request_id: string
+}
+
+export type ManagedProjectResponse = {
+  data: ManagedProject
+  request_id: string
+}
+
+export type CollaborationAccess = {
+  role: 'owner' | 'editor' | 'viewer'
+  can_edit: boolean
+  can_manage: boolean
+}
+
+export type ProjectCollaborator = {
+  project_id: string
+  user_id: string
+  email: string
+  display_name: string
+  role: 'editor' | 'viewer'
+  invited_by: string
+  created_at: string
+  updated_at: string
+}
+
+export type CollaborationAccessResponse = {
+  data: CollaborationAccess
+  request_id: string
+}
+
+export type ProjectCollaboratorListResponse = {
+  data: ProjectCollaborator[]
+  request_id: string
+}
+
+export type ProjectCollaboratorResponse = {
+  data: ProjectCollaborator
+  request_id: string
+}
+
 export type ProjectSummary = {
   id: string
   slug: string
@@ -40,6 +156,11 @@ export type ProjectDetail = ProjectSummary & {
   use_cases: string[]
   repository: string
   current_version: string
+  resources: {
+    cover: boolean
+    document: boolean
+    code: boolean
+  }
 }
 
 export type ProjectDetailResponse = {
@@ -92,13 +213,18 @@ export type DocumentDetailResponse = {
 export type DocumentComment = {
   id: string
   document_id: string
+  parent_id: string | null
   block_id: string
+  author_id?: string
   author: string
   quote: string
   body: string
   status: 'open' | 'resolved'
   created_at: string
+  updated_at: string
   resolved_at: string | null
+  replies: DocumentComment[]
+  reply_count: number
 }
 
 export type CommentListResponse = {
@@ -141,6 +267,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   const response = await fetch(`${apiBaseURL}${path}`, {
     ...options,
+    credentials: 'include',
     headers,
   })
 
@@ -154,7 +281,130 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     )
   }
 
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+export function getCurrentUser(signal?: AbortSignal) {
+  return apiRequest<AuthResponse>('/api/v1/auth/me', { signal })
+}
+
+export function updateCurrentUser(input: { display_name: string }) {
+  return apiRequest<AuthResponse>('/api/v1/auth/me', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function register(input: { email: string; display_name: string; password: string }) {
+  return apiRequest<AuthResponse>('/api/v1/auth/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function login(input: { email: string; password: string }) {
+  return apiRequest<AuthResponse>('/api/v1/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function logout() {
+  return apiRequest<void>('/api/v1/auth/logout', { method: 'POST' })
+}
+
+export function logoutAll() {
+  return apiRequest<void>('/api/v1/auth/logout-all', { method: 'POST' })
+}
+
+export function getAuthSessions(signal?: AbortSignal) {
+  return apiRequest<SessionListResponse>('/api/v1/auth/sessions', { signal })
+}
+
+export function revokeAuthSession(sessionID: string) {
+  return apiRequest<void>(`/api/v1/auth/sessions/${encodeURIComponent(sessionID)}`, { method: 'DELETE' })
+}
+
+export function changePassword(input: { current_password: string; new_password: string }) {
+  return apiRequest<void>('/api/v1/auth/password', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function requestPasswordReset(email: string) {
+  return apiRequest<AcceptedResponse>('/api/v1/auth/password-reset/request', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  })
+}
+
+export function confirmPasswordReset(input: { token: string; new_password: string }) {
+  return apiRequest<void>('/api/v1/auth/password-reset/confirm', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function getAuthorProjects(signal?: AbortSignal) {
+  return apiRequest<ManagedProjectListResponse>('/api/v1/author/projects', { signal })
+}
+
+export function createAuthorProject(input: ManagedProjectInput) {
+  return apiRequest<ManagedProjectResponse>('/api/v1/author/projects', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function submitAuthorProject(projectID: string) {
+  return apiRequest<ManagedProjectResponse>(`/api/v1/author/projects/${encodeURIComponent(projectID)}/submit`, {
+    method: 'POST',
+  })
+}
+
+export function updateAuthorProject(projectID: string, input: ManagedProjectInput) {
+  return apiRequest<ManagedProjectResponse>(`/api/v1/author/projects/${encodeURIComponent(projectID)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function getPendingProjectReviews(signal?: AbortSignal) {
+  return apiRequest<ManagedProjectListResponse>('/api/v1/admin/reviews', { signal })
+}
+
+export function reviewProject(projectID: string, action: 'approve' | 'reject', reason: string) {
+  return apiRequest<ManagedProjectResponse>(`/api/v1/admin/reviews/${encodeURIComponent(projectID)}/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  })
+}
+
+export async function uploadProjectFile(file: File, kind: 'image' | 'document' | 'code') {
+  const extension = file.name.toLowerCase().split('.').pop() ?? ''
+  const inferredTypes: Record<string, string> = {
+    md: 'text/markdown', txt: 'text/plain', pdf: 'application/pdf',
+    zip: 'application/zip', gz: 'application/gzip', tgz: 'application/gzip',
+    tar: 'application/x-tar',
+  }
+  const contentType = file.type || inferredTypes[extension] || 'application/octet-stream'
+  const authorization = await apiRequest<{
+    data: { object_key: string; method: string; url: string; headers: Record<string, string>; expires_at: string }
+  }>('/api/v1/files/presign-upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, content_type: contentType, size: file.size, kind }),
+  })
+  const response = await fetch(authorization.data.url, {
+    method: authorization.data.method,
+    headers: authorization.data.headers,
+    body: file,
+  })
+  if (!response.ok) throw new Error(`OSS 上传失败（HTTP ${response.status}）`)
+  return authorization.data.object_key
+}
+
+export function getFavorites(signal?: AbortSignal) {
+  return apiRequest<FavoriteListResponse>('/api/v1/favorites', { signal })
+}
+
+export function setProjectFavorite(projectSlug: string, favorite: boolean) {
+  return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/favorite`, {
+    method: favorite ? 'POST' : 'DELETE',
+  })
 }
 
 export function getServiceInfo(signal?: AbortSignal) {
@@ -180,6 +430,46 @@ export function getProject(slug: string, signal?: AbortSignal) {
   return apiRequest<ProjectDetailResponse>(`/api/v1/projects/${encodeURIComponent(slug)}`, { signal })
 }
 
+export function getProjectCollaborationAccess(slug: string, signal?: AbortSignal) {
+  return apiRequest<CollaborationAccessResponse>(
+    `/api/v1/projects/${encodeURIComponent(slug)}/collaboration/access`,
+    { signal },
+  )
+}
+
+export function getProjectCollaborators(slug: string, signal?: AbortSignal) {
+  return apiRequest<ProjectCollaboratorListResponse>(
+    `/api/v1/projects/${encodeURIComponent(slug)}/collaborators`,
+    { signal },
+  )
+}
+
+export function setProjectCollaborator(
+  slug: string,
+  input: { email: string; role: 'editor' | 'viewer' },
+) {
+  return apiRequest<ProjectCollaboratorResponse>(
+    `/api/v1/projects/${encodeURIComponent(slug)}/collaborators`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
+  )
+}
+
+export function deleteProjectCollaborator(slug: string, userID: string) {
+  return apiRequest<void>(
+    `/api/v1/projects/${encodeURIComponent(slug)}/collaborators/${encodeURIComponent(userID)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export function getProjectCollaborationWebSocketURL(slug: string) {
+  const base = apiBaseURL ? new URL(apiBaseURL, window.location.origin) : new URL(window.location.origin)
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
+  base.pathname = `/api/v1/projects/${encodeURIComponent(slug)}/collaboration/ws`
+  base.search = ''
+  base.hash = ''
+  return base.toString()
+}
+
 export function getDocuments(projectSlug: string, signal?: AbortSignal) {
   return apiRequest<DocumentListResponse>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/documents`, { signal })
 }
@@ -198,10 +488,14 @@ export function getDocumentComments(projectSlug: string, documentSlug: string, s
   )
 }
 
+export function getDocumentCommentEventsURL(projectSlug: string, documentSlug: string) {
+  return `${apiBaseURL}/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/events`
+}
+
 export function createDocumentComment(
   projectSlug: string,
   documentSlug: string,
-  input: { block_id: string; author: string; quote: string; body: string },
+  input: { block_id: string; quote: string; body: string },
 ) {
   return apiRequest<CommentResponse>(
     `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments`,
@@ -213,5 +507,61 @@ export function resolveDocumentComment(projectSlug: string, documentSlug: string
   return apiRequest<CommentResponse>(
     `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}`,
     { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'resolved' }) },
+  )
+}
+
+export function deleteDocumentComment(projectSlug: string, documentSlug: string, commentID: string) {
+  return apiRequest<void>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export function updateDocumentComment(
+  projectSlug: string,
+  documentSlug: string,
+  commentID: string,
+  body: string,
+) {
+  return apiRequest<CommentResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) },
+  )
+}
+
+export function createDocumentCommentReply(
+  projectSlug: string,
+  documentSlug: string,
+  commentID: string,
+  input: { body: string },
+) {
+  return apiRequest<CommentResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}/replies`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
+  )
+}
+
+export function deleteDocumentCommentReply(
+  projectSlug: string,
+  documentSlug: string,
+  commentID: string,
+  replyID: string,
+) {
+  return apiRequest<void>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}/replies/${encodeURIComponent(replyID)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export function updateDocumentCommentReply(
+  projectSlug: string,
+  documentSlug: string,
+  commentID: string,
+  replyID: string,
+  body: string,
+) {
+  return apiRequest<CommentResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}/replies/${encodeURIComponent(replyID)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) },
   )
 }

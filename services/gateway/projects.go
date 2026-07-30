@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -48,11 +49,18 @@ type projectListResponse struct {
 
 type projectDetail struct {
 	projectSummary
-	Description    string   `json:"description"`
-	Highlights     []string `json:"highlights"`
-	UseCases       []string `json:"use_cases"`
-	Repository     string   `json:"repository"`
-	CurrentVersion string   `json:"current_version"`
+	Description    string           `json:"description"`
+	Highlights     []string         `json:"highlights"`
+	UseCases       []string         `json:"use_cases"`
+	Repository     string           `json:"repository"`
+	CurrentVersion string           `json:"current_version"`
+	Resources      projectResources `json:"resources"`
+}
+
+type projectResources struct {
+	Cover    bool `json:"cover"`
+	Document bool `json:"document"`
+	Code     bool `json:"code"`
 }
 
 type projectDetailResponse struct {
@@ -179,7 +187,16 @@ func projectListHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	filtered := filterProjects(seedProjects, query, category)
+	projects := append([]projectSummary(nil), seedProjects...)
+	managed, err := managedProjectRepositoryStore.ListPublished(request.Context())
+	if err != nil {
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "项目服务暂时不可用")
+		return
+	}
+	for _, project := range managed {
+		projects = append(projects, managedProjectSummary(project))
+	}
+	filtered := filterProjects(projects, query, category)
 	sortProjects(filtered, sortBy)
 
 	total := len(filtered)
@@ -214,14 +231,39 @@ func projectDetailHandler(writer http.ResponseWriter, request *http.Request) {
 
 	project, found := seedProjectDetails[slug]
 	if !found {
-		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
-		return
+		managed, managedFound, err := managedProjectRepositoryStore.FindPublishedBySlug(request.Context(), slug)
+		if err != nil {
+			writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "项目服务暂时不可用")
+			return
+		}
+		if !managedFound {
+			writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
+			return
+		}
+		project = projectDetail{
+			projectSummary: managedProjectSummary(managed),
+			Description:    managed.Description, Repository: managed.RepositoryURL,
+			CurrentVersion: managed.CurrentVersion,
+			Resources: projectResources{
+				Cover: managed.CoverObjectKey != "", Document: managed.DocumentObjectKey != "",
+				Code: managed.CodeObjectKey != "",
+			},
+		}
 	}
 
 	writeJSON(writer, http.StatusOK, projectDetailResponse{
 		Data:      project,
 		RequestID: requestIDFromContext(request.Context()),
 	})
+}
+
+func managedProjectSummary(project managedProject) projectSummary {
+	return projectSummary{
+		ID: project.ID, Slug: project.Slug, Name: project.Name, Summary: project.Summary,
+		Category: project.Category, Tags: project.Tags, Stack: project.TechStack,
+		License: project.License, Status: "已发布", Maintainer: "社区作者",
+		UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339),
+	}
 }
 
 func positiveQueryInteger(request *http.Request, writer http.ResponseWriter, name string, fallback, minimum, maximum int) (int, bool) {

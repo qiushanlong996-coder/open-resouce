@@ -33,6 +33,19 @@ type statusRecorder struct {
 	status int
 }
 
+func (recorder *statusRecorder) Unwrap() http.ResponseWriter {
+	return recorder.ResponseWriter
+}
+
+func (recorder *statusRecorder) Flush() {
+	if recorder.status == 0 {
+		recorder.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := recorder.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (recorder *statusRecorder) WriteHeader(status int) {
 	recorder.status = status
 	recorder.ResponseWriter.WriteHeader(status)
@@ -104,7 +117,8 @@ func corsMiddleware(allowedOrigins map[string]struct{}, next http.Handler) http.
 		}
 
 		writer.Header().Set("Access-Control-Allow-Origin", origin)
-		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
 		writer.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		writer.Header().Set("Access-Control-Max-Age", "600")

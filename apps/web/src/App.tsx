@@ -1,5 +1,5 @@
-import { isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { isValidElement, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import {
@@ -24,34 +24,80 @@ import {
   Moon,
   MoreHorizontal,
   Palette,
+  Pencil,
   Play,
   Search,
   Send,
   Share2,
+  ShieldCheck,
   Sparkles,
   Star,
   Sun,
   Tag,
+  Trash2,
   Upload,
+  UserPlus,
   X,
 } from 'lucide-react'
 import {
+  changePassword,
+  confirmPasswordReset,
+  createAuthorProject,
   createDocumentComment,
+  createDocumentCommentReply,
+  deleteDocumentComment,
+  deleteDocumentCommentReply,
+  deleteProjectCollaborator,
   getDocument,
+  getDocumentCommentEventsURL,
   getDocumentComments,
+  getAuthSessions,
+  getAuthorProjects,
+  getPendingProjectReviews,
+  getCurrentUser,
   getDocuments,
+  getFavorites,
   getProject,
+  getProjectCollaborationAccess,
+  getProjectCollaborators,
+  getProjectCollaborationWebSocketURL,
   getProjects,
   getServiceInfo,
+  login,
+  logout,
+  logoutAll,
+  register,
+  requestPasswordReset,
+  reviewProject,
+  revokeAuthSession,
+  setProjectFavorite,
+  setProjectCollaborator,
+  submitAuthorProject,
+  uploadProjectFile,
   resolveDocumentComment,
+  updateDocumentComment,
+  updateDocumentCommentReply,
+  updateCurrentUser,
+  updateAuthorProject,
   type DocumentComment as APIDocumentComment,
   type DocumentDetail,
   type DocumentNode,
+  type AuthSession,
+  type AuthUser,
+  type ManagedProject,
+  type ManagedProjectInput,
+  type CollaborationAccess,
+  type ProjectCollaborator,
   type ProjectDetail as APIProjectDetail,
   type ProjectSummary,
   type ServiceInfo,
 } from './api/client'
+import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
 import './App.css'
+
+const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
+const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
+const CollaborativeMarkdownEditor = lazy(() => import('./CollaborativeMarkdownEditor'))
 
 type Project = {
   id: string
@@ -75,17 +121,23 @@ type Project = {
   highlights?: string[]
   useCases?: string[]
   currentVersion?: string
+  resources?: { cover: boolean; document: boolean; code: boolean }
 }
 
 type CommentItem = {
   id: string
   blockId: string
+  authorId: string
   user: string
   initials: string
   time: string
   quote: string
   text: string
   status: 'open' | 'resolved'
+  replies: CommentItem[]
+  replyCount: number
+  updatedAt: string
+  edited: boolean
 }
 
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -185,22 +237,32 @@ const initialComments: CommentItem[] = [
   {
     id: 'demo-comment-1',
     blockId: 'block-atlas-collaboration',
+    authorId: '',
     user: '林默',
     initials: '林',
     time: '18 分钟前',
     quote: '每个节点都需要声明输入、输出和失败策略。',
     text: '这里是否可以补充一个最小节点示例？新用户会更容易理解。',
     status: 'open',
+    replies: [],
+    replyCount: 0,
+    updatedAt: '',
+    edited: false,
   },
   {
     id: 'demo-comment-2',
     blockId: 'block-atlas-task',
+    authorId: '',
     user: '苏打',
     initials: '苏',
     time: '昨天',
     quote: '规划器会将目标拆解为多个可执行步骤。',
     text: '这一段已经在快速开始中补充了示例，问题已解决。',
     status: 'resolved',
+    replies: [],
+    replyCount: 0,
+    updatedAt: '',
+    edited: false,
   },
 ]
 
@@ -249,6 +311,7 @@ function mapProjectDetail(project: APIProjectDetail): Project {
     useCases: project.use_cases,
     repo: project.repository,
     currentVersion: project.current_version,
+    resources: project.resources,
   }
 }
 
@@ -256,12 +319,17 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
   return {
     id: comment.id,
     blockId: comment.block_id,
+    authorId: comment.author_id ?? '',
     user: comment.author,
     initials: comment.author.slice(0, 1),
     time: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(comment.created_at)),
     quote: comment.quote,
     text: comment.body,
     status: comment.status,
+    replies: comment.replies.map(mapDocumentComment),
+    replyCount: comment.reply_count,
+    updatedAt: comment.updated_at,
+    edited: comment.updated_at !== comment.created_at,
   }
 }
 
@@ -283,12 +351,28 @@ function App() {
   const [commentsState, setCommentsState] = useState<CatalogState>('online')
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [resolvingCommentID, setResolvingCommentID] = useState<string | null>(null)
+  const [deletingCommentID, setDeletingCommentID] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState('')
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [selectedQuote, setSelectedQuote] = useState('每个节点都需要声明输入、输出和失败策略。')
   const [selectedBlockID, setSelectedBlockID] = useState('block-atlas-collaboration')
   const [toast, setToast] = useState('')
-  const [loginOpen, setLoginOpen] = useState(false)
+  const [loginOpen, setLoginOpen] = useState(() => new URLSearchParams(window.location.search).has('reset_token'))
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
+  const [accountPanelOpen, setAccountPanelOpen] = useState(false)
+  const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
+  const [reviewCenterOpen, setReviewCenterOpen] = useState(false)
+  const [logoutSubmitting, setLogoutSubmitting] = useState(false)
+  const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [revokingSessionID, setRevokingSessionID] = useState<string | null>(null)
+  const [passwordEditing, setPasswordEditing] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
+  const [profileEditing, setProfileEditing] = useState(false)
+  const [profileDisplayName, setProfileDisplayName] = useState('')
+  const [profileSubmitting, setProfileSubmitting] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = window.localStorage.getItem('xinyuan-theme-mode')
@@ -326,6 +410,43 @@ function App() {
       })
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) {
+      setSaved([])
+      return
+    }
+    const controller = new AbortController()
+    getFavorites(controller.signal)
+      .then((response) => setSaved(response.data))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        showToast('收藏状态加载失败，请稍后重试')
+      })
+    return () => controller.abort()
+  }, [currentUser])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getCurrentUser(controller.signal)
+      .then((response) => setCurrentUser(response.data))
+      .catch(() => setCurrentUser(null))
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!currentUser || !accountPanelOpen) return
+    const controller = new AbortController()
+    setSessionsLoading(true)
+    getAuthSessions(controller.signal)
+      .then((response) => setAuthSessions(response.data))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        showToast('登录会话加载失败，请稍后重试')
+      })
+      .finally(() => setSessionsLoading(false))
+    return () => controller.abort()
+  }, [accountPanelOpen, currentUser])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -372,20 +493,60 @@ function App() {
     return () => controller.abort()
   }, [activeDocument, selectedProject])
 
+  useEffect(() => {
+    if (!selectedProject || !activeDocument) return
+    const projectSlug = selectedProject.slug
+    const documentSlug = activeDocument.slug
+    const eventSource = new EventSource(getDocumentCommentEventsURL(projectSlug, documentSlug))
+    let refreshController: AbortController | null = null
+
+    eventSource.onopen = () => setCommentsState('online')
+    eventSource.onerror = () => setCommentsState('offline')
+    const refreshComments = () => {
+      refreshController?.abort()
+      refreshController = new AbortController()
+      getDocumentComments(projectSlug, documentSlug, refreshController.signal)
+        .then((response) => {
+          setComments(response.data.map(mapDocumentComment))
+          setCommentsState('online')
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          setCommentsState('offline')
+        })
+    }
+    eventSource.addEventListener('comment', refreshComments)
+
+    return () => {
+      refreshController?.abort()
+      eventSource.removeEventListener('comment', refreshComments)
+      eventSource.close()
+    }
+  }, [activeDocument, selectedProject])
+
   const filteredProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
     return catalogProjects.filter((project) => {
+      if (activeTab === '我的收藏' && !saved.includes(project.id)) return false
       const matchesCategory = activeCategory === '全部项目' || project.category === activeCategory
       const haystack = [project.name, project.summary, project.category, ...project.tags, ...project.stack]
         .join(' ')
         .toLowerCase()
       return matchesCategory && (!normalizedSearch || haystack.includes(normalizedSearch))
     })
-  }, [activeCategory, catalogProjects, search])
+  }, [activeCategory, activeTab, catalogProjects, saved, search])
 
   const showToast = (message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2400)
+  }
+
+  const updatePublishedDocument = (markdown: string) => {
+    const slug = selectedProjectSlug.current
+    if (!slug) return
+    setSelectedProject((current) => current?.slug === slug ? { ...current, description: markdown } : current)
+    setCatalogProjects((current) => current.map((project) =>
+      project.slug === slug ? { ...project, description: markdown } : project))
   }
 
   const closeProject = () => {
@@ -442,9 +603,23 @@ function App() {
       })
   }
 
-  const toggleSaved = (projectId: string) => {
-    setSaved((current) => (current.includes(projectId) ? current.filter((id) => id !== projectId) : [...current, projectId]))
-    showToast(saved.includes(projectId) ? '已取消收藏' : '已收藏到个人中心')
+  const toggleSaved = async (projectId: string) => {
+    if (!currentUser) {
+      setLoginOpen(true)
+      showToast('登录后才能收藏项目')
+      return
+    }
+    const project = catalogProjects.find((item) => item.id === projectId)
+    if (!project) return
+    const wasSaved = saved.includes(projectId)
+    setSaved((current) => wasSaved ? current.filter((id) => id !== projectId) : [...current, projectId])
+    try {
+      await setProjectFavorite(project.slug, !wasSaved)
+      showToast(wasSaved ? '已取消收藏' : '已收藏到个人中心')
+    } catch {
+      setSaved((current) => wasSaved ? [...current, projectId] : current.filter((id) => id !== projectId))
+      showToast('收藏状态更新失败，请稍后重试')
+    }
   }
 
   const handleSelection = () => {
@@ -465,11 +640,15 @@ function App() {
 
   const submitComment = async () => {
     if (!draftComment.trim() || !selectedProject || !activeDocument) return
+    if (!currentUser) {
+      setLoginOpen(true)
+      showToast('登录后才能发表评论')
+      return
+    }
     setCommentSubmitting(true)
     try {
       const response = await createDocumentComment(selectedProject.slug, activeDocument.slug, {
         block_id: selectedBlockID,
-        author: '我',
         quote: selectedQuote,
         body: draftComment.trim(),
       })
@@ -486,6 +665,10 @@ function App() {
 
   const resolveComment = async (commentId: string) => {
     if (!selectedProject || !activeDocument) return
+    if (!currentUser) {
+      setLoginOpen(true)
+      return
+    }
     setResolvingCommentID(commentId)
     try {
       const response = await resolveDocumentComment(selectedProject.slug, activeDocument.slug, commentId)
@@ -495,6 +678,195 @@ function App() {
       showToast('评论状态更新失败，请稍后重试')
     } finally {
       setResolvingCommentID(null)
+    }
+  }
+
+  const replyToComment = async (commentId: string, body: string) => {
+    if (!selectedProject || !activeDocument || !body.trim()) return false
+    if (!currentUser) {
+      setLoginOpen(true)
+      showToast('登录后才能回复')
+      return false
+    }
+    try {
+      const response = await createDocumentCommentReply(
+        selectedProject.slug,
+        activeDocument.slug,
+        commentId,
+        { body: body.trim() },
+      )
+      const reply = mapDocumentComment(response.data)
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId
+          ? { ...comment, replies: [...comment.replies, reply], replyCount: comment.replyCount + 1 }
+          : comment
+      )))
+      showToast('回复已发布')
+      return true
+    } catch {
+      showToast('回复发布失败，请稍后重试')
+      return false
+    }
+  }
+
+  const deleteReply = async (commentId: string, replyId: string) => {
+    if (!selectedProject || !activeDocument) return false
+    if (!currentUser) {
+      setLoginOpen(true)
+      return false
+    }
+    try {
+      await deleteDocumentCommentReply(selectedProject.slug, activeDocument.slug, commentId, replyId)
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId
+          ? {
+              ...comment,
+              replies: comment.replies.filter((reply) => reply.id !== replyId),
+              replyCount: Math.max(0, comment.replyCount - 1),
+            }
+          : comment
+      )))
+      showToast('回复已删除')
+      return true
+    } catch {
+      showToast('回复删除失败，请稍后重试')
+      return false
+    }
+  }
+
+  const deleteComment = async (commentId: string) => {
+    if (!selectedProject || !activeDocument || !currentUser) return false
+    setDeletingCommentID(commentId)
+    try {
+      await deleteDocumentComment(selectedProject.slug, activeDocument.slug, commentId)
+      setComments((current) => current.filter((comment) => comment.id !== commentId))
+      showToast('评论线程已删除')
+      return true
+    } catch {
+      showToast('评论删除失败，请稍后重试')
+      return false
+    } finally {
+      setDeletingCommentID(null)
+    }
+  }
+
+  const editComment = async (commentId: string, body: string) => {
+    if (!selectedProject || !activeDocument || !body.trim()) return false
+    if (!currentUser) {
+      setLoginOpen(true)
+      return false
+    }
+    try {
+      const response = await updateDocumentComment(
+        selectedProject.slug, activeDocument.slug, commentId, body.trim(),
+      )
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId ? mapDocumentComment(response.data) : comment
+      )))
+      showToast('评论已更新')
+      return true
+    } catch {
+      showToast('评论更新失败，请稍后重试')
+      return false
+    }
+  }
+
+  const editReply = async (commentId: string, replyId: string, body: string) => {
+    if (!selectedProject || !activeDocument || !body.trim()) return false
+    if (!currentUser) {
+      setLoginOpen(true)
+      return false
+    }
+    try {
+      const response = await updateDocumentCommentReply(
+        selectedProject.slug, activeDocument.slug, commentId, replyId, body.trim(),
+      )
+      const updatedReply = mapDocumentComment(response.data)
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId
+          ? {
+              ...comment,
+              replies: comment.replies.map((reply) => reply.id === replyId ? updatedReply : reply),
+            }
+          : comment
+      )))
+      showToast('回复已更新')
+      return true
+    } catch {
+      showToast('回复更新失败，请稍后重试')
+      return false
+    }
+  }
+
+  const performLogout = async (allDevices: boolean) => {
+    if (logoutSubmitting) return
+    setLogoutSubmitting(true)
+    try {
+      if (allDevices) await logoutAll()
+      else await logout()
+      setCurrentUser(null)
+      setAuthSessions([])
+      setSaved([])
+      setAccountPanelOpen(false)
+      showToast(allDevices ? '所有设备已退出登录' : '已退出当前设备')
+    } catch {
+      showToast('退出失败，请稍后重试')
+    } finally {
+      setLogoutSubmitting(false)
+    }
+  }
+
+  const revokeSession = async (session: AuthSession) => {
+    if (revokingSessionID) return
+    setRevokingSessionID(session.id)
+    try {
+      await revokeAuthSession(session.id)
+      if (session.current) {
+        setCurrentUser(null)
+        setAuthSessions([])
+        setAccountPanelOpen(false)
+        showToast('已退出当前设备')
+      } else {
+        setAuthSessions((current) => current.filter((item) => item.id !== session.id))
+        showToast('指定设备已退出登录')
+      }
+    } catch {
+      showToast('会话撤销失败，请稍后重试')
+    } finally {
+      setRevokingSessionID(null)
+    }
+  }
+
+  const submitPasswordChange = async () => {
+    if (passwordSubmitting || !currentPassword || newPassword.length < 8) return
+    setPasswordSubmitting(true)
+    try {
+      await changePassword({ current_password: currentPassword, new_password: newPassword })
+      setCurrentPassword('')
+      setNewPassword('')
+      setPasswordEditing(false)
+      setAuthSessions((current) => current.filter((session) => session.current))
+      showToast('密码已修改，其他设备已退出登录')
+    } catch {
+      showToast('密码修改失败，请检查当前密码和新密码')
+    } finally {
+      setPasswordSubmitting(false)
+    }
+  }
+
+  const submitProfileUpdate = async () => {
+    const displayName = profileDisplayName.trim()
+    if (profileSubmitting || displayName.length < 2) return
+    setProfileSubmitting(true)
+    try {
+      const response = await updateCurrentUser({ display_name: displayName })
+      setCurrentUser(response.data)
+      setProfileEditing(false)
+      showToast('昵称已更新')
+    } catch {
+      showToast('昵称更新失败，请稍后重试')
+    } finally {
+      setProfileSubmitting(false)
     }
   }
 
@@ -530,7 +902,101 @@ function App() {
             {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); setThemePanelOpen(false) }} onSkinChange={setSkin} />}
           </div>
           <button className="icon-button quiet" title="通知" aria-label="通知" onClick={() => showToast('暂时没有新的通知')}><Bell size={18} /></button>
-          <button className="login-button" onClick={() => setLoginOpen(true)}><CircleUserRound size={16} /> 登录</button>
+          <div className="account-control">
+            <button
+              className="login-button"
+              title={currentUser ? '打开账号菜单' : '登录或注册'}
+              aria-expanded={currentUser ? accountPanelOpen : undefined}
+              onClick={() => currentUser ? setAccountPanelOpen((open) => !open) : setLoginOpen(true)}
+            >
+              <CircleUserRound size={16} /> {currentUser?.display_name ?? '登录'}
+            </button>
+            {currentUser && accountPanelOpen && (
+              <div className="account-popover">
+                <div className="account-summary">
+                  <strong>{currentUser.display_name}</strong>
+                  <small>{sessionsLoading ? '正在加载登录设备…' : `${authSessions.length} 个活跃会话`}</small>
+                </div>
+                {profileEditing ? (
+                  <div className="profile-editor">
+                    <input
+                      autoFocus
+                      maxLength={80}
+                      value={profileDisplayName}
+                      onChange={(event) => setProfileDisplayName(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === 'Enter') void submitProfileUpdate() }}
+                      placeholder="昵称"
+                    />
+                    <div>
+                      <button disabled={profileSubmitting || profileDisplayName.trim().length < 2} onClick={() => void submitProfileUpdate()}>
+                        {profileSubmitting ? '保存中…' : '保存昵称'}
+                      </button>
+                      <button disabled={profileSubmitting} onClick={() => setProfileEditing(false)}>取消</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => { setProfileDisplayName(currentUser.display_name); setProfileEditing(true) }}>编辑昵称</button>
+                )}
+                <div className="session-list" aria-label="登录设备">
+                  {authSessions.map((session) => (
+                    <div className="session-row" key={session.id}>
+                      <span>
+                        <strong>{session.current ? '当前设备' : '其他设备'}</strong>
+                        <small>{new Date(session.created_at).toLocaleString('zh-CN')}</small>
+                      </span>
+                      <button
+                        disabled={revokingSessionID !== null || logoutSubmitting}
+                        onClick={() => void revokeSession(session)}
+                      >
+                        {revokingSessionID === session.id ? '处理中…' : '退出'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {currentUser.has_password ? (
+                  passwordEditing ? (
+                    <div className="password-editor">
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="当前密码"
+                        value={currentPassword}
+                        onChange={(event) => setCurrentPassword(event.target.value)}
+                      />
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="新密码（至少 8 位）"
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                      />
+                      <div>
+                        <button disabled={passwordSubmitting || !currentPassword || newPassword.length < 8} onClick={() => void submitPasswordChange()}>
+                          {passwordSubmitting ? '修改中…' : '确认修改'}
+                        </button>
+                        <button disabled={passwordSubmitting} onClick={() => setPasswordEditing(false)}>取消</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setPasswordEditing(true)}>修改密码</button>
+                  )
+                ) : (
+                  <small className="oauth-account-note">GitHub 登录账号无需站内密码</small>
+                )}
+                <button onClick={() => { setActiveTab('我的收藏'); closeProject(); setAccountPanelOpen(false) }}>
+                  查看我的收藏
+                </button>
+                <button onClick={() => { setAuthorCenterOpen(true); setAccountPanelOpen(false) }}>
+                  作者项目中心
+                </button>
+                {currentUser.is_admin && <button onClick={() => { setReviewCenterOpen(true); setAccountPanelOpen(false) }}>
+                  项目审核中心
+                </button>}
+                <button disabled={logoutSubmitting} onClick={() => void performLogout(false)}>退出当前设备</button>
+                <button disabled={logoutSubmitting} onClick={() => void performLogout(true)}>{logoutSubmitting ? '处理中…' : '退出所有设备'}</button>
+              </div>
+            )}
+          </div>
           <button className="icon-button mobile-only" title="打开菜单" aria-label="打开菜单" onClick={() => setMobileMenuOpen((open) => !open)}><Menu size={19} /></button>
         </div>
       </header>
@@ -554,6 +1020,11 @@ function App() {
           onSelection={handleSelection}
           onSubmitComment={submitComment}
           onResolveComment={resolveComment}
+          onReplyComment={replyToComment}
+          onDeleteReply={deleteReply}
+          onDeleteComment={deleteComment}
+          onEditComment={editComment}
+          onEditReply={editReply}
           showToast={showToast}
           detailState={detailState}
           documentState={documentState}
@@ -563,6 +1034,10 @@ function App() {
           commentsState={commentsState}
           commentSubmitting={commentSubmitting}
           resolvingCommentID={resolvingCommentID}
+          deletingCommentID={deletingCommentID}
+          currentUserID={currentUser?.id ?? ''}
+          currentUser={currentUser}
+          onPublishedDocumentSaved={updatePublishedDocument}
         />
       ) : (
         <Home
@@ -579,7 +1054,24 @@ function App() {
       )}
 
       {toast && <div className="toast"><Check size={16} /> {toast}</div>}
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={() => { setLoginOpen(false); showToast('演示登录成功') }} />}
+      {loginOpen && <LoginModal
+        onClose={() => setLoginOpen(false)}
+        onAuthenticated={(user) => {
+          setCurrentUser(user)
+          setLoginOpen(false)
+          showToast(`欢迎，${user.display_name}`)
+        }}
+      />}
+      {authorCenterOpen && currentUser && <AuthorProjectCenter
+        onClose={() => setAuthorCenterOpen(false)}
+        onChanged={() => {
+          showToast('项目状态已更新')
+        }}
+      />}
+      {reviewCenterOpen && currentUser?.is_admin && <ProjectReviewCenter
+        onClose={() => setReviewCenterOpen(false)}
+        onChanged={() => showToast('审核结果已保存')}
+      />}
     </div>
   )
 }
@@ -726,6 +1218,11 @@ function ProjectDetail({
   onSelection,
   onSubmitComment,
   onResolveComment,
+  onReplyComment,
+  onDeleteReply,
+  onDeleteComment,
+  onEditComment,
+  onEditReply,
   showToast,
   detailState,
   documentState,
@@ -735,6 +1232,10 @@ function ProjectDetail({
   commentsState,
   commentSubmitting,
   resolvingCommentID,
+  deletingCommentID,
+  currentUserID,
+  currentUser,
+  onPublishedDocumentSaved,
 }: {
   project: Project
   detailTab: string
@@ -753,6 +1254,11 @@ function ProjectDetail({
   onSelection: () => void
   onSubmitComment: () => void
   onResolveComment: (commentId: string) => void
+  onReplyComment: (commentId: string, body: string) => Promise<boolean>
+  onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>
+  onDeleteComment: (commentId: string) => Promise<boolean>
+  onEditComment: (commentId: string, body: string) => Promise<boolean>
+  onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>
   showToast: (message: string) => void
   detailState: CatalogState
   documentState: CatalogState
@@ -762,7 +1268,33 @@ function ProjectDetail({
   commentsState: CatalogState
   commentSubmitting: boolean
   resolvingCommentID: string | null
+  deletingCommentID: string | null
+  currentUserID: string
+  currentUser: AuthUser | null
+  onPublishedDocumentSaved: (markdown: string) => void
 }) {
+  const [collaborationAccess, setCollaborationAccess] = useState<CollaborationAccess | null>(null)
+  const [collaborationEditing, setCollaborationEditing] = useState(false)
+  const [collaborationInitialMarkdown, setCollaborationInitialMarkdown] = useState('')
+  const [permissionsOpen, setPermissionsOpen] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setCollaborationAccess(null)
+    setCollaborationEditing(false)
+    setPermissionsOpen(false)
+    getProjectCollaborationAccess(project.slug, controller.signal)
+      .then((response) => setCollaborationAccess(response.data))
+      .catch(() => setCollaborationAccess({ role: 'viewer', can_edit: false, can_manage: false }))
+    return () => controller.abort()
+  }, [currentUser?.id, project.slug])
+
+  const startCollaboration = () => {
+    if (!currentUser || !collaborationAccess?.can_edit) return
+    setCollaborationInitialMarkdown(project.description)
+    setCollaborationEditing(true)
+  }
+
   return (
     <main className="detail-page">
       <div className="detail-topbar"><button className="back-button" onClick={onBack}><ArrowLeft size={16} /> 返回项目索引</button><span className="breadcrumb">/ {project.category} / {project.name}</span></div>
@@ -775,20 +1307,152 @@ function ProjectDetail({
       <section className="detail-intro">
         <div className={`detail-mark ${project.accent}`}><span>{project.name.slice(0, 1)}</span></div>
         <div className="detail-copy"><span className="eyebrow">{project.status} · 最后更新于 {project.updated}</span><h1>{project.name}</h1><p>{project.description}</p><div className="detail-meta"><span><CircleUserRound size={15} /> {project.maintainer}</span><span><GitBranch size={15} /> {project.repo}</span><span><Tag size={15} /> {project.license}</span></div></div>
-        <div className="detail-actions"><button className={`outline-button ${isSaved ? 'is-saved' : ''}`} onClick={onToggleSaved}><Heart size={15} fill={isSaved ? 'currentColor' : 'none'} /> {isSaved ? '已收藏' : '收藏'}</button><button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button><button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button></div>
+        <div className="detail-actions">
+          {collaborationAccess?.can_edit && <button className="primary-button" onClick={startCollaboration}><Pencil size={15} /> 协作编辑</button>}
+          {collaborationAccess?.can_manage && <button className="icon-button" title="管理协作权限" aria-label="管理协作权限" onClick={() => setPermissionsOpen(true)}><ShieldCheck size={17} /></button>}
+          <button className={`outline-button ${isSaved ? 'is-saved' : ''}`} onClick={onToggleSaved}><Heart size={15} fill={isSaved ? 'currentColor' : 'none'} /> {isSaved ? '已收藏' : '收藏'}</button>
+          <button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button>
+          <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
+        </div>
       </section>
       <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
-      {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} showToast={showToast} />}
-      {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
-      {detailTab === '下载资源' && <DownloadView onDownload={onDownload} />}
-      {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
+      {collaborationEditing && currentUser ? (
+        <section className="detail-collaboration-workspace">
+          <header>
+            <div><span className="section-kicker">LIVE DOCUMENT / {collaborationAccess?.role.toUpperCase()}</span><h2>协作编辑已发布文档</h2><p>修改会实时同步给其他编辑者，并自动更新公开项目文档。</p></div>
+            <button className="outline-button" onClick={() => setCollaborationEditing(false)}><X size={15} /> 退出编辑</button>
+          </header>
+          <Suspense fallback={<div className="collaboration-loading">正在加载实时协作编辑器…</div>}>
+            <CollaborativeMarkdownEditor
+              slug={project.slug}
+              initialMarkdown={collaborationInitialMarkdown}
+              user={currentUser}
+              webSocketURL={getProjectCollaborationWebSocketURL(project.slug)}
+              onSaved={(markdown) => {
+                onPublishedDocumentSaved(markdown)
+                showToast('协作文档已保存')
+              }}
+            />
+          </Suspense>
+        </section>
+      ) : (
+        <>
+          {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} />}
+          {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
+          {detailTab === '下载资源' && <DownloadView project={project} onDownload={onDownload} />}
+          {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
+        </>
+      )}
+      {permissionsOpen && collaborationAccess?.can_manage && <ProjectCollaborationPermissions projectSlug={project.slug} onClose={() => setPermissionsOpen(false)} showToast={showToast} />}
     </main>
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; showToast: (message: string) => void }) {
+function ProjectCollaborationPermissions({
+  projectSlug,
+  onClose,
+  showToast,
+}: {
+  projectSlug: string
+  onClose: () => void
+  showToast: (message: string) => void
+}) {
+  const [collaborators, setCollaborators] = useState<ProjectCollaborator[]>([])
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'editor' | 'viewer'>('editor')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [removingID, setRemovingID] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  usePageScrollLock()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getProjectCollaborators(projectSlug, controller.signal)
+      .then((response) => setCollaborators(response.data))
+      .catch((caught: unknown) => {
+        if (caught instanceof DOMException && caught.name === 'AbortError') return
+        setError(caught instanceof Error ? caught.message : '协作者列表加载失败')
+      })
+      .finally(() => setLoading(false))
+    return () => controller.abort()
+  }, [projectSlug])
+
+  const saveCollaborator = async (targetEmail: string, targetRole: 'editor' | 'viewer') => {
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await setProjectCollaborator(projectSlug, { email: targetEmail, role: targetRole })
+      setCollaborators((current) => {
+        const existing = current.some((item) => item.user_id === response.data.user_id)
+        return existing
+          ? current.map((item) => item.user_id === response.data.user_id ? response.data : item)
+          : [...current, response.data]
+      })
+      setEmail('')
+      showToast(targetRole === 'editor' ? '已授予编辑权限' : '已设为只读')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '协作者保存失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const removeCollaborator = async (collaborator: ProjectCollaborator) => {
+    setRemovingID(collaborator.user_id)
+    setError('')
+    try {
+      await deleteProjectCollaborator(projectSlug, collaborator.user_id)
+      setCollaborators((current) => current.filter((item) => item.user_id !== collaborator.user_id))
+      showToast('已移除协作者')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '移除协作者失败')
+    } finally {
+      setRemovingID(null)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="collaboration-permissions" role="dialog" aria-modal="true" aria-label="管理协作权限">
+        <button className="icon-button modal-close" aria-label="关闭" onClick={onClose}><X size={17} /></button>
+        <header><span className="section-kicker">ACCESS CONTROL</span><h2>管理协作权限</h2><p>只有可编辑成员能够进入实时协作空间；只读成员仍可浏览公开文档。</p></header>
+        <div className="collaborator-invite">
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="输入已注册用户的邮箱" />
+          <select value={role} onChange={(event) => setRole(event.target.value as 'editor' | 'viewer')}>
+            <option value="editor">可编辑</option>
+            <option value="viewer">只读</option>
+          </select>
+          <button className="primary-button" disabled={submitting || !email.trim()} onClick={() => void saveCollaborator(email.trim(), role)}><UserPlus size={15} /> {submitting ? '保存中…' : '添加成员'}</button>
+        </div>
+        {error && <div className="auth-error">{error}</div>}
+        <div className="collaborator-list">
+          {loading ? <p>正在加载协作者…</p> : collaborators.length === 0 ? <p className="empty-copy">还没有额外协作者。</p> : collaborators.map((collaborator) => (
+            <article key={collaborator.user_id}>
+              <span className="avatar small-avatar">{collaborator.display_name.slice(0, 1)}</span>
+              <div><strong>{collaborator.display_name}</strong><small>{collaborator.email}</small></div>
+              <select
+                value={collaborator.role}
+                disabled={submitting || removingID !== null}
+                onChange={(event) => void saveCollaborator(collaborator.email, event.target.value as 'editor' | 'viewer')}
+              >
+                <option value="editor">可编辑</option>
+                <option value="viewer">只读</option>
+              </select>
+              <button className="icon-button danger" title="移除协作者" aria-label={`移除 ${collaborator.display_name}`} disabled={removingID !== null} onClick={() => void removeCollaborator(collaborator)}>
+                <Trash2 size={15} />
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
     const title = reactNodeText(children)
     return activeDocument?.outline.find((item) => item.title === title)?.id
@@ -854,29 +1518,525 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
             </>
           )}
         </div>
-        {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
+        {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
-      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length}</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} resolving={resolvingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
+      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
     </section>
   )
 }
 
-function CommentCard({ comment, resolving, onResolve }: { comment: CommentItem; resolving: boolean; onResolve: () => void }) {
-  return <article className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}><div className="comment-card-head"><span className="avatar small-avatar">{comment.initials}</span><div><strong>{comment.user}</strong><small>{comment.time}</small></div>{comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}</div><button className="comment-quote">“{comment.quote}”</button><p>{comment.text}</p>{comment.status === 'open' ? <div className="comment-actions"><button disabled={resolving} onClick={onResolve}>{resolving ? '解决中…' : '解决'}</button><button disabled={resolving}>回复</button></div> : <span className="resolved-label">已解决</span>}</article>
+function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, onReply, onDeleteReply, onDelete, onEdit, onEditReply }: { comment: CommentItem; currentUserID: string; resolving: boolean; deleting: boolean; onResolve: () => void; onReply: (body: string) => Promise<boolean>; onDeleteReply: (replyId: string) => Promise<boolean>; onDelete: () => Promise<boolean>; onEdit: (body: string) => Promise<boolean>; onEditReply: (replyId: string, body: string) => Promise<boolean> }) {
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyDraft, setReplyDraft] = useState('')
+  const [replySubmitting, setReplySubmitting] = useState(false)
+  const [deletingReplyID, setDeletingReplyID] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [editDraft, setEditDraft] = useState(comment.text)
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editingReplyID, setEditingReplyID] = useState<string | null>(null)
+  const [replyEditDraft, setReplyEditDraft] = useState('')
+  const [replyEditSubmitting, setReplyEditSubmitting] = useState(false)
+  const submitReply = async () => {
+    if (!replyDraft.trim()) return
+    setReplySubmitting(true)
+    const created = await onReply(replyDraft)
+    setReplySubmitting(false)
+    if (created) {
+      setReplyDraft('')
+      setReplyOpen(false)
+    }
+  }
+  const deleteReply = async (replyId: string) => {
+    setDeletingReplyID(replyId)
+    await onDeleteReply(replyId)
+    setDeletingReplyID(null)
+  }
+  const submitEdit = async () => {
+    if (!editDraft.trim()) return
+    setEditSubmitting(true)
+    const updated = await onEdit(editDraft)
+    setEditSubmitting(false)
+    if (updated) setEditing(false)
+  }
+  const submitReplyEdit = async (replyId: string) => {
+    if (!replyEditDraft.trim()) return
+    setReplyEditSubmitting(true)
+    const updated = await onEditReply(replyId, replyEditDraft)
+    setReplyEditSubmitting(false)
+    if (updated) setEditingReplyID(null)
+  }
+
+  return (
+    <article className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}>
+      <div className="comment-card-head">
+        <span className="avatar small-avatar">{comment.initials}</span>
+        <div><strong>{comment.user}</strong><small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small></div>
+        {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
+      </div>
+      <button className="comment-quote">“{comment.quote}”</button>
+      {editing
+        ? <div className="inline-edit"><textarea autoFocus value={editDraft} disabled={editSubmitting} onChange={(event) => setEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setEditDraft((value) => value + emoji)} /><button disabled={editSubmitting} onClick={() => setEditing(false)}>取消</button><button disabled={editSubmitting || !editDraft.trim()} onClick={submitEdit}>{editSubmitting ? '保存中…' : '保存'}</button></div></div>
+        : <p>{comment.text}</p>}
+      {comment.replies.length > 0 && (
+        <div className="comment-replies">
+          {comment.replies.map((reply) => (
+            <div className="comment-reply" key={reply.id}>
+              <div><strong>{reply.user}</strong><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
+              {editingReplyID === reply.id
+                ? <div className="inline-edit"><textarea autoFocus value={replyEditDraft} disabled={replyEditSubmitting} onChange={(event) => setReplyEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setReplyEditDraft((value) => value + emoji)} /><button disabled={replyEditSubmitting} onClick={() => setEditingReplyID(null)}>取消</button><button disabled={replyEditSubmitting || !replyEditDraft.trim()} onClick={() => submitReplyEdit(reply.id)}>{replyEditSubmitting ? '保存中…' : '保存'}</button></div></div>
+                : <p>{reply.text}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {replyOpen && <div className="reply-composer"><textarea autoFocus value={replyDraft} disabled={replySubmitting} onChange={(event) => setReplyDraft(event.target.value)} placeholder="写下回复…" /><div><EmojiPicker onSelect={(emoji) => setReplyDraft((value) => value + emoji)} /><button disabled={replySubmitting} onClick={() => setReplyOpen(false)}>取消</button><button disabled={replySubmitting || !replyDraft.trim()} onClick={submitReply}>{replySubmitting ? '发布中…' : '发布回复'}</button></div></div>}
+      {comment.status === 'open'
+        ? <div className="comment-actions">{currentUserID !== '' && comment.authorId === currentUserID && <button disabled={resolving || deleting || replySubmitting} onClick={onResolve}>{resolving ? '解决中…' : '解决'}</button>}<button disabled={resolving || deleting || replySubmitting} onClick={() => setReplyOpen((open) => !open)}>回复</button>{currentUserID !== '' && comment.authorId === currentUserID && <><button disabled={editSubmitting || deleting} onClick={() => { setEditDraft(comment.text); setEditing(true) }}>编辑</button><button disabled={deleting} onClick={onDelete}>{deleting ? '删除中…' : '删除'}</button></>}</div>
+        : <span className="resolved-label">已解决</span>}
+    </article>
+  )
 }
 
 function OverviewView({ project, onRead }: { project: Project; onRead: () => void }) {
   const highlights = project.highlights ?? ['项目结构清晰', '文档公开可读', '支持快速复用']
   const useCases = project.useCases ?? project.tags
-  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><p>{project.description}</p><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '—'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
+  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><MarkdownCanvas markdown={project.description} projectSlug={project.slug} /><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '—'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
 }
 
 function CodeView({ project, onCopy }: { project: Project; onCopy: () => void }) {
   return <section className="code-view"><div className="file-tree"><div className="sidebar-heading"><span>代码目录</span><span className="meta-label">main</span></div>{codeFiles.map((file) => <button key={file.name} className={`file-item ${file.name === 'runtime.py' ? 'active' : ''}`}><span>{file.type === 'folder' ? <ChevronRight size={14} /> : <FileCode2 size={15} />}</span><span>{file.name}</span><small>{file.size}</small></button>)}<div className="file-tree-note"><GitBranch size={16} /><span>{project.repo}</span></div></div><div className="source-panel"><div className="source-head"><span>atlas / runtime.py</span><button className="tool-button" onClick={onCopy}><Copy size={14} /> 复制代码</button></div><pre className="source-code"><code><span className="line-number">01</span> <span className="code-purple">class</span> <span className="code-blue">Runtime</span>:{`\n`}<span className="line-number">02</span>     <span className="code-purple">def</span> <span className="code-blue">__init__</span>(self, model, max_steps=<span className="code-orange">8</span>):{`\n`}<span className="line-number">03</span>         self.model = model{`\n`}<span className="line-number">04</span>         self.max_steps = max_steps{`\n`}<span className="line-number">05</span>         self.trace = TraceStore(){`\n\n`}<span className="line-number">07</span>     <span className="code-purple">def</span> <span className="code-blue">run</span>(self, task):{`\n`}<span className="line-number">08</span>         plan = self.planner.create(task){`\n`}<span className="line-number">09</span>         <span className="code-purple">for</span> step <span className="code-purple">in</span> plan.steps:{`\n`}<span className="line-number">10</span>             result = self.execute(step){`\n`}<span className="line-number">11</span>             self.trace.append(result){`\n`}<span className="line-number">12</span>         <span className="code-purple">return</span> self.reviewer.check(self.trace)</code></pre></div></section>
 }
 
-function DownloadView({ onDownload }: { onDownload: () => void }) {
-  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES / 04</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p><button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button></div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>atlas-agent-v0.8.2.tar.gz</strong><small>代码包 · 2.8 MB · MIT</small></div><span>v0.8.2</span><button className="icon-button" title="下载代码包" aria-label="下载代码包" onClick={onDownload}><Download size={16} /></button></div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档.pdf</strong><small>文档 · 1.2 MB · 更新于昨天</small></div><span>PDF</span><button className="icon-button" title="下载文档" aria-label="下载文档" onClick={onDownload}><Download size={16} /></button></div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链 · 06:42</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
+function DownloadView({ project, onDownload }: { project: Project; onDownload: () => void }) {
+  const resourceURL = (kind: 'code' | 'document') => `/api/v1/projects/${encodeURIComponent(project.slug)}/resources/${kind}`
+  const downloadControl = (kind: 'code' | 'document', label: string) => project.resources?.[kind]
+    ? <a className="icon-button" title={label} aria-label={label} href={resourceURL(kind)}><Download size={16} /></a>
+    : <button className="icon-button" title={label} aria-label={label} onClick={onDownload}><Download size={16} /></button>
+  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES / 04</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p>{project.resources?.code ? <a className="outline-button" href={resourceURL('code')}><Download size={15} /> 下载代码包</a> : <button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button>}</div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>{project.slug}-v{project.currentVersion ?? 'latest'}</strong><small>代码包 · {project.license}</small></div><span>v{project.currentVersion ?? '—'}</span>{downloadControl('code', '下载代码包')}</div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档</strong><small>文档 · 作者维护</small></div><span>DOC</span>{downloadControl('document', '下载文档')}</div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
+}
+
+function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return <span className="emoji-picker">
+    <button type="button" title="插入 Emoji" onClick={() => setOpen((value) => !value)}>😊</button>
+    {open && <span className="emoji-popover">
+      <Suspense fallback={<span className="emoji-loading">正在加载 Emoji…</span>}>
+        <EmojiMartPicker
+          onClose={() => setOpen(false)}
+          onSelect={(emoji) => {
+            onSelect(emoji)
+            setOpen(false)
+          }}
+        />
+      </Suspense>
+    </span>}
+  </span>
+}
+
+function usePageScrollLock() {
+  useEffect(() => {
+    const body = document.body
+    const documentElement = document.documentElement
+    const scrollX = window.scrollX
+    const scrollY = window.scrollY
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const previousPosition = body.style.position
+    const previousTop = body.style.top
+    const previousLeft = body.style.left
+    const previousRight = body.style.right
+    const previousWidth = body.style.width
+    const previousDocumentOverflow = documentElement.style.overflow
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+
+    documentElement.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `${-scrollY}px`
+    body.style.left = `${-scrollX}px`
+    body.style.right = '0'
+    body.style.width = '100%'
+    if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`
+
+    return () => {
+      documentElement.style.overflow = previousDocumentOverflow
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      body.style.position = previousPosition
+      body.style.top = previousTop
+      body.style.left = previousLeft
+      body.style.right = previousRight
+      body.style.width = previousWidth
+      window.scrollTo(scrollX, scrollY)
+    }
+  }, [])
+}
+
+function encodedObjectKey(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte) })
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function markdownAssetURL(url: string | undefined, authorPreview: boolean, projectSlug?: string) {
+  if (!url?.startsWith('oss://')) return url
+  const key = encodedObjectKey(url.slice(6))
+  return authorPreview
+    ? `/api/v1/files/author-asset?key=${encodeURIComponent(key)}`
+    : `/api/v1/projects/${encodeURIComponent(projectSlug ?? '')}/assets?key=${encodeURIComponent(key)}`
+}
+
+function MermaidDiagram({ source }: { source: string }) {
+  const container = useRef<HTMLDivElement | null>(null)
+  const renderID = useRef(`mermaid-${Math.random().toString(36).slice(2)}`)
+  useEffect(() => {
+    let cancelled = false
+    import('mermaid').then(async ({ default: mermaid }) => {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
+      const result = await mermaid.render(renderID.current, source)
+      if (!cancelled && container.current) container.current.innerHTML = result.svg
+    }).catch(() => {
+      if (container.current) container.current.textContent = '图表语法无法渲染'
+    })
+    return () => { cancelled = true }
+  }, [source])
+  return <div className="mermaid-canvas" ref={container} />
+}
+
+function MarkdownCanvas({ markdown, authorPreview = false, projectSlug }: { markdown: string; authorPreview?: boolean; projectSlug?: string }) {
+  return <div className="markdown-canvas">
+    {markdown.trim() ? <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      urlTransform={(url) => url.startsWith('oss://') ? url : defaultUrlTransform(url)}
+      components={{
+        code: ({ children, className }) => className === 'language-mermaid'
+          ? <MermaidDiagram source={String(children).trim()} />
+          : <code className={className}>{children}</code>,
+        img: ({ src, alt }) => <img src={markdownAssetURL(src, authorPreview, projectSlug)} alt={alt ?? ''} loading="lazy" />,
+        a: ({ href, children }) => <a href={markdownAssetURL(href, authorPreview, projectSlug)} target="_blank" rel="noreferrer">{children}</a>,
+      }}
+    >{markdown}</ReactMarkdown> : <div className="markdown-empty">开始输入 Markdown，预览会实时显示在这里。</div>}
+  </div>
+}
+
+const emptyManagedProject: ManagedProjectInput = {
+  slug: '', name: '', summary: '', description: '', category: '',
+  tags: [], tech_stack: [], license: 'MIT', repository_url: '',
+  cover_object_key: '', document_object_key: '', code_object_key: '', current_version: '0.1.0',
+}
+
+function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  usePageScrollLock()
+  const [projects, setProjects] = useState<ManagedProject[]>([])
+  const [input, setInput] = useState<ManagedProjectInput>(emptyManagedProject)
+  const [activeProject, setActiveProject] = useState<ManagedProject | null>(null)
+  const [tagsText, setTagsText] = useState('')
+  const [stackText, setStackText] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState<string | null>(null)
+  const [editorMode, setEditorMode] = useState<'rich' | 'write' | 'split' | 'preview'>('rich')
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [error, setError] = useState('')
+  const editorRef = useRef<HTMLTextAreaElement | null>(null)
+  const richEditorRef = useRef<RichMarkdownEditorHandle | null>(null)
+
+  const loadProjects = () => {
+    setLoading(true)
+    getAuthorProjects()
+      .then((response) => setProjects(response.data))
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '项目加载失败'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(loadProjects, [])
+
+  const projectPayload = useMemo<ManagedProjectInput>(() => ({
+    ...input,
+    tags: tagsText.split(',').map((value) => value.trim()).filter(Boolean),
+    tech_stack: stackText.split(',').map((value) => value.trim()).filter(Boolean),
+  }), [input, tagsText, stackText])
+  const activeProjectID = activeProject?.id
+  const activeProjectStatus = activeProject?.status
+
+  useEffect(() => {
+    if (!activeProjectID || (activeProjectStatus !== 'draft' && activeProjectStatus !== 'rejected')) return
+    if (projectPayload.name.trim().length < 2 || projectPayload.slug.length < 1 || projectPayload.summary.trim().length < 10 ||
+      projectPayload.description.trim().length < 20 || !projectPayload.category.trim() || !projectPayload.license.trim() || !projectPayload.current_version.trim()) return
+    setSaveState('saving')
+    const timer = window.setTimeout(() => {
+      updateAuthorProject(activeProjectID, projectPayload)
+        .then((response) => {
+          setActiveProject(response.data)
+          setProjects((current) => current.map((project) => project.id === response.data.id ? response.data : project))
+          setSaveState('saved')
+        })
+        .catch((reason: unknown) => {
+          setSaveState('idle')
+          setError(reason instanceof Error ? reason.message : '自动保存失败')
+        })
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [activeProjectID, activeProjectStatus, projectPayload])
+
+  const update = (field: keyof ManagedProjectInput, value: string) => {
+    setInput((current) => ({ ...current, [field]: value }))
+  }
+
+  const saveProject = async (event: FormEvent) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = activeProject
+        ? await updateAuthorProject(activeProject.id, projectPayload)
+        : await createAuthorProject(projectPayload)
+      setActiveProject(response.data)
+      setSaveState('saved')
+      loadProjects()
+      onChanged()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '草稿保存失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const submitProject = async (projectID: string) => {
+    setSubmitting(true)
+    setError('')
+    try {
+      await submitAuthorProject(projectID)
+      if (activeProject?.id === projectID) setActiveProject((current) => current ? { ...current, status: 'pending_review' } : null)
+      loadProjects()
+      onChanged()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '提交审核失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const selectProject = (project: ManagedProject) => {
+    setActiveProject(project)
+    setInput({
+      slug: project.slug, name: project.name, summary: project.summary,
+      description: project.description, category: project.category, tags: project.tags,
+      tech_stack: project.tech_stack, license: project.license,
+      repository_url: project.repository_url, cover_object_key: project.cover_object_key,
+      document_object_key: project.document_object_key, code_object_key: project.code_object_key,
+      current_version: project.current_version,
+    })
+    setTagsText(project.tags.join(', '))
+    setStackText(project.tech_stack.join(', '))
+    setSaveState('idle')
+    setError('')
+  }
+
+  const newProject = () => {
+    setActiveProject(null)
+    setInput({ ...emptyManagedProject })
+    setTagsText('')
+    setStackText('')
+    setSaveState('idle')
+    setError('')
+  }
+
+  const insertMarkdown = (before: string, after = '', placeholder = '') => {
+    const markdown = before + placeholder + after
+    if (editorMode === 'rich') {
+      richEditorRef.current?.insertMarkdown(markdown)
+      return
+    }
+    const textarea = editorRef.current
+    if (!textarea) {
+      update('description', input.description + markdown)
+      return
+    }
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const selected = input.description.slice(start, end) || placeholder
+    const next = input.description.slice(0, start) + before + selected + after + input.description.slice(end)
+    update('description', next)
+    window.requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + before.length, start + before.length + selected.length)
+    })
+  }
+
+  const uploadInline = async (file: File, kind: 'image' | 'document' | 'code') => {
+    setUploading(`inline-${kind}`)
+    setError('')
+    try {
+      const objectKey = await uploadProjectFile(file, kind)
+      const markdown = kind === 'image'
+        ? `\n![${file.name}](oss://${objectKey})\n`
+        : `\n[📎 ${file.name}](oss://${objectKey})\n`
+      insertMarkdown(markdown)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '附件上传失败')
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const uploadRichImage = async (file: File) => {
+    setUploading('inline-image')
+    setError('')
+    try {
+      const objectKey = await uploadProjectFile(file, 'image')
+      return `oss://${objectKey}`
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '图片上传失败'
+      setError(message)
+      throw reason
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const uploadFile = async (file: File, kind: 'image' | 'document' | 'code', field: 'cover_object_key' | 'document_object_key' | 'code_object_key') => {
+    setUploading(kind)
+    setError('')
+    try {
+      const objectKey = await uploadProjectFile(file, kind)
+      setInput((current) => ({ ...current, [field]: objectKey }))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '文件上传失败')
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const statusLabel = (status: ManagedProject['status']) => ({
+    draft: '草稿', pending_review: '待审核', published: '已发布',
+    rejected: '已驳回', archived: '已下架',
+  })[status]
+
+  return <div className="modal-backdrop" role="presentation">
+    <section className="author-center document-author-center" role="dialog" aria-modal="true" aria-label="作者项目中心">
+      <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
+      <header className="author-editor-head"><div><span className="section-kicker">AUTHOR / DOCUMENT</span><h2>{activeProject ? activeProject.name : '创建项目文档'}</h2><p>像在线文档一样使用 Markdown、图表、图片和附件组织项目内容。</p></div><div className="save-indicator">{saveState === 'saving' ? '正在自动保存…' : saveState === 'saved' ? '已自动保存' : '草稿'}</div></header>
+      <div className="document-editor-layout">
+        <aside className="author-project-rail">
+          <button className="primary-button" onClick={newProject}>＋ 新建文档</button>
+          <h3>我的项目</h3>
+          {loading ? <p>正在加载…</p> : projects.length === 0 ? <p className="empty-copy">还没有项目草稿。</p> : projects.map((project) =>
+            <button className={activeProject?.id === project.id ? 'active' : ''} key={project.id} onClick={() => selectProject(project)}>
+              <strong>{project.name}</strong><small>{statusLabel(project.status)} · v{project.current_version}</small>
+            </button>)}
+        </aside>
+        <form className="document-project-editor" onSubmit={(event) => void saveProject(event)}>
+          <div className="document-title-row">
+            <input className="document-title-input" required minLength={2} maxLength={120} value={input.name} onChange={(event) => update('name', event.target.value)} placeholder="无标题项目" />
+            <div className="editor-mode-switch">
+              <button type="button" className={editorMode === 'rich' ? 'active' : ''} onClick={() => setEditorMode('rich')}>富文本</button>
+              <button type="button" className={editorMode === 'write' ? 'active' : ''} onClick={() => setEditorMode('write')}>Markdown</button>
+              <button type="button" className={editorMode === 'split' ? 'active' : ''} onClick={() => setEditorMode('split')}>分屏</button>
+              <button type="button" className={editorMode === 'preview' ? 'active' : ''} onClick={() => setEditorMode('preview')}>预览</button>
+            </div>
+          </div>
+          <input className="document-summary-input" required minLength={10} maxLength={300} value={input.summary} onChange={(event) => update('summary', event.target.value)} placeholder="用一句话介绍这个项目…" />
+          <div className="markdown-toolbar">
+            <button type="button" onClick={() => insertMarkdown('**', '**', '粗体')}>B</button>
+            <button type="button" onClick={() => insertMarkdown('*', '*', '斜体')}><em>I</em></button>
+            <button type="button" onClick={() => insertMarkdown('\n## ', '\n', '小标题')}>H2</button>
+            <button type="button" onClick={() => insertMarkdown('\n- ', '\n', '列表项')}>• 列表</button>
+            <button type="button" onClick={() => insertMarkdown('\n> ', '\n', '引用内容')}>❝ 引用</button>
+            <button type="button" onClick={() => insertMarkdown('\n```text\n', '\n```\n', '代码')}>{'</>'}</button>
+            <button type="button" onClick={() => insertMarkdown('\n```mermaid\ngraph TD\n  A[开始] --> B[完成]\n```\n')}>图表</button>
+            <label className="toolbar-upload">图片<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadInline(file, 'image') }} /></label>
+            <label className="toolbar-upload">附件<input type="file" accept=".pdf,.md,.txt,.zip,.tar,.gz,.tgz" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadInline(file, /\.(zip|tar|gz|tgz)$/i.test(file.name) ? 'code' : 'document') }} /></label>
+            <EmojiPicker onSelect={(emoji) => insertMarkdown(emoji)} />
+            {uploading?.startsWith('inline-') && <span>上传中…</span>}
+          </div>
+          <div className={`markdown-workspace mode-${editorMode}`}>
+            {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeProject?.id ?? 'new-project'} value={input.description} onChange={(markdown) => update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} /></Suspense>}
+            {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required minLength={20} maxLength={50000} value={input.description} onChange={(event) => update('description', event.target.value)} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
+            {(editorMode === 'preview' || editorMode === 'split') && <MarkdownCanvas markdown={input.description} authorPreview />}
+          </div>
+          <details className="project-metadata">
+            <summary>项目设置与发布资源</summary>
+          <div className="form-grid">
+            <label>项目标识<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="my-project" value={input.slug} onChange={(event) => update('slug', event.target.value.toLowerCase())} /></label>
+            <label>分类<input required maxLength={80} value={input.category} onChange={(event) => update('category', event.target.value)} /></label>
+            <label>当前版本<input required maxLength={40} value={input.current_version} onChange={(event) => update('current_version', event.target.value)} /></label>
+            <label>许可证<input required maxLength={40} value={input.license} onChange={(event) => update('license', event.target.value)} /></label>
+            <label>仓库地址<input type="url" maxLength={500} value={input.repository_url} onChange={(event) => update('repository_url', event.target.value)} /></label>
+            <label>标签（逗号分隔）<input value={tagsText} onChange={(event) => setTagsText(event.target.value)} /></label>
+            <label>技术栈（逗号分隔）<input value={stackText} onChange={(event) => setStackText(event.target.value)} /></label>
+          </div>
+          <div className="form-grid project-files">
+            <label>封面图<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'image', 'cover_object_key') }} /><small>{input.cover_object_key ? '已上传' : uploading === 'image' ? '上传中…' : '最大 10 MB'}</small></label>
+            <label>项目文档<input type="file" accept=".pdf,.md,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'document', 'document_object_key') }} /><small>{input.document_object_key ? '已上传' : uploading === 'document' ? '上传中…' : '最大 50 MB'}</small></label>
+            <label>代码包<input type="file" accept=".zip,.tar,.gz,.tgz" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'code', 'code_object_key') }} /><small>{input.code_object_key ? '已上传' : uploading === 'code' ? '上传中…' : '最大 500 MB'}</small></label>
+          </div>
+          </details>
+          {error && <div className="auth-error">{error}</div>}
+          <div className="document-editor-actions">
+            <button className="outline-button" type="submit" disabled={submitting || uploading !== null}>{submitting ? '保存中…' : '保存草稿'}</button>
+            {activeProject && (activeProject.status === 'draft' || activeProject.status === 'rejected') && <button className="primary-button" type="button" disabled={submitting || saveState === 'saving'} onClick={() => void submitProject(activeProject.id)}>提交审核</button>}
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+}
+
+function ProjectReviewCenter({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const [projects, setProjects] = useState<ManagedProject[]>([])
+  const [reason, setReason] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const load = () => {
+    setLoading(true)
+    getPendingProjectReviews()
+      .then((response) => setProjects(response.data))
+      .catch((value: unknown) => setError(value instanceof Error ? value.message : '审核列表加载失败'))
+      .finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const review = async (project: ManagedProject, action: 'approve' | 'reject') => {
+    const reviewReason = (reason[project.id] ?? '').trim()
+    if (action === 'reject' && !reviewReason) {
+      setError('驳回项目时必须填写审核意见')
+      return
+    }
+    setProcessing(project.id)
+    setError('')
+    try {
+      await reviewProject(project.id, action, reviewReason)
+      setProjects((current) => current.filter((item) => item.id !== project.id))
+      onChanged()
+    } catch (value) {
+      setError(value instanceof Error ? value.message : '审核操作失败')
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation">
+    <section className="author-center review-center" role="dialog" aria-modal="true" aria-label="项目审核中心">
+      <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
+      <header><span className="section-kicker">ADMIN / REVIEWS</span><h2>项目审核中心</h2><p>只有审核通过的项目才会出现在公开项目目录。</p></header>
+      {error && <div className="auth-error">{error}</div>}
+      {loading ? <p>正在加载…</p> : projects.length === 0 ? <div className="empty-state"><p>当前没有待审核项目。</p></div> :
+        <div className="review-list">{projects.map((project) => <article key={project.id}>
+          <div className="review-project-head"><div><strong>{project.name}</strong><small>{project.slug} · {project.category} · v{project.current_version}</small></div><span className="project-status status-pending_review">待审核</span></div>
+          <p>{project.summary}</p>
+          <details><summary>查看完整资料</summary><p>{project.description}</p><small>{project.tech_stack.join(' · ')} · {project.license}</small></details>
+          <textarea maxLength={500} placeholder="审核意见；驳回时必填" value={reason[project.id] ?? ''} onChange={(event) => setReason((current) => ({ ...current, [project.id]: event.target.value }))} />
+          <div className="review-actions">
+            <button className="outline-button" disabled={processing !== null} onClick={() => void review(project, 'reject')}>驳回</button>
+            <button className="primary-button" disabled={processing !== null} onClick={() => void review(project, 'approve')}>{processing === project.id ? '处理中…' : '审核通过'}</button>
+          </div>
+        </article>)}</div>}
+    </section>
+  </div>
 }
 
 function ThemePanel({ themeMode, skin, onModeChange, onSkinChange }: { themeMode: ThemeMode; skin: Skin; onModeChange: (mode: ThemeMode) => void; onSkinChange: (nextSkin: Skin) => void }) {
@@ -906,8 +2066,87 @@ function ThemePanel({ themeMode, skin, onModeChange, onSkinChange }: { themeMode
   )
 }
 
-function LoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close icon-button" title="关闭登录窗口" aria-label="关闭登录窗口" onClick={onClose}><X size={18} /></button><span className="brand-mark large">新</span><h2>登录新猿译码</h2><p>登录后可以收藏项目、参与讨论和关注更新。</p><button className="provider-button github" onClick={onLogin}><GitBranch size={17} /> 使用 GitHub 登录 <ArrowUpRight size={14} /></button><button className="provider-button wechat" onClick={onLogin}><span className="wechat-icon">微</span> 使用微信登录 <ArrowUpRight size={14} /></button><div className="login-divider"><span>或</span></div><button className="email-login" onClick={onLogin}>使用邮箱继续</button><small>继续即表示你同意社区使用规范。</small></div></div>
+function LoginModal({ onClose, onAuthenticated }: { onClose: () => void; onAuthenticated: (user: AuthUser) => void }) {
+  const resetToken = new URLSearchParams(window.location.search).get('reset_token') ?? ''
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(resetToken ? 'reset' : 'login')
+  const [email, setEmail] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const submit = async () => {
+    setSubmitting(true)
+    setError('')
+    setNotice('')
+    try {
+      if (mode === 'forgot') {
+        if (!email.trim()) throw new Error('请输入注册邮箱。')
+        await requestPasswordReset(email.trim())
+        setNotice('如果该邮箱已注册，重置链接会在几分钟内发送。')
+        return
+      }
+      if (mode === 'reset') {
+        if (!resetToken || password.length < 8 || password !== passwordConfirmation) {
+          throw new Error('请填写两次相同且至少 8 位的新密码。')
+        }
+        await confirmPasswordReset({ token: resetToken, new_password: password })
+        window.history.replaceState({}, '', window.location.pathname)
+        setPassword('')
+        setPasswordConfirmation('')
+        setMode('login')
+        setNotice('密码已重置，请使用新密码登录。')
+        return
+      }
+      if (!email.trim() || password.length < 8 || (mode === 'register' && displayName.trim().length < 2)) {
+        throw new Error('请填写有效邮箱、至少 8 位密码和昵称。')
+      }
+      const response = mode === 'login'
+        ? await login({ email: email.trim(), password })
+        : await register({ email: email.trim(), display_name: displayName.trim(), password })
+      onAuthenticated(response.data)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '操作失败，请稍后重试。')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="login-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="modal-close icon-button" title="关闭登录窗口" aria-label="关闭登录窗口" onClick={onClose}><X size={18} /></button>
+        <span className="brand-mark large">新</span>
+        <h2>{mode === 'login' ? '登录新猿译码' : mode === 'register' ? '创建社区账号' : mode === 'forgot' ? '找回密码' : '设置新密码'}</h2>
+        <p>{mode === 'forgot' ? '输入注册邮箱，我们会发送一个 30 分钟内有效的重置链接。' : mode === 'reset' ? '设置新密码后，所有已登录设备都会退出。' : mode === 'login' ? '登录后可以参与讨论，并管理自己的评论。' : '注册后，评论作者将由服务端绑定到你的账号。'}</p>
+        {(mode === 'login' || mode === 'register') && (
+          <>
+            <button className="provider-button github" onClick={() => window.location.assign('/api/v1/auth/oauth/github/start')}><GitBranch size={17} /> 使用 GitHub 登录 <ArrowUpRight size={14} /></button>
+            <button className="provider-button wechat" onClick={() => window.location.assign('/api/v1/auth/oauth/wechat/start')}><span className="wechat-icon">微</span> 使用微信登录 <ArrowUpRight size={14} /></button>
+            <div className="login-divider"><span>或使用邮箱</span></div>
+            <div className="auth-mode-tabs">
+              <button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); setNotice('') }}>登录</button>
+              <button className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); setNotice('') }}>注册</button>
+            </div>
+          </>
+        )}
+        <div className="auth-form">
+          {mode === 'register' && <input autoFocus value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder="昵称" autoComplete="name" />}
+          {mode !== 'reset' && <input autoFocus={mode === 'login' || mode === 'forgot'} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="邮箱" type="email" autoComplete="email" />}
+          {mode !== 'forgot' && <input value={password} minLength={8} maxLength={128} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && mode !== 'reset') void submit() }} placeholder={mode === 'reset' ? '新密码（至少 8 位）' : '密码（至少 8 位）'} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />}
+          {mode === 'reset' && <input value={passwordConfirmation} minLength={8} maxLength={128} onChange={(event) => setPasswordConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submit() }} placeholder="再次输入新密码" type="password" autoComplete="new-password" />}
+          {error && <div className="auth-error">{error}</div>}
+          {notice && <div className="auth-notice">{notice}</div>}
+          <button className="primary-button" disabled={submitting} onClick={submit}>{submitting ? '提交中…' : mode === 'login' ? '登录' : mode === 'register' ? '注册并登录' : mode === 'forgot' ? '发送重置邮件' : '重置密码'}</button>
+          {mode === 'login' && <button className="text-button auth-secondary" onClick={() => { setMode('forgot'); setError(''); setNotice('') }}>忘记密码？</button>}
+          {(mode === 'forgot' || mode === 'reset') && <button className="text-button auth-secondary" onClick={() => { setMode('login'); setError(''); setNotice('') }}>返回登录</button>}
+        </div>
+        <small>会话保存在安全的 HttpOnly Cookie 中，前端无法读取登录令牌。</small>
+      </div>
+    </div>
+  )
 }
 
 export default App

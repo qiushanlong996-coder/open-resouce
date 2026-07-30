@@ -1,9 +1,3 @@
-.codex-ssh-runtime/
-.codex-go-sdk/
-.codex-go-cache/
-.codex-go-tmp/
-.codex-go.zip
-.codex-gateway
-.codex-gateway.test
+.codex-*
 .pnpm-store/
 deploy/compose/.env

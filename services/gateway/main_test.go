@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +40,27 @@ func TestHealthEndpoints(t *testing.T) {
 				t.Fatalf("unexpected response: %#v", body)
 			}
 		})
+	}
+}
+
+func TestReadinessFailure(t *testing.T) {
+	original := readinessCheck
+	readinessCheck = func(context.Context) error { return errors.New("dependency unavailable") }
+	t.Cleanup(func() { readinessCheck = original })
+
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	response := httptest.NewRecorder()
+	newHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, response.Code)
+	}
+	var body errorResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "service_not_ready" {
+		t.Fatalf("unexpected response: %#v", body)
 	}
 }
 

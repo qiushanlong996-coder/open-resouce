@@ -9,6 +9,7 @@ Group=nobody
 WorkingDirectory=/opt/open-resouce/current
 Environment=HOST=127.0.0.1
 Environment=PORT=18080
+EnvironmentFile=-/etc/open-resouce/gateway.env
 ExecStart=/opt/open-resouce/current/bin/gateway
 Restart=on-failure
 RestartSec=3
