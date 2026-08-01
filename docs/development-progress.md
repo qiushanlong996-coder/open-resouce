@@ -2085,3 +2085,36 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 4. 公网回归：注册临时号看 `/auth/me` 带 level/experience；无块文档发评论应 201；评论/收藏/分享后经验累加与等级展示；6 级特效；清理临时数据。
 
 > 说明：本轮曾尝试按流程部署，中途按项目负责人要求停止；已清理应用服务器上传的临时文件（`/root/xp-deploy`），生产环境未发生任何改动（二进制未替换、迁移未执行）。
+
+## 2026-08-01：评论点赞（含 +1 经验）
+
+### 背景
+
+需求 6.12 要求评论支持点赞；等级系统里预留的「点赞 +1 经验」此前因没有点赞功能而搁置。本次补齐评论点赞，并接上经验源，形成闭环。
+
+### 已完成（后端）
+
+- 迁移 `000012_create_comment_likes`：`comment_likes(comment_id, user_id, created_at)`，联合主键保证幂等，双外键（评论、用户）级联删除。
+- 新增 `comment_likes.go`：`commentLikeRepository`（内存 + MySQL），`SetLike`（幂等，MySQL 用 `INSERT IGNORE`/`DELETE` 判断是否变化）、`CountsByComments`、`LikedByUser`（批量，避免 N+1）。
+- 新增 `POST/DELETE /api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/like`：登录校验，校验评论属于当前文档，首次点赞给点赞者加经验（`xpActionLike` +1）。
+- 评论列表按当前查看者补 `like_count` 与 `liked`（匿名只补数量）。`documentComment` 加这两个字段。
+- `main.go` 在有 `DATABASE_URL` 时切 MySQL 点赞仓库。
+- OpenAPI 更新为 53 条路径：新增 like 路径、评论 schema 加 `like_count`/`liked`。
+
+### 已完成（前端）
+
+- `client.ts`：`DocumentComment` 加 `like_count`/`liked`，新增 `setCommentLike`。
+- `CommentItem` 加 `likeCount`/`liked`，`mapDocumentComment` 映射。
+- `toggleCommentLike`：乐观更新（递归处理根评论与回复），失败回滚并提示；未登录点赞引导登录。经 `ProjectDetail → DocumentView → CommentCard` 逐层透传。
+- 评论卡片与回复均加点赞按钮（ThumbsUp 图标 + 计数，已赞高亮）。`App.css` 增 `.comment-like` 样式。
+
+### 验证
+
+- `gofmt`、`go vet`、本地全量 `go test` 通过；新增内存幂等测试、点赞端点+列表计数测试、未知评论 404 测试、MySQL 集成测试（`requireTestDatabase` 守卫，本地跳过）。
+- 前端 oxlint 零警告、`tsc`、Vite 构建通过；OpenAPI 校验通过。
+- **未部署、未做真人浏览器验证、迁移 `000012` 未应用**（同上一条部署状态；本功能与等级系统一并待部署）。
+
+### 注意事项
+
+- 点赞变化暂未走 SSE 实时推送，计数在下次拉取评论时更新；后续可复用评论事件流推送。
+- 点赞经验幂等：取消后再点赞不会重复加经验（账本按 `(user, like, commentID)` 唯一）。

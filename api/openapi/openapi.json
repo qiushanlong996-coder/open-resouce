@@ -1062,6 +1062,34 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/like": {
+      "parameters": [
+        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "documentSlug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "commentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "post": {
+        "summary": "点赞文档评论",
+        "description": "幂等；首次点赞给点赞者加经验。",
+        "operationId": "likeDocumentComment",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已点赞；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "取消点赞文档评论",
+        "operationId": "unlikeDocumentComment",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已取消点赞；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies": {
       "post": {
         "summary": "回复文档评论",
@@ -1566,6 +1594,8 @@
           "author_id": { "type": "string" },
           "author": { "type": "string" },
           "author_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "评论作者等级（1-6），管理员恒为 6" },
+          "like_count": { "type": "integer", "minimum": 0, "description": "点赞数" },
+          "liked": { "type": "boolean", "description": "当前登录用户是否已点赞" },
           "quote": { "type": "string" },
           "body": { "type": "string" },
           "status": { "type": "string", "enum": ["open", "resolved"] },

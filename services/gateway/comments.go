@@ -28,6 +28,8 @@ type documentComment struct {
 	ResolvedAt  *string           `json:"resolved_at"`
 	Replies     []documentComment `json:"replies"`
 	ReplyCount  int               `json:"reply_count"`
+	LikeCount   int               `json:"like_count"`
+	Liked       bool              `json:"liked"`
 }
 
 type commentListResponse struct {
@@ -282,6 +284,8 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 			return
 		}
 		result = enrichCommentLevels(request.Context(), result)
+		viewer, _ := currentUser(request)
+		result = enrichCommentLikes(request.Context(), result, viewer.ID)
 		writeJSON(writer, http.StatusOK, commentListResponse{Data: result, RequestID: requestIDFromContext(request.Context())})
 	case http.MethodPost:
 		actor, authenticated := requireCurrentUser(writer, request)

@@ -26,6 +26,7 @@ const (
 	xpReply    = 5  // 回复评论
 	xpShare    = 3  // 分享项目（每项目每人一次）
 	xpFavorite = 2  // 收藏项目（每项目每人一次）
+	xpLike     = 1  // 点赞评论（每条评论每人一次）
 )
 
 // 经验动作标识，同时作为账本 action 列的取值。
@@ -35,6 +36,7 @@ const (
 	xpActionReply    = "reply"
 	xpActionShare    = "share"
 	xpActionFavorite = "favorite"
+	xpActionLike     = "like"
 )
 
 // levelForExperience 把累计经验映射到 1..6 级。

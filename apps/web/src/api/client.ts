@@ -228,6 +228,8 @@ export type DocumentComment = {
   resolved_at: string | null
   replies: DocumentComment[]
   reply_count: number
+  like_count?: number
+  liked?: boolean
 }
 
 export type CommentListResponse = {
@@ -604,6 +606,14 @@ export function shareProject(projectSlug: string) {
   return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/share`, {
     method: 'POST',
   })
+}
+
+// setCommentLike 点赞或取消点赞一条文档评论（幂等）。
+export function setCommentLike(projectSlug: string, documentSlug: string, commentID: string, like: boolean) {
+  return apiRequest<void>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/documents/${encodeURIComponent(documentSlug)}/comments/${encodeURIComponent(commentID)}/like`,
+    { method: like ? 'POST' : 'DELETE' },
+  )
 }
 
 export function getServiceInfo(signal?: AbortSignal) {

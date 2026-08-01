@@ -104,6 +104,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/projects/{slug}/code/file/download", projectCodeFileDownloadHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/assets", projectInlineAssetHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/events", documentCommentEventsHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/like", documentCommentLikeHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies/{replyID}", documentCommentReplyHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies", documentCommentRepliesHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}", documentCommentHandler)
@@ -192,6 +193,7 @@ func main() {
 		collaborationRepositoryStore = newMySQLCollaborationRepository(database)
 		notificationRepositoryStore = newMySQLNotificationRepository(database)
 		projectDocumentRepositoryStore = newMySQLProjectDocumentRepository(database)
+		commentLikeRepositoryStore = newMySQLCommentLikeRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
 	}

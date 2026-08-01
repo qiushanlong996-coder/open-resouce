@@ -617,3 +617,9 @@
   .level-avatar.lvl-6,
   .nickname-legendary { animation: none; }
 }
+
+/* 评论点赞按钮 */
+.comment-like { display: inline-flex; align-items: center; gap: 4px; margin-top: 9px; padding: 2px 8px; color: #77777d; background: transparent; border: 1px solid var(--line); border-radius: 999px; font-size: 10px; line-height: 18px; }
+.comment-like:hover { color: var(--blue); border-color: #a9ccee; }
+.comment-like.liked { color: var(--blue); border-color: #a9ccee; background: #f1f7fd; }
+.comment-reply .comment-like { margin-top: 6px; }
