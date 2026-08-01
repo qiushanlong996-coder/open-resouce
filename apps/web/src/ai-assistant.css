@@ -1,0 +1,221 @@
+/* 项目 AI 助手浮窗。样式独立于 App.css，避免与并行开发产生冲突。 */
+
+.ai-assistant {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  font-family: var(--font-family, inherit);
+}
+
+.ai-assistant-fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue, #2f6bff);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.28);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.ai-assistant-fab:hover {
+  background: var(--blue-hover, #2456d6);
+  transform: translateY(-2px);
+}
+
+.ai-assistant-panel {
+  width: min(380px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #fff);
+  color: var(--ink, #0f172a);
+  border: 1px solid var(--line, rgba(15, 23, 42, 0.12));
+  border-radius: var(--border-radius, 16px);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  overflow: hidden;
+}
+
+.ai-assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line, rgba(15, 23, 42, 0.12));
+}
+
+.ai-assistant-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--blue, #2f6bff);
+}
+
+.ai-assistant-title strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--ink, #0f172a);
+}
+
+.ai-assistant-title small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted, #64748b);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-assistant-close {
+  border: none;
+  background: transparent;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.ai-assistant-close:hover {
+  background: var(--surface-muted, rgba(15, 23, 42, 0.06));
+}
+
+.ai-assistant-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-assistant-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--muted, #64748b);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+.ai-assistant-empty p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ai-assistant-notice {
+  margin: auto;
+  text-align: center;
+  color: var(--muted, #64748b);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  padding: 12px;
+}
+
+.ai-assistant-login {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--blue, #2f6bff);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.ai-assistant-message {
+  display: flex;
+}
+
+.ai-assistant-message.user {
+  justify-content: flex-end;
+}
+
+.ai-assistant-message.assistant {
+  justify-content: flex-start;
+}
+
+.ai-assistant-bubble {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-assistant-message.user .ai-assistant-bubble {
+  background: var(--blue, #2f6bff);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.ai-assistant-message.assistant .ai-assistant-bubble {
+  background: var(--surface-muted, rgba(15, 23, 42, 0.06));
+  color: var(--ink, #0f172a);
+  border-bottom-left-radius: 4px;
+}
+
+.ai-assistant-error {
+  font-size: 0.8rem;
+  color: #dc2626;
+  text-align: center;
+}
+
+.ai-assistant-composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--line, rgba(15, 23, 42, 0.12));
+}
+
+.ai-assistant-composer textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--line, rgba(15, 23, 42, 0.14));
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--canvas, #fff);
+  color: var(--ink, #0f172a);
+}
+
+.ai-assistant-composer textarea:focus {
+  outline: none;
+  border-color: var(--blue, #2f6bff);
+}
+
+.ai-assistant-composer button {
+  align-self: flex-end;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: var(--blue, #2f6bff);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-assistant-composer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

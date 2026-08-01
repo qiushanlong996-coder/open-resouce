@@ -118,6 +118,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/projects/{slug}/code/file", projectCodeFileHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/code/file/download", projectCodeFileDownloadHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/assets", projectInlineAssetHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/assistant", assistantHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/events", documentCommentEventsHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/like", documentCommentLikeHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies/{replyID}", documentCommentReplyHandler)
@@ -296,6 +297,21 @@ func main() {
 		// 建索引失败不阻断启动：搜索是附加能力，不应拖垮整个服务。
 		warmSearchIndex()
 		slog.Info("Elasticsearch document search enabled", "index", indexName)
+	}
+
+	// AI 项目助手：仅当配置了 ANTHROPIC_API_KEY 时启用。
+	// 未配置时 aiAssistantStore 保持为 nil，助手接口返回 503 assistant_unavailable。
+	if apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); apiKey != "" {
+		baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
+		if baseURL == "" {
+			baseURL = defaultAnthropicBaseURL
+		}
+		model := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL"))
+		if model == "" {
+			model = defaultAnthropicModel
+		}
+		aiAssistantStore = newAnthropicAssistant(baseURL, apiKey, model)
+		slog.Info("Anthropic AI assistant enabled", "model", model)
 	}
 
 	server := &http.Server{
