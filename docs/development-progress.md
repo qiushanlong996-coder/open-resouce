@@ -2052,4 +2052,36 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 - 新增 `TestCreateCommentAllowsEmptyBlock`：空 block_id 返回 201 且落库；`TestCreateCommentRejectsUnknownBlock` 仍保证非空且不存在的块返回 422。
 - `gofmt`、`go test` 全量通过；前端 oxlint 零警告、Vite 构建通过。
-- 随等级系统一起部署（见下条部署记录）。
+- 随等级系统一起部署（见下条部署状态）。
+
+## 2026-08-01：部署与验证状态（重要 · 未部署）
+
+以下功能**已提交到 `main` 但尚未部署到生产**，公网 8443 入口仍是旧版本。下次上线时需按顺序补做，切勿遗漏。
+
+### 待部署的提交
+
+| 提交 | 内容 | 后端 | 前端 | 迁移 |
+| --- | --- | --- | --- | --- |
+| `87fe9fd` | 通知点击跳转到来源 | 无 | ✅ | 无 |
+| `5938594` | 等级系统后端经验引擎 | ✅ | 无 | `000011` |
+| `0dfcd52` | 等级前端展示 | 无 | ✅ | 无 |
+| `50e9447` | L6 特效与头像框动画 | 无 | ✅ | 无 |
+| `110ae72` | 修复无块文档 422 | ✅ | ✅ | 无 |
+
+### 各项验证状态
+
+- **已验证**：本地 `gofmt`/`go vet`/`go test` 全量通过（含等级引擎单元测试、422 修复测试）；前端 `oxlint` 零警告、`tsc`、`vite build` 通过；OpenAPI 校验（52 路径/63 schema）通过；Gateway linux/amd64 交叉编译通过。
+- **未做**：
+  - 迁移 `000011` **未应用**到测试库 `open_resouce_test`，也**未应用**到生产库 `open_resouce`。
+  - `TestMySQLExperienceIntegration` 等真实 MySQL 集成测试**未在应用服务器跑过**（应用/测试账号来源 IP 受限，只能在应用服务器执行）。
+  - **未做任何真人浏览器验证**：通知跳转点击、等级头像框/徽标、L6 流光/呼吸光晕/reduced-motion、422 修复后的发布评论，均只经本地构建与逻辑走查，未在浏览器确认观感与交互。
+  - 公网端到端回归**未做**。
+
+### 部署时的顺序（提醒）
+
+1. 迁移 `000011` 先上测试库 → 应用服务器跑集成测试（`gateway.test -test.run Integration`，DSN 见 password.md）→ 再上生产库（生产库 DDL 用 root 账号）。
+2. 交叉编译 Gateway → 上传 → `gateway.next` 原子替换、保留 `gateway.previous` → 重启 `open-resouce-gateway` → 查 `/healthz`、`/readyz`。
+3. 前端 `vite build` → 打包上传到 `/var/www/open-resouce/releases/<时间戳>` → 切 `current` 软链。
+4. 公网回归：注册临时号看 `/auth/me` 带 level/experience；无块文档发评论应 201；评论/收藏/分享后经验累加与等级展示；6 级特效；清理临时数据。
+
+> 说明：本轮曾尝试按流程部署，中途按项目负责人要求停止；已清理应用服务器上传的临时文件（`/root/xp-deploy`），生产环境未发生任何改动（二进制未替换、迁移未执行）。
