@@ -2332,3 +2332,15 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - **均未部署、未做真人浏览器验证**。
 - AI 助手需服务端配置 `ANTHROPIC_API_KEY` 才能真正回答；未配置时优雅降级为 503 + 前端"AI 未启用"。上线时若要启用需项目负责人提供 key 并写入 `/etc/open-resouce/gateway.env`。
 - 后端有改动但**无新迁移**（开放 API 复用 managed_projects；用户统计复用 users；审计表已存在）。上线只需交叉编译 Gateway + 发前端；若启用 AI 再加环境变量。
+
+## 2026-08-02：开放写 API / AI 悬浮窗 / 管理台增强 上线部署
+
+- 无新迁移；集成测试在应用服务器通过（含开放 API、用户统计、AI 助手测试）。
+- Gateway 原子替换重启（保留 `gateway.previous`）；前端发布目录 `20260801162207`，主资源 `index-C2Xf7_DW.js`。内网 `/healthz` ok、`/readyz` 200。
+- 公网回归（8443）全过：管理员签发 API key → 开放 API `POST /open/projects` 建草稿 201 → `/submit` 转 `pending_review` 200 → 缺 key 401；AI 助手返回 **503 `assistant_unavailable`**（未配置 key 的优雅降级）；`/admin/user-stats` 200（total_users 3）；首页服务新资源。
+- 回归创建的测试项目（级联清 review 事件）、API key、审计行已用 root 清理；published 项目回到 6、users 3；应用服务器临时目录已删。
+
+### AI 助手上线状态
+
+- 代码已上线，但**服务端未配置 `ANTHROPIC_API_KEY`**，因此助手当前对用户显示"AI 未启用"（接口 503）。
+- 启用方式：在 `/etc/open-resouce/gateway.env` 增加 `ANTHROPIC_API_KEY=...`（可选 `ANTHROPIC_MODEL`、`ANTHROPIC_BASE_URL`），`systemctl restart open-resouce-gateway` 即可。需项目负责人提供 key。
