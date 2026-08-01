@@ -1,0 +1,71 @@
+/*
+ * 主题背景接线层。
+ *
+ * 各主题的调色板（--blue / --surface / --line / --app-bg ...）由 src/themes.ts
+ * 在运行时以内联自定义属性写到 <html> 上；这里只负责把 --app-bg 真正铺到
+ * App 外壳上，并提供一个 JS 生效前的默认背景，避免首帧空白。
+ *
+ * 该文件在 main.tsx 里于 App（含 App.css）之后导入，因此对 .app-shell 的背景
+ * 声明可以覆盖 App.css 里较早的同优先级规则。
+ */
+
+:root {
+  /* 默认海蓝（浅色）背景，仅作 JS 应用主题之前的兜底。 */
+  --app-bg: radial-gradient(1200px 640px at 8% -12%, rgba(0, 102, 204, 0.1), transparent 60%),
+    radial-gradient(1000px 560px at 108% 0%, rgba(56, 142, 232, 0.07), transparent 58%),
+    linear-gradient(180deg, #ffffff 0%, #f5f9fd 100%);
+}
+
+.app-shell {
+  background: var(--app-bg);
+  background-attachment: fixed;
+  transition: background 0.45s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
+}
+
+/* 主题切换器里的单个主题：渐变色板 + 名称 + 描述 + 选中标记。 */
+.skin-list .skin-option {
+  min-height: 44px;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.skin-list .skin-option .skin-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+}
+
+.skin-list .skin-option.selected .skin-swatch {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.14),
+    0 0 0 2px var(--surface),
+    0 0 0 3px var(--blue);
+}
+
+.skin-list .skin-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.skin-list .skin-option-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.skin-list .skin-option-text small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  line-height: 1.3;
+}
