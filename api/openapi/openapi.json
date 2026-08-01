@@ -828,6 +828,45 @@
         }
       }
     },
+    "/api/v1/auth/api-keys": {
+      "get": {
+        "summary": "列出当前用户的 AccessKey",
+        "description": "任意登录用户列出自己持有的 Open API 密钥（AccessKey），不含明文。",
+        "operationId": "listMyApiKeys",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "密钥列表（不含明文）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiKeyListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "summary": "创建当前用户的 AccessKey",
+        "description": "为当前登录用户签发一个 Open API 密钥（AccessKey）。明文仅返回一次，用于 Authorization: Bearer 鉴权，并以当前用户身份行事。",
+        "operationId": "createMyApiKey",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IssueApiKeyRequest" } } } },
+        "responses": {
+          "201": { "description": "签发成功，明文仅返回一次", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IssuedApiKeyResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "description": "账号已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "名称不合法或已达到密钥数量上限", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/auth/api-keys/{keyID}": {
+      "delete": {
+        "summary": "撤销当前用户的 AccessKey",
+        "description": "撤销当前用户自己的密钥。撤销不属于自己的密钥返回 404 且不产生副作用。",
+        "operationId": "revokeMyApiKey",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "keyID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "已撤销" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/admin/api-keys": {
       "get": {
         "summary": "列出 API 密钥",
@@ -1485,6 +1524,16 @@
       },
       "NotFound": {
         "description": "资源不存在",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "请先登录",
         "content": {
           "application/json": {
             "schema": {

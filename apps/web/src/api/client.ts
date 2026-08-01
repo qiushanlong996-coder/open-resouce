@@ -620,6 +620,21 @@ export function revokeApiKey(keyID: string) {
   return apiRequest<void>(`/api/v1/admin/api-keys/${encodeURIComponent(keyID)}`, { method: 'DELETE' })
 }
 
+// 用户自助 AccessKey：任意登录用户管理自己的 Open API 密钥（Bearer 鉴权，以本人身份行事）。
+export function getMyApiKeys(signal?: AbortSignal) {
+  return apiRequest<ApiKeyListResponse>('/api/v1/auth/api-keys', { signal })
+}
+
+export function createMyApiKey(name: string) {
+  return apiRequest<IssuedApiKeyResponse>('/api/v1/auth/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
+}
+
+export function revokeMyApiKey(keyID: string) {
+  return apiRequest<void>(`/api/v1/auth/api-keys/${encodeURIComponent(keyID)}`, { method: 'DELETE' })
+}
+
 export function getAdminAudit(params: { limit: number; action?: string }, signal?: AbortSignal) {
   const query = new URLSearchParams({ limit: String(params.limit) })
   if (params.action) query.set('action', params.action)
