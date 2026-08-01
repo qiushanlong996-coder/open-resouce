@@ -184,8 +184,12 @@ export default function CollaborativeMarkdownEditor({
         return
       }
 
+      // 保留 service 引用，清理时需要先把它断开。
+      // collabServiceCtx 是动态 import 进来的，这里只用到 disconnect。
+      let collabService: { disconnect: () => void } | null = null
       crepe.editor.action((ctx) => {
         const service = ctx.get(collabServiceCtx)
+        collabService = service
         service.bindDoc(yDoc).setAwareness(awareness).mergeOptions({
           yCursorOpts: {
             cursorBuilder: (remoteUser: { name?: string; color?: string }) => {
@@ -232,10 +236,22 @@ export default function CollaborativeMarkdownEditor({
 
       cleanupEditor = async () => {
         window.clearTimeout(saveTimer)
+        // 先告知其他编辑者本端离开。
         awareness.setLocalState(null)
+        // 拆卸顺序必须与装配逆序：
+        //   1. 先 disconnect，让 collab 插件在编辑器上下文仍有效时解除绑定；
+        //   2. 再销毁编辑器；
+        //   3. 最后销毁 yDoc 与 awareness。
+        // 跳过第 1 步会让插件在销毁过程中去取已不存在的 editorState，
+        // 报 MilkdownError: Context "editorState" not found。
+        try {
+          collabService?.disconnect()
+        } catch {
+          // 编辑器已先行卡死时 disconnect 可能抛错，不应阻止后续清理。
+        }
+        await crepe?.destroy()
         awareness.destroy()
         yDoc.destroy()
-        await crepe?.destroy()
       }
     }
 

@@ -1847,3 +1847,46 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 
 - 别名只在 slug 变更时累积，没有上限与过期清理。正常使用量级下可忽略，但若有人反复改名会持续增长。
 - 重定向只覆盖文档正文接口。评论等子路径仍按当前 slug 请求，前端拿到文档详情后使用的是新 slug，因此不受影响。
+
+## 2026-08-01：协作编辑双端验证与销毁顺序修复
+
+### 背景
+
+协作编辑此前只有 Go 集成测试覆盖，那些测试只验证服务端把消息转发给了同房间的其他连接，**不能证明两个 Yjs 文档真的收敛**。浏览器自动化工具开不了第二个标签页，无法做双客户端 UI 验证。
+
+### 双端协议级验证脚本
+
+新增 `apps/web/scripts/collab-two-client-check.mjs`：两个真实 `Y.Doc` + 真实 WebSocket，走与前端完全相同的线协议（init / update / awareness / presence / snapshot，二进制经 Base64）。
+
+16 项断言全部通过：
+
+- 两客户端 init 内容一致
+- A 输入 B 收到（正向）、B 输入 A 收到（反向）
+- **双端收敛到同一内容**，两侧编辑都保留未互相覆盖
+- **并发同时插入**后仍收敛，双方内容都在
+- 保存后另一端收到 `saved` 广播（revision 一致）
+- 第三个客户端连另一篇文档：初始内容不同，A 的编辑**不泄漏**过去
+- 无协议错误
+
+已做反向验证：把第三个客户端改成连同一篇文档后，`no_cross_document_leak` 与 `doc_b_unchanged` 立即失败，证明隔离断言真的有效。
+
+### 浏览器 UI 验证
+
+开发服务器（5173）首次加载协作编辑器会现场转换 milkdown 依赖图，两次尝试都超时。改用 **`vite preview` 跑生产构建**（chunk 已预打包）后一切正常。为此在 `vite.config.ts` 里把 API 代理配置提取共用，同时给 `server` 和 `preview` 使用——`preview` 不会继承 `server.proxy`。
+
+UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false`）、Crepe 主题样式已加载（15px / 27px 行高）、状态区显示「已保存 · 修订 N」与在线人数、协作保存内容在阅读页可见。
+
+### 发现并修复的缺陷
+
+浏览器验证暴露出控制台每次退出协作编辑都报 `MilkdownError: Context "editorState" not found`。
+
+- **第一次尝试改销毁顺序（先编辑器后 yDoc）没解决**，我一开始判断错了。
+- 真根因：代码调用了 `service.connect()` 但**从未调用 `service.disconnect()`**。协作服务仍处于连接状态就销毁编辑器，collab 插件在拆卸过程中去取已不存在的 `editorState`。
+- 修复：清理时按装配逆序拆卸——先 `disconnect()`，再销毁编辑器，最后销毁 `yDoc` 与 `awareness`。`disconnect()` 包了 try/catch，避免编辑器先行异常时阻断后续清理。
+- 修复后浏览器复验：4 次进出协作编辑（含跨文档）**控制台 0 条 error**。
+
+### 注意事项
+
+- 上一轮验证里出现的 `ERR_CONNECTION_REFUSED` / `ERR_INCOMPLETE_CHUNKED_ENCODING` 是我在验证过程中重启了 preview 服务导致的，不是产品问题。服务稳定后不再出现。
+- 双端验证仍是协议级 + 单端 UI 的组合，**没有做真正的双浏览器窗口人工验证**。协议级脚本验证了 CRDT 收敛这一核心保证，但真人双开时的光标显示、输入法行为等未覆盖。
+- 新增 `ws` 与 `@types/ws` 为 devDependencies，仅供该验证脚本使用，不进生产包。
