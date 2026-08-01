@@ -482,6 +482,129 @@ export function getPendingProjectReviews(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/admin/reviews', { signal })
 }
 
+// ==================== 管理控制台 ====================
+
+export type AdminStats = {
+  users: number
+  projects_total: number
+  projects_by_status: Record<string, number>
+  pending_reviews: number
+  comments: number
+}
+
+export type AdminStatsResponse = { data: AdminStats; request_id: string }
+
+export type AdminUser = {
+  id: string
+  email: string
+  display_name: string
+  experience: number
+  level: number
+  is_admin: boolean
+  created_at: string
+  banned: boolean
+}
+
+export type AdminUserListResponse = {
+  data: AdminUser[]
+  total: number
+  page: number
+  page_size: number
+  request_id: string
+}
+
+export type AdminProjectListResponse = {
+  data: ManagedProject[]
+  total: number
+  page: number
+  page_size: number
+  request_id: string
+}
+
+export type ApiKey = {
+  id: string
+  owner_id: string
+  name: string
+  prefix: string
+  created_at: string
+  revoked_at?: string | null
+}
+
+export type ApiKeyListResponse = { data: ApiKey[]; request_id: string }
+
+export type IssuedApiKeyResponse = {
+  data: { key: ApiKey; plaintext: string }
+  request_id: string
+}
+
+export type AdminAuditEntry = {
+  id: string
+  actor_id: string
+  actor_email: string
+  action: string
+  target: string
+  detail: string
+  created_at: string
+}
+
+export type AdminAuditListResponse = { data: AdminAuditEntry[]; request_id: string }
+
+export function getAdminStats(signal?: AbortSignal) {
+  return apiRequest<AdminStatsResponse>('/api/v1/admin/stats', { signal })
+}
+
+export function getAdminUsers(params: { search?: string; page?: number; page_size?: number }, signal?: AbortSignal) {
+  const query = new URLSearchParams()
+  if (params.search) query.set('search', params.search)
+  if (params.page) query.set('page', String(params.page))
+  if (params.page_size) query.set('page_size', String(params.page_size))
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiRequest<AdminUserListResponse>(`/api/v1/admin/users${suffix}`, { signal })
+}
+
+export function banUser(userID: string, reason: string) {
+  return apiRequest<void>(`/api/v1/admin/users/${encodeURIComponent(userID)}/ban`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  })
+}
+
+export function unbanUser(userID: string) {
+  return apiRequest<void>(`/api/v1/admin/users/${encodeURIComponent(userID)}/ban`, { method: 'DELETE' })
+}
+
+export function getAdminProjects(params: { status?: string; page?: number; page_size?: number }, signal?: AbortSignal) {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.page) query.set('page', String(params.page))
+  if (params.page_size) query.set('page_size', String(params.page_size))
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiRequest<AdminProjectListResponse>(`/api/v1/admin/projects${suffix}`, { signal })
+}
+
+export function takedownProject(projectID: string, reason: string) {
+  return apiRequest<ManagedProjectResponse>(`/api/v1/admin/projects/${encodeURIComponent(projectID)}/takedown`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  })
+}
+
+export function getApiKeys(signal?: AbortSignal) {
+  return apiRequest<ApiKeyListResponse>('/api/v1/admin/api-keys', { signal })
+}
+
+export function issueApiKey(name: string) {
+  return apiRequest<IssuedApiKeyResponse>('/api/v1/admin/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
+}
+
+export function revokeApiKey(keyID: string) {
+  return apiRequest<void>(`/api/v1/admin/api-keys/${encodeURIComponent(keyID)}`, { method: 'DELETE' })
+}
+
+export function getAdminAudit(limit: number, signal?: AbortSignal) {
+  return apiRequest<AdminAuditListResponse>(`/api/v1/admin/audit?limit=${limit}`, { signal })
+}
+
 // 作者端文档树管理。权限为项目所有者或 editor 协作者。
 function authorDocumentsPath(projectID: string) {
   return `/api/v1/author/projects/${encodeURIComponent(projectID)}/documents`

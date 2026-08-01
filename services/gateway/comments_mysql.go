@@ -396,4 +396,15 @@ func mysqlDSN(databaseURL string) (string, error) {
 	return config.FormatDSN(), nil
 }
 
+// CountAll 返回未删除评论（含回复）总数，供管理概览统计。
+// 通过 commentCounter 断言可选调用，不属于 commentRepository 接口。
+func (repository *mysqlCommentRepository) CountAll(ctx context.Context) (int, error) {
+	var count int
+	if err := repository.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM document_comments WHERE deleted_at IS NULL`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count comments: %w", err)
+	}
+	return count, nil
+}
+
 var _ commentRepository = (*mysqlCommentRepository)(nil)

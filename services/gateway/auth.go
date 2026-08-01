@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,6 +110,10 @@ type authRepository interface {
 	AddExperience(ctx context.Context, userID, action, sourceKey string, points int) (bool, error)
 	// LevelsByUserIDs 批量返回用户等级，用于评论作者等级展示。
 	LevelsByUserIDs(ctx context.Context, ids []string) (map[string]int, error)
+	// CountUsers 返回注册用户总数，供管理概览统计。
+	CountUsers(ctx context.Context) (int, error)
+	// ListUsers 分页返回用户摘要，search 非空时按邮箱/昵称模糊匹配，同时返回匹配总数。
+	ListUsers(ctx context.Context, search string, limit, offset int) ([]adminUserSummary, int, error)
 	CreatePasswordResetToken(context.Context, string, passwordResetToken) (authUser, bool, error)
 	ConsumePasswordResetToken(context.Context, string, time.Time, string) (bool, error)
 }
@@ -116,6 +121,7 @@ type authRepository interface {
 type memoryAuthRepository struct {
 	sync.RWMutex
 	usersByEmail     map[string]authUser
+	userCreatedAt    map[string]time.Time
 	sessions         map[string]authSession
 	resetTokens      map[string]passwordResetToken
 	experienceLedger map[string]struct{}
@@ -124,6 +130,7 @@ type memoryAuthRepository struct {
 func newMemoryAuthRepository() *memoryAuthRepository {
 	return &memoryAuthRepository{
 		usersByEmail:     make(map[string]authUser),
+		userCreatedAt:    make(map[string]time.Time),
 		sessions:         make(map[string]authSession),
 		resetTokens:      make(map[string]passwordResetToken),
 		experienceLedger: make(map[string]struct{}),
@@ -137,7 +144,53 @@ func (repository *memoryAuthRepository) CreateUser(_ context.Context, user authU
 		return errEmailExists
 	}
 	repository.usersByEmail[user.Email] = user
+	repository.userCreatedAt[user.ID] = time.Now().UTC()
 	return nil
+}
+
+func (repository *memoryAuthRepository) CountUsers(_ context.Context) (int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	return len(repository.usersByEmail), nil
+}
+
+func (repository *memoryAuthRepository) ListUsers(
+	_ context.Context, search string, limit, offset int,
+) ([]adminUserSummary, int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	needle := strings.ToLower(strings.TrimSpace(search))
+	matched := make([]adminUserSummary, 0)
+	for _, user := range repository.usersByEmail {
+		if needle != "" &&
+			!strings.Contains(strings.ToLower(user.Email), needle) &&
+			!strings.Contains(strings.ToLower(user.DisplayName), needle) {
+			continue
+		}
+		matched = append(matched, adminUserSummary{
+			ID: user.ID, Email: user.Email, DisplayName: user.DisplayName,
+			Experience: user.Experience, Level: levelForUser(user.Email, user.Experience),
+			IsAdmin: isAdminEmail(user.Email), CreatedAt: repository.userCreatedAt[user.ID],
+		})
+	}
+	// 稳定排序：注册时间倒序，时间相同按 ID 兜底。
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].ID < matched[j].ID
+		}
+		return matched[i].CreatedAt.After(matched[j].CreatedAt)
+	})
+	total := len(matched)
+	if offset >= total {
+		return []adminUserSummary{}, total, nil
+	}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+	page := make([]adminUserSummary, end-offset)
+	copy(page, matched[offset:end])
+	return page, total, nil
 }
 
 func (repository *memoryAuthRepository) FindUserByEmail(_ context.Context, email string) (authUser, bool, error) {
@@ -604,6 +657,56 @@ func (repository *mysqlAuthRepository) LevelsByUserIDs(
 		levels[id] = levelForUser(email, experience)
 	}
 	return levels, rows.Err()
+}
+
+func (repository *mysqlAuthRepository) CountUsers(ctx context.Context) (int, error) {
+	var count int
+	if err := repository.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return count, nil
+}
+
+func (repository *mysqlAuthRepository) ListUsers(
+	ctx context.Context, search string, limit, offset int,
+) ([]adminUserSummary, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	where, arguments := "", []any{}
+	if needle := strings.TrimSpace(search); needle != "" {
+		where = ` WHERE email LIKE ? OR display_name LIKE ?`
+		pattern := "%" + needle + "%"
+		arguments = append(arguments, pattern, pattern)
+	}
+	var total int
+	if err := repository.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users`+where, arguments...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count matched users: %w", err)
+	}
+	pageArguments := append(append([]any{}, arguments...), limit, offset)
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT id, email, display_name, experience, created_at FROM users`+where+
+			` ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`, pageArguments...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+	result := make([]adminUserSummary, 0)
+	for rows.Next() {
+		var summary adminUserSummary
+		if err := rows.Scan(&summary.ID, &summary.Email, &summary.DisplayName,
+			&summary.Experience, &summary.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan user summary: %w", err)
+		}
+		summary.Level = levelForUser(summary.Email, summary.Experience)
+		summary.IsAdmin = isAdminEmail(summary.Email)
+		result = append(result, summary)
+	}
+	return result, total, rows.Err()
 }
 
 func (repository *mysqlAuthRepository) CreatePasswordResetToken(
