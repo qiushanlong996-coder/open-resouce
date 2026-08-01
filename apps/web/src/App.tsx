@@ -121,6 +121,7 @@ import {
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
 import AdminConsole from './AdminConsole'
+import OpenApiDocs from './OpenApiDocs'
 import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
@@ -410,6 +411,7 @@ function App() {
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [themePanelOpen, setThemePanelOpen] = useState(false)
   const [searchPanelOpen, setSearchPanelOpen] = useState(false)
+  const [openDocsOpen, setOpenDocsOpen] = useState(false)
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
   const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
   const [catalogState, setCatalogState] = useState<CatalogState>('checking')
@@ -1360,8 +1362,11 @@ function App() {
           onToggleSaved={toggleSaved}
           gatewayState={gatewayState}
           catalogState={catalogState}
+          onOpenDocs={() => setOpenDocsOpen(true)}
         />
       )}
+
+      {openDocsOpen && <OpenApiDocs onClose={() => setOpenDocsOpen(false)} />}
 
       {toast && <div className="toast"><Check size={16} /> {toast}</div>}
       {loginOpen && <LoginModal
@@ -1408,6 +1413,7 @@ function Home({
   onToggleSaved,
   gatewayState,
   catalogState,
+  onOpenDocs,
 }: {
   activeTab: string
   activeCategory: string
@@ -1418,6 +1424,7 @@ function Home({
   onToggleSaved: (projectId: string) => void
   gatewayState: GatewayState
   catalogState: CatalogState
+  onOpenDocs: () => void
 }) {
   return (
     <main>
@@ -1486,6 +1493,21 @@ function Home({
         <div className="curated-row">
           <div className="curated-cover cover-blue"><div className="cover-label">FIELD NOTE 07</div><span>Agent<br />Observability</span></div>
           <div className="curated-copy"><span className="meta-label">编辑推荐 · 6 分钟阅读</span><h3>为什么 Agent 需要自己的“运行日志”？</h3><p>从单次回答到可回放的任务链路，观察每一步工具调用，才能让实验走向生产。</p><button className="text-button">打开文章 <ArrowUpRight size={15} /></button></div>
+        </div>
+      </section>
+      <section className="content-section compact-section">
+        <div className="section-heading">
+          <div><span className="section-kicker">OPEN API / FOR AGENTS</span><h2>开放能力</h2></div>
+          <button className="outline-button" onClick={onOpenDocs}>查看接口文档 <ArrowUpRight size={15} /></button>
+        </div>
+        <div className="curated-row">
+          <div className="curated-cover cover-blue"><div className="cover-label">OPEN API</div><span>Publish<br />via Agent</span></div>
+          <div className="curated-copy">
+            <span className="meta-label">面向 AI Agent · MCP · 自动化脚本</span>
+            <h3>用 Open API 把项目自动发布到平台</h3>
+            <p>通过 Bearer AccessKey 鉴权，调用开放接口即可预签名上传代码、创建草稿并提交审核，让你的 Agent 技能或工具链把成果直接发布到新猿译码。</p>
+            <button className="primary-button" onClick={onOpenDocs}>查看接口文档 <ArrowUpRight size={16} /></button>
+          </div>
         </div>
       </section>
       <footer className="site-footer">
