@@ -2147,3 +2147,27 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 - 热门词进程内内存：重启清零、多实例不共享；若要持久与全局一致需落库或用 Redis，后续按需升级。
 - 搜索历史在本设备本浏览器；换设备不同步（与隐私取舍一致）。
+
+## 2026-08-01：等级系统 / 点赞 / 搜索历史 / 422 修复 上线部署
+
+> 本条覆盖上面「部署与验证状态（未部署）」那条——以下功能现已全部部署到生产。
+
+### 已部署内容
+
+- 提交 `87fe9fd`(通知跳转)、`5938594`+`0dfcd52`+`50e9447`(等级系统)、`110ae72`(422 修复)、`2f55679`(评论点赞)、`ae261a5`(搜索历史/热门词)。
+- 迁移 `000011`(经验)、`000012`(点赞) 已应用到生产库 `open_resouce`（root 账号，DDL）。
+- Gateway 新二进制原子替换并重启，旧版本保留为 `gateway.previous` 可回退。
+- 前端发布目录 `20260801134752`，主资源 `index-CK-v0XVG.js`、主样式 `index-DSTQhF4O.css`。
+
+### 验证（真实执行）
+
+- **集成测试**：先把 `000011`/`000012` 应用到测试库 `open_resouce_test`，在应用服务器跑 `gateway.test -test.run Integration`，全部通过——含新增 `TestMySQLExperienceIntegration`、`TestMySQLCommentLikeIntegration`，以及既有 auth/comment/favorite/notification/managed/redis 集成测试。
+- 生产迁移后校验：`users.experience` 列、`experience_events`、`comment_likes` 三者均存在。
+- Gateway：`systemctl is-active`=active，内网 `/healthz`=ok、`/readyz`=200（MySQL+Redis 就绪）、`/api/v1` 正常。
+- **公网端到端回归**（经 nginx 8443）：注册新号 `/auth/me` 返回 level=1/experience=0；空 `block_id` 评论返回 **201**（422 修复在线生效）；点赞 204、分享 204；连做评论+点赞+分享后经验=14、等级 1；评论列表带 `author_level` 与 `like_count:1`；搜索 200 后 `/api/v1/search/hot` 返回 `{"term":"agent","count":1}`。
+- 回归产生的临时账号、评论、点赞、经验流水已用 root 定向清理并校验归零（`xptest_users=0`、`experience_events=0`、`comment_likes=0`）；应用服务器临时目录 `/root/xp-deploy` 已删除。
+
+### 注意事项
+
+- 未做真人浏览器验证（等级头像框/L6 流光动画/reduced-motion 的观感）：本环境无浏览器自动化；接口与端到端行为已由上面回归覆盖，观感可后续用本地 dev 代理线上 API 手动确认。
+- 热门搜索词是 Gateway 进程内内存计数，重启清零、多实例不共享（已知限制）。
