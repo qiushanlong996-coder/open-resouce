@@ -104,6 +104,15 @@ import {
   type ServiceInfo,
 } from './api/client'
 import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
+import {
+  BilibiliEmbed,
+  CodeBlock,
+  DocumentSearchBox,
+  HeadingAnchor,
+  ImageLightbox,
+  MermaidDiagram,
+} from './DocumentReader'
+import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import './App.css'
 
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
@@ -1598,6 +1607,17 @@ function ProjectCollaborationPermissions({
 }
 
 function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, composerAnchor, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; composerAnchor: { top: number } | null; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; showToast: (message: string) => void }) {
+  const articleContentRef = useRef<HTMLDivElement | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const documentSearch = useDocumentSearch(articleContentRef, searchKeyword, activeDocument?.id ?? '')
+
+  // 切换文档时重置阅读态，避免上一篇的搜索词和图片预览沿用到新文档。
+  useEffect(() => {
+    setSearchKeyword('')
+    setLightbox(null)
+  }, [activeDocument?.id])
+
   const headingId = (children: ReactNode) => {
     const title = reactNodeText(children)
     return activeDocument?.outline.find((item) => item.title === title)?.id
@@ -1630,23 +1650,77 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
     ? `data:text/markdown;charset=utf-8,${encodeURIComponent(activeDocument.markdown)}`
     : undefined
 
+  // 复制到指定小节的锚点链接。
+  const copySectionLink = (anchor: string) => {
+    const url = new URL(window.location.href)
+    url.hash = `#${anchor}`
+    navigator.clipboard?.writeText(url.toString())
+      .then(() => showToast('小节链接已复制'))
+      .catch(() => showToast('浏览器未允许复制，请手动复制地址栏链接'))
+  }
+
+  const renderHeading = (level: 1 | 2 | 3, children: ReactNode) => {
+    const id = headingId(children) ?? ''
+    const Tag = `h${level}` as 'h1' | 'h2' | 'h3'
+    return <Tag id={id || undefined} className="reader-heading">
+      {children}
+      <HeadingAnchor id={id} onCopy={() => copySectionLink(id)} />
+    </Tag>
+  }
+
   return (
     <section className="doc-workspace">
       <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div><button className="tool-button" title="复制标题链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
         {documentState === 'offline' && <div className="document-sync-state offline"><span className="gateway-state-dot" />文档服务暂时不可用，请稍后重试。</div>}
-        <div className="article-content">
+        <div className="article-content" ref={articleContentRef}>
           {activeDocument ? (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}
+              urlTransform={(url) => url.startsWith('oss://') ? url : defaultUrlTransform(url)}
               components={{
-                h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
-                h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
-                h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
+                h1: ({ children }) => renderHeading(1, children),
+                h2: ({ children }) => renderHeading(2, children),
+                h3: ({ children }) => renderHeading(3, children),
                 p: ({ children }) => <p data-block-id={stableBlockID(children, 'paragraph')}>{children}</p>,
-                code: ({ children, className }) => <code className={className} data-block-id={stableBlockID(children, 'code')}>{children}</code>,
+                // 代码块的容器由 code 节点自己渲染，因此去掉外层 pre 避免嵌套。
+                pre: ({ children }) => <>{children}</>,
+                code: ({ children, className }) => {
+                  const language = /language-(\w+)/.exec(className ?? '')?.[1] ?? ''
+                  const text = reactNodeText(children)
+                  if (language === 'mermaid') return <MermaidDiagram source={text.trim()} />
+                  // 无语言且不含换行的视为行内代码。
+                  if (!language && !text.includes('\n')) {
+                    return <code className={className}>{children}</code>
+                  }
+                  return <span data-block-id={stableBlockID(children, 'code')}>
+                    <CodeBlock
+                      language={language}
+                      text={text}
+                      onCopied={(ok) => showToast(ok ? '代码已复制' : '浏览器拒绝了剪贴板写入，请手动复制')}
+                    >
+                      <code className={className}>{children}</code>
+                    </CodeBlock>
+                  </span>
+                },
+                img: ({ src, alt }) => {
+                  const resolved = markdownAssetURL(src, false, project.slug) ?? ''
+                  return <img
+                    className="reader-image"
+                    src={resolved}
+                    alt={alt ?? ''}
+                    loading="lazy"
+                    title="点击查看大图"
+                    onClick={() => setLightbox({ src: resolved, alt: alt ?? '' })}
+                  />
+                },
+                a: ({ href, children }) => {
+                  const embed = href ? bilibiliEmbedURL(href) : ''
+                  if (embed) return <BilibiliEmbed url={embed} title={reactNodeText(children)} />
+                  return <a href={markdownAssetURL(href, false, project.slug)} target="_blank" rel="noreferrer">{children}</a>
+                },
               }}
             >
               {activeDocument.markdown}
@@ -1668,6 +1742,7 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
         ><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
       <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
+      {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </section>
   )
 }
@@ -2018,23 +2093,6 @@ function markdownAssetURL(url: string | undefined, authorPreview: boolean, proje
   return authorPreview
     ? `/api/v1/files/author-asset?key=${encodeURIComponent(key)}`
     : `/api/v1/projects/${encodeURIComponent(projectSlug ?? '')}/assets?key=${encodeURIComponent(key)}`
-}
-
-function MermaidDiagram({ source }: { source: string }) {
-  const container = useRef<HTMLDivElement | null>(null)
-  const renderID = useRef(`mermaid-${Math.random().toString(36).slice(2)}`)
-  useEffect(() => {
-    let cancelled = false
-    import('mermaid').then(async ({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
-      const result = await mermaid.render(renderID.current, source)
-      if (!cancelled && container.current) container.current.innerHTML = result.svg
-    }).catch(() => {
-      if (container.current) container.current.textContent = '图表语法无法渲染'
-    })
-    return () => { cancelled = true }
-  }, [source])
-  return <div className="mermaid-canvas" ref={container} />
 }
 
 function MarkdownCanvas({ markdown, authorPreview = false, projectSlug }: { markdown: string; authorPreview?: boolean; projectSlug?: string }) {
