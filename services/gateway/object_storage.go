@@ -129,38 +129,66 @@ func objectUploadAuthorizationHandler(writer http.ResponseWriter, request *http.
 	if !ok {
 		return
 	}
-	if objectStorageStore == nil {
-		writeAPIError(writer, request, http.StatusServiceUnavailable, "storage_unavailable", "文件存储暂未启用")
-		return
-	}
 	var input objectUploadRequest
-	if decodeJSONBody(request, &input) != nil || !validObjectUpload(input) {
+	if decodeJSONBody(request, &input) != nil {
 		writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_file", "文件类型或大小不符合要求")
 		return
 	}
-	extension := strings.ToLower(filepath.Ext(strings.TrimSpace(input.Filename)))
-	if !safeObjectExtension.MatchString(extension) {
-		writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_file", "文件扩展名不符合要求")
-		return
-	}
-	if !validObjectExtension(input.Kind, extension) {
-		writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_file", "文件扩展名与资源类型不匹配")
-		return
-	}
-	now := time.Now().UTC()
-	objectKey := fmt.Sprintf("uploads/%s/%04d/%02d/%s%s",
-		user.ID, now.Year(), now.Month(), newRequestID(), extension)
-	authorization, err := objectStorageStore.PresignUpload(
-		request.Context(), objectKey, strings.ToLower(strings.TrimSpace(input.ContentType)), input.Size)
-	if err != nil {
-		slogErrorStorage(request, err)
-		writeAPIError(writer, request, http.StatusBadGateway, "storage_error", "文件存储暂时不可用")
+	authorization, fault := presignUserUpload(request.Context(), user.ID, input)
+	if fault != nil {
+		writeAPIError(writer, request, fault.status, fault.code, fault.message)
 		return
 	}
 	auditAuth(request, "object_upload_authorized", user.Email, user.ID)
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"data": authorization, "request_id": requestIDFromContext(request.Context()),
 	})
+}
+
+// objectUploadFault 把预签名过程中的校验/存储错误映射为可直接下发的 HTTP 响应。
+type objectUploadFault struct {
+	status  int
+	code    string
+	message string
+}
+
+// presignUserUpload 校验上传请求并为指定用户签发一次性预签名 PUT。
+//
+// 生成的对象键统一落在 uploads/<userID>/YYYY/MM/ 下，从而天然归属于该用户，
+// 供后续 validProjectObjectOwnership 校验。Cookie 与 Bearer 两条鉴权链路共用此函数，
+// 保证类型/大小/扩展名限制完全一致。fault 非空即校验或存储失败。
+func presignUserUpload(
+	ctx context.Context, userID string, input objectUploadRequest,
+) (objectUploadAuthorization, *objectUploadFault) {
+	if objectStorageStore == nil {
+		return objectUploadAuthorization{}, &objectUploadFault{
+			http.StatusServiceUnavailable, "storage_unavailable", "文件存储暂未启用"}
+	}
+	if !validObjectUpload(input) {
+		return objectUploadAuthorization{}, &objectUploadFault{
+			http.StatusUnprocessableEntity, "invalid_file", "文件类型或大小不符合要求"}
+	}
+	extension := strings.ToLower(filepath.Ext(strings.TrimSpace(input.Filename)))
+	if !safeObjectExtension.MatchString(extension) {
+		return objectUploadAuthorization{}, &objectUploadFault{
+			http.StatusUnprocessableEntity, "invalid_file", "文件扩展名不符合要求"}
+	}
+	if !validObjectExtension(input.Kind, extension) {
+		return objectUploadAuthorization{}, &objectUploadFault{
+			http.StatusUnprocessableEntity, "invalid_file", "文件扩展名与资源类型不匹配"}
+	}
+	now := time.Now().UTC()
+	objectKey := fmt.Sprintf("uploads/%s/%04d/%02d/%s%s",
+		userID, now.Year(), now.Month(), newRequestID(), extension)
+	authorization, err := objectStorageStore.PresignUpload(
+		ctx, objectKey, strings.ToLower(strings.TrimSpace(input.ContentType)), input.Size)
+	if err != nil {
+		slog.ErrorContext(ctx, "object storage operation failed",
+			"request_id", requestIDFromContext(ctx), "error", err)
+		return objectUploadAuthorization{}, &objectUploadFault{
+			http.StatusBadGateway, "storage_error", "文件存储暂时不可用"}
+	}
+	return authorization, nil
 }
 
 func projectResourceDownloadHandler(writer http.ResponseWriter, request *http.Request) {
