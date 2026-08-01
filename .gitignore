@@ -1,3 +1,6 @@
 .codex-*
 .pnpm-store/
 deploy/compose/.env
+
+# Go 编译产物
+/gateway
