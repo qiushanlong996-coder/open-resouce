@@ -237,6 +237,37 @@ export type CommentResponse = {
   request_id: string
 }
 
+export type ProjectDocument = {
+  id: string
+  project_id: string
+  parent_id: string | null
+  slug: string
+  title: string
+  markdown: string
+  sort_order: number
+  created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+export type ProjectDocumentInput = {
+  parent_id?: string | null
+  slug: string
+  title: string
+  markdown: string
+}
+
+export type ProjectDocumentResponse = {
+  data: ProjectDocument
+  request_id: string
+}
+
+export type ProjectDocumentListResponse = {
+  data: ProjectDocument[]
+  tree: DocumentNode[]
+  request_id: string
+}
+
 export type CodeEntry = {
   path: string
   name: string
@@ -412,6 +443,46 @@ export function updateAuthorProject(projectID: string, input: ManagedProjectInpu
 
 export function getPendingProjectReviews(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/admin/reviews', { signal })
+}
+
+// 作者端文档树管理。权限为项目所有者或 editor 协作者。
+function authorDocumentsPath(projectID: string) {
+  return `/api/v1/author/projects/${encodeURIComponent(projectID)}/documents`
+}
+
+export function getAuthorProjectDocuments(projectID: string, signal?: AbortSignal) {
+  return apiRequest<ProjectDocumentListResponse>(authorDocumentsPath(projectID), { signal })
+}
+
+export function createAuthorProjectDocument(projectID: string, input: ProjectDocumentInput) {
+  return apiRequest<ProjectDocumentResponse>(authorDocumentsPath(projectID), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function updateAuthorProjectDocument(
+  projectID: string, documentID: string, input: ProjectDocumentInput,
+) {
+  return apiRequest<ProjectDocumentResponse>(
+    `${authorDocumentsPath(projectID)}/${encodeURIComponent(documentID)}`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
+  )
+}
+
+export function moveAuthorProjectDocument(
+  projectID: string, documentID: string, move: { parent_id?: string | null; sort_order: number },
+) {
+  return apiRequest<ProjectDocumentResponse>(
+    `${authorDocumentsPath(projectID)}/${encodeURIComponent(documentID)}/move`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(move) },
+  )
+}
+
+export function deleteAuthorProjectDocument(projectID: string, documentID: string) {
+  return apiRequest<void>(
+    `${authorDocumentsPath(projectID)}/${encodeURIComponent(documentID)}`,
+    { method: 'DELETE' },
+  )
 }
 
 export function reviewProject(projectID: string, action: 'approve' | 'reject', reason: string) {

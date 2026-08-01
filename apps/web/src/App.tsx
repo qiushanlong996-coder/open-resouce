@@ -87,6 +87,7 @@ import {
   updateDocumentCommentReply,
   updateCurrentUser,
   updateAuthorProject,
+  updateAuthorProjectDocument,
   type DocumentComment as APIDocumentComment,
   type DocumentDetail,
   type DocumentNode,
@@ -97,6 +98,7 @@ import {
   type CodeFile,
   type ManagedProject,
   type ManagedProjectInput,
+  type ProjectDocument,
   type CollaborationAccess,
   type ProjectCollaborator,
   type ProjectDetail as APIProjectDetail,
@@ -118,6 +120,7 @@ import './App.css'
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
 const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
 const CollaborativeMarkdownEditor = lazy(() => import('./CollaborativeMarkdownEditor'))
+const ProjectDocumentTree = lazy(() => import('./ProjectDocumentTree'))
 
 type Project = {
   id: string
@@ -2131,8 +2134,58 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   const [editorMode, setEditorMode] = useState<'rich' | 'write' | 'split' | 'preview'>('rich')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState('')
+  // 选中具体文档时编辑区切到该文档正文；为空时编辑项目自身正文。
+  const [activeDocument, setActiveDocument] = useState<ProjectDocument | null>(null)
+  const [documentDraft, setDocumentDraft] = useState('')
+  const [documentSaveState, setDocumentSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  // 保存成功后递增，通知文档树重拉数据。
+  const [documentTreeToken, setDocumentTreeToken] = useState(0)
+  const [authorToast, setAuthorToast] = useState('')
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const richEditorRef = useRef<RichMarkdownEditorHandle | null>(null)
+  // 记录已载入草稿的文档 id，用于区分“切换文档”和“保存后回写”。
+  const loadedDocumentID = useRef('')
+
+  const showAuthorToast = (message: string) => {
+    setAuthorToast(message)
+    window.setTimeout(() => setAuthorToast(''), 2400)
+  }
+
+  // 仅在真正切换文档时重新载入草稿。
+  // 保存成功后服务端返回的正文也会更新 activeDocument，
+  // 用 ref 比对文档 id 可避免那次更新把 saved 状态覆盖回 idle。
+  useEffect(() => {
+    const documentID = activeDocument?.id ?? ''
+    if (loadedDocumentID.current === documentID) return
+    loadedDocumentID.current = documentID
+    setDocumentDraft(activeDocument?.markdown ?? '')
+    setDocumentSaveState('idle')
+  }, [activeDocument])
+
+  // 文档正文自动保存，与项目草稿保存互不影响。
+  useEffect(() => {
+    if (!activeDocument || !activeProject) return
+    if (documentDraft === activeDocument.markdown) return
+    setDocumentSaveState('saving')
+    const timer = window.setTimeout(() => {
+      updateAuthorProjectDocument(activeProject.id, activeDocument.id, {
+        parent_id: activeDocument.parent_id,
+        slug: activeDocument.slug,
+        title: activeDocument.title,
+        markdown: documentDraft,
+      })
+        .then((response) => {
+          setActiveDocument(response.data)
+          setDocumentSaveState('saved')
+          setDocumentTreeToken((current) => current + 1)
+        })
+        .catch((reason: unknown) => {
+          setDocumentSaveState('idle')
+          showAuthorToast(reason instanceof ApiError ? reason.message : '文档保存失败')
+        })
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [activeDocument, activeProject, documentDraft])
 
   const loadProjects = () => {
     setLoading(true)
@@ -2309,19 +2362,36 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   return <div className="modal-backdrop" role="presentation">
     <section className="author-center document-author-center" role="dialog" aria-modal="true" aria-label="作者项目中心">
       <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
-      <header className="author-editor-head"><div><span className="section-kicker">AUTHOR / DOCUMENT</span><h2>{activeProject ? activeProject.name : '创建项目文档'}</h2><p>像在线文档一样使用 Markdown、图表、图片和附件组织项目内容。</p></div><div className="save-indicator">{saveState === 'saving' ? '正在自动保存…' : saveState === 'saved' ? '已自动保存' : '草稿'}</div></header>
+      {authorToast && <div className="author-toast"><Check size={14} /> {authorToast}</div>}
+      <header className="author-editor-head"><div><span className="section-kicker">AUTHOR / DOCUMENT</span><h2>{activeDocument ? activeDocument.title : activeProject ? activeProject.name : '创建项目文档'}</h2><p>{activeDocument ? `正在编辑文档：${activeDocument.slug}` : '像在线文档一样使用 Markdown、图表、图片和附件组织项目内容。'}</p></div><div className="save-indicator">{activeDocument ? (documentSaveState === 'saving' ? '正在保存文档…' : documentSaveState === 'saved' ? '文档已保存' : '文档') : saveState === 'saving' ? '正在自动保存…' : saveState === 'saved' ? '已自动保存' : '草稿'}</div></header>
       <div className="document-editor-layout">
         <aside className="author-project-rail">
-          <button className="primary-button" onClick={newProject}>＋ 新建文档</button>
+          <button className="primary-button" onClick={newProject}>＋ 新建项目</button>
           <h3>我的项目</h3>
           {loading ? <p>正在加载…</p> : projects.length === 0 ? <p className="empty-copy">还没有项目草稿。</p> : projects.map((project) =>
             <button className={activeProject?.id === project.id ? 'active' : ''} key={project.id} onClick={() => selectProject(project)}>
               <strong>{project.name}</strong><small>{statusLabel(project.status)} · v{project.current_version}</small>
             </button>)}
+          {activeProject && <Suspense fallback={<p>正在加载文档目录…</p>}>
+            <ProjectDocumentTree
+              projectID={activeProject.id}
+              selectedDocumentID={activeDocument?.id ?? ''}
+              refreshToken={documentTreeToken}
+              onSelect={setActiveDocument}
+              showToast={showAuthorToast}
+            />
+          </Suspense>}
         </aside>
         <form className="document-project-editor" onSubmit={(event) => void saveProject(event)}>
           <div className="document-title-row">
-            <input className="document-title-input" required minLength={2} maxLength={120} value={input.name} onChange={(event) => update('name', event.target.value)} placeholder="无标题项目" />
+            {activeDocument ? (
+              <div className="document-context-banner">
+                当前编辑文档《{activeDocument.title}》
+                <button type="button" onClick={() => setActiveDocument(null)}>回到项目正文</button>
+              </div>
+            ) : (
+              <input className="document-title-input" required minLength={2} maxLength={120} value={input.name} onChange={(event) => update('name', event.target.value)} placeholder="无标题项目" />
+            )}
             <div className="editor-mode-switch">
               <button type="button" className={editorMode === 'rich' ? 'active' : ''} onClick={() => setEditorMode('rich')}>富文本</button>
               <button type="button" className={editorMode === 'write' ? 'active' : ''} onClick={() => setEditorMode('write')}>Markdown</button>
@@ -2329,7 +2399,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
               <button type="button" className={editorMode === 'preview' ? 'active' : ''} onClick={() => setEditorMode('preview')}>预览</button>
             </div>
           </div>
-          <input className="document-summary-input" required minLength={10} maxLength={300} value={input.summary} onChange={(event) => update('summary', event.target.value)} placeholder="用一句话介绍这个项目…" />
+          {!activeDocument && <input className="document-summary-input" required minLength={10} maxLength={300} value={input.summary} onChange={(event) => update('summary', event.target.value)} placeholder="用一句话介绍这个项目…" />}
           <div className="markdown-toolbar">
             <button type="button" onClick={() => insertMarkdown('**', '**', '粗体')}>B</button>
             <button type="button" onClick={() => insertMarkdown('*', '*', '斜体')}><em>I</em></button>
@@ -2344,9 +2414,9 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
             {uploading?.startsWith('inline-') && <span>上传中…</span>}
           </div>
           <div className={`markdown-workspace mode-${editorMode}`}>
-            {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeProject?.id ?? 'new-project'} value={input.description} onChange={(markdown) => update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} /></Suspense>}
-            {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required minLength={20} maxLength={50000} value={input.description} onChange={(event) => update('description', event.target.value)} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
-            {(editorMode === 'preview' || editorMode === 'split') && <MarkdownCanvas markdown={input.description} authorPreview />}
+            {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeDocument?.id ?? activeProject?.id ?? 'new-project'} value={activeDocument ? documentDraft : input.description} onChange={(markdown) => activeDocument ? setDocumentDraft(markdown.slice(0, 200000)) : update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} /></Suspense>}
+            {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required={!activeDocument} minLength={activeDocument ? 0 : 20} maxLength={activeDocument ? 200000 : 50000} value={activeDocument ? documentDraft : input.description} onChange={(event) => activeDocument ? setDocumentDraft(event.target.value) : update('description', event.target.value)} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
+            {(editorMode === 'preview' || editorMode === 'split') && <MarkdownCanvas markdown={activeDocument ? documentDraft : input.description} authorPreview />}
           </div>
           <details className="project-metadata">
             <summary>项目设置与发布资源</summary>
