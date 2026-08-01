@@ -1,0 +1,28 @@
+/* 品牌资源样式，独立于 App.css，避免与并行的主题改造产生冲突。
+   在 main.tsx 中最后导入，使同优先级选择器覆盖 App.css 的默认值。 */
+
+/* 页头 / 登录框中的品牌标记（SVG 版），取代原先扁平的 .brand-mark 字母块。 */
+.brand-mark-svg {
+  display: block;
+  flex: none;
+  border-radius: 8px;
+}
+.brand-mark-svg.large {
+  margin: 0 auto 18px;
+}
+
+/* 等级头像内层：用主题强调色的柔和渐变替换扁平的 --ink 深色块。
+   渐变两端都由 --blue 派生（随皮肤切换），并向黑色收深以保证白色首字母
+   在浅色与深色主题下都清晰；顶部高光与内描边增添轻微的立体质感。 */
+.level-avatar-inner {
+  color: #fff;
+  background:
+    radial-gradient(115% 115% at 28% 22%, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 58%),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--blue) 92%, #fff 8%),
+      color-mix(in srgb, var(--blue) 60%, #000 40%)
+    );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+}

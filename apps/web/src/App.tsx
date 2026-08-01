@@ -119,6 +119,7 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
+import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import { useHighlightedCode } from './codeHighlight'
@@ -1088,7 +1089,7 @@ function App() {
     <div className="app-shell" data-theme-mode={themeMode} data-skin={skin}>
       <header className="site-header">
         <button className="brand" onClick={closeProject} aria-label="返回首页">
-          <span className="brand-mark">新</span>
+          <BrandMark className="brand-mark-svg" size={32} title="新猿译码" />
           <span>
             <strong>新猿译码</strong>
             <small>AGENT OPEN SOURCE HUB</small>
@@ -2767,7 +2768,7 @@ function LoginModal({ onClose, onAuthenticated }: { onClose: () => void; onAuthe
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="login-modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close icon-button" title="关闭登录窗口" aria-label="关闭登录窗口" onClick={onClose}><X size={18} /></button>
-        <span className="brand-mark large">新</span>
+        <BrandMark className="brand-mark-svg large" size={42} />
         <h2>{mode === 'login' ? '登录新猿译码' : mode === 'register' ? '创建社区账号' : mode === 'forgot' ? '找回密码' : '设置新密码'}</h2>
         <p>{mode === 'forgot' ? '输入注册邮箱，我们会发送一个 30 分钟内有效的重置链接。' : mode === 'reset' ? '设置新密码后，所有已登录设备都会退出。' : mode === 'login' ? '登录后可以参与讨论，并管理自己的评论。' : '注册后，评论作者将由服务端绑定到你的账号。'}</p>
         {(mode === 'login' || mode === 'register') && (
