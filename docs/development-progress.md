@@ -2301,3 +2301,34 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 公网回归（8443）：浏览 beacon 204、详情 `views:2`（真实累加）、下载量覆盖为真实（种子假下载量归零）、未知项目 beacon 404、列表带 views、首页服务新资源。
 - 回归产生的 atlas 测试浏览行已用 root 清理（归零）；临时目录已删。
 - 纯展示弱一致数据；浏览未做防刷去重（见上条）。
+
+## 2026-08-02：开放写 API + AI 悬浮窗 + 管理台增强（三 agent 并行）
+
+三个独立功能用三个 worktree 隔离 agent 并行实现，依次合并回 main。三者虽都触及 main.go / openapi.json / client.ts / App.tsx，但各自改动区域不同，git **三次合并均零冲突**。合并后整体：gofmt/vet/go test 通过、OpenAPI 69 路径 77 schema、oxlint 零警告、Vite 构建通过。
+
+### 功能一：开放写 API（供 AI agent 的 skill/MCP）
+
+- Bearer（管理员签发的 API key）鉴权，以 key 所有者身份操作：`POST /api/v1/open/projects`（建草稿）、`/open/projects/{id}/submit`（提交审核）、`/open/projects/{id}/documents`（加知识库文档）、`/open/files/presign`（预签名上传代码/文档/图片）。
+- 发布仍需管理员审核（open API 只到 pending）。被封禁所有者 403，非本人 404。
+- 把预签名校验抽成 `presignUserUpload`，Cookie 与 Bearer 两条链路共用同一套类型/大小/扩展名限制。
+- 新增 `docs/open-api.md`：面向 agent 的用法文档（鉴权、presign→PUT→建草稿→提交流程、curl 示例、字段约束）。
+- 代码解析在 agent 侧完成，平台接收上传的压缩包（与 Cookie 上传流一致）。
+
+### 功能二：AI 项目助手悬浮窗（Anthropic 驱动）
+
+- Go 直连 Anthropic Messages API（net/http，SSE 流式），非 Python/langchain。以当前项目文档 markdown 作上下文（截断 ~48KB）做轻量 RAG，只依据项目内容作答、默认中文。
+- `POST /api/v1/projects/{slug}/assistant`（登录态），服务端解析 Anthropic SSE 再以自有 SSE（`delta`/`done`/`error`）转发；前端 `fetch`+`ReadableStream` 流式展示。
+- 环境变量：`ANTHROPIC_API_KEY`（必需，未配置则接口 503 `assistant_unavailable`，前端显示"AI 未启用"）、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL`（默认 `claude-sonnet-5`）。每用户 20/min 限流。
+- 前端 `AiAssistant.tsx`（右下角悬浮）+ `ai-assistant.css`；App.tsx 仅加 1 行 import + 6 行组件渲染。
+
+### 功能三：管理控制台增强
+
+- **内容审核并入控制台**：新增"内容审核"模块复用 `/admin/reviews*` 接口预览+通过/驳回；移除了 App.tsx 里独立的"项目审核中心"入口与 `ProjectReviewCenter` 组件（约 -53 行），审核只在控制台内。
+- **审计日志 UI**：`GET /admin/audit` 增加 `?action=` 过滤（`List(ctx, action, limit)`），前端表格+类型过滤+刷新。
+- **用户统计**：新增 `GET /api/v1/admin/user-stats?days=14`（注册趋势按 UTC 天零填充 + 等级分布直方图 + 封禁数），后端 `UserStats`/`CountBanned`（内存+MySQL）；前端纯 CSS 柱状图（无图表库，遵循 dataviz 可访问性）。
+
+### 注意事项 · 部署
+
+- **均未部署、未做真人浏览器验证**。
+- AI 助手需服务端配置 `ANTHROPIC_API_KEY` 才能真正回答；未配置时优雅降级为 503 + 前端"AI 未启用"。上线时若要启用需项目负责人提供 key 并写入 `/etc/open-resouce/gateway.env`。
+- 后端有改动但**无新迁移**（开放 API 复用 managed_projects；用户统计复用 users；审计表已存在）。上线只需交叉编译 Gateway + 发前端；若启用 AI 再加环境变量。
