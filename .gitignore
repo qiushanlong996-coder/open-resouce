@@ -7,3 +7,6 @@ password.md
 
 # Go 编译产物
 /gateway
+
+# 浏览器验证遗留的截图
+/current_state_*.png
