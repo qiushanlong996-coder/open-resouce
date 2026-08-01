@@ -2171,3 +2171,29 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 - 未做真人浏览器验证（等级头像框/L6 流光动画/reduced-motion 的观感）：本环境无浏览器自动化；接口与端到端行为已由上面回归覆盖，观感可后续用本地 dev 代理线上 API 手动确认。
 - 热门搜索词是 Gateway 进程内内存计数，重启清零、多实例不共享（已知限制）。
+
+## 2026-08-01：评论引用跳转原文 + 编辑器粘贴/拖拽上传（双 agent 并行开发）
+
+两个相互独立的前端功能，用两个 worktree 隔离的 agent 并行实现，再合并回 main、整体验证。
+
+### 功能一：点击评论引用跳转到原文
+
+- 阅读页正文块本就带 `data-block-id`（稳定块锚点）；评论带 `blockId`。`DocumentView` 新增 `locateBlock(blockId)`：在 `articleContentRef` 内 `querySelector('[data-block-id=...]')`（用 `CSS.escape`），`scrollIntoView` 平滑居中并加 `.block-located` 高亮 2.2s；找不到则提示"未找到对应的原文位置，正文可能已更新"。
+- `onLocate` 透传到 `CommentCard`，引用按钮点击即跳转（仅根评论有引用；文档级评论引用为空不显示）。`App.css` 加 `.block-located` 高亮与 `.comment-quote` 手型光标。
+
+### 功能二：编辑器粘贴/拖拽图片、文件自动上传显示（钉钉式）
+
+- `RichMarkdownEditor` 新增 `onUploadFile?`/`onNotify?` props 与 `inferUploadKind`（image/document/code/null，与后端允许类型一致）；`crepe.create()` 后在 `rootRef` 上挂 `paste`/`drop` 监听（卸载时移除）。
+- 有文件时 `preventDefault` 并顺序上传：图片插入 `![name](oss://key)` 内联显示；pdf/md/txt、zip/gz/tgz/tar 插入 `[📎 name](oss://key)`；不支持的类型 toast 提示"仅支持 图片 / pdf / md / txt / zip / tar.gz"；无文件的纯文本粘贴不拦截。逐文件 try/catch，失败 toast 并继续。
+- `App.tsx` 新增 `uploadRichFile`（按扩展名分 document/code，返回 `oss://key`），wire `onUploadFile`/`onNotify`。
+- reader 侧已确认：非图片 `[📎 name](oss://key)` 链接经 `MarkdownCanvas` 的 `a` 组件用 `markdownAssetURL` 转成 `/api/v1/projects/<slug>/assets`（作者预览走 author-asset），可正常打开/下载。
+
+### 验证
+
+- 两个 agent 各自在 worktree 内 oxlint 零警告 + Vite 构建通过。
+- 合并回 main 后整体 oxlint 零警告 + tsc + Vite 构建通过（两处改动文件/区域不重叠，合并无冲突）。
+
+### 注意事项
+
+- **协作编辑器 `CollaborativeMarkdownEditor` 未接粘贴/拖拽上传**：它没有任何上传管线（无 onUpload props、无暴露 insert、与 websocket 生命周期耦合深），作为后续独立项。
+- 均为前端改动，无后端/迁移；**未部署、未做真人浏览器验证**（本环境无浏览器自动化）。粘贴上传建议部署后用本地 dev 代理线上 API 手动验证一次（含图片内联、文件链接、错误提示）。
