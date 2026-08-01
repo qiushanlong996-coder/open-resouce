@@ -1890,3 +1890,60 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 上一轮验证里出现的 `ERR_CONNECTION_REFUSED` / `ERR_INCOMPLETE_CHUNKED_ENCODING` 是我在验证过程中重启了 preview 服务导致的，不是产品问题。服务稳定后不再出现。
 - 双端验证仍是协议级 + 单端 UI 的组合，**没有做真正的双浏览器窗口人工验证**。协议级脚本验证了 CRDT 收敛这一核心保证，但真人双开时的光标显示、输入法行为等未覆盖。
 - 新增 `ws` 与 `@types/ws` 为 devDependencies，仅供该验证脚本使用，不进生产包。
+
+## 2026-08-01：跨文档全文搜索（Elasticsearch 7.17）补记
+
+> 本条为补记：该功能已在 commit `9b6bbf4` 完成并推送，但当时漏更本进度文档，现按提交记录补齐。
+
+### 已完成
+
+- 后端 `search.go`：`searchIndex` 接口 + ES 7.17 REST 客户端，`cjk` 分析器做中文 bigram 切分，UTF-8 安全的正文截断（避免按字节切断多字节汉字），未配置 ES 时降级为 noop。索引写入按 best-effort 处理，搜索故障不会拖垮文档保存路径。
+- 后端 `search_api.go`：`GET /api/v1/search`（公开，ES 未启用时 503）、`POST /api/v1/admin/search/reindex`（仅管理员，按项目清理后重建）。用 `requireAdminUser` 现算管理员身份。
+- 索引同步接入 `author_documents`（增改删级联）、`collaboration.go`（保存）、`managed_projects.go`（审核）；草稿项目不入索引。
+- 前端 `DocumentSearchPanel.tsx`：防抖 + AbortController 的弹层搜索；`searchHighlight.js` 先转义再仅还原 `<em>` 高亮标记；`scripts/check-search-highlight.mjs` 15 项 XSS 断言。页头搜索按钮 + 懒加载面板。
+- OpenAPI：51 条路径、63 个 schema。
+
+### 验证
+
+- Go 测试通过；14 组新测试覆盖线协议（伪 ES 服务）、UTF-8 截断、XSS 安全高亮、参数校验、管理员鉴权、未发布项目排除，并做了反向验证。
+- 公网回归 21/21：正文/标题搜索、增改删同步、仅管理员可重建、草稿排除、参数校验。
+
+### 凭据/运维备记（见 password.md 第 4b 节）
+
+- ES 必须用 7.x：8.x 自带 JDK 需要 glibc 2.28+，CentOS 7.9（glibc 2.17）会段错误。
+- 中文用内置 `cjk` 分析器，无需 IK 插件。
+- 中间件服务器在 NAT 后，新开端口需路由器端口映射 + firewalld 限来源放行两步。
+
+## 2026-08-01：通知点击跳转到来源
+
+### 背景
+
+站内通知此前只标记已读、不跳转，与需求 6.15 验收标准「通知跳转目标正确」及功能项「支持跳转到通知来源」不符。此项在多条历史「下一步」中反复出现。后端通知早已携带 `project_slug`、`document_slug`、`comment_id`，本次为纯前端补齐跳转。
+
+### 已完成（前端 `apps/web`）
+
+- `openNotification` 改为先关闭通知面板并按类型跳转，再标记已读；已读通知也可点击跳转（此前 `if (entry.read_at) return` 会让已读通知点击无反应）。
+- 按通知类型分派目标：
+  - `comment.replied`（带 project/document/comment）：打开对应项目文档，评论加载后滚动定位并短暂高亮该评论线程。
+  - `project.approved`（仅带 project）：打开已发布项目详情。
+  - `project.rejected`（仅带 project）：项目未发布、公开详情会 404，改为打开**作者项目中心**查看驳回原因。
+- 抽取 `openProjectBySlug(slug, afterOpen?)`，`openSearchResult` 复用它，消除与搜索跳转的重复逻辑。
+- 新增 `pendingCommentFocus` ref：跳转时记录目标评论 ID，在该文档评论加载完成（`comments` 变化）后，等渲染完再 `scrollIntoView` 并加 `is-focused` 高亮类，2.4s 后移除。评论卡片 `<article>` 新增 `id="comment-<id>"` 作为锚点。
+- `App.css` 新增 `.comment-card.is-focused` 高亮脉冲动画。
+
+### 验证
+
+- 前端 oxlint 通过；TypeScript 类型检查 + Vite 生产构建通过。
+- 逻辑走查：三类通知均映射到正确目标；`comment.replied` 依赖评论加载后触发定位，评论 ID 全局唯一，不会误命中其他文档的同名卡片。
+
+### 卡点与注意事项
+
+- **本次未做真人浏览器验证**：当前开发环境没有浏览器自动化工具，且 8443 自签证书 + 生成通知需要写生产库并清理，成本较高。已通过构建/类型/lint 验证与逻辑走查覆盖；建议后续在本地 dev 代理到线上 API 时补一次点击跳转的真人验证。
+- 纯前端改动，后端与 OpenAPI 无变化，无需重新部署 Gateway；上线只需发布前端。
+- 高亮通过 DOM `classList` 施加，若期间评论列表因 SSE 刷新而重渲染会丢失高亮，属可接受的瞬时效果。
+
+### 下一步
+
+1. 部署前端到公网 8443 入口并补真人点击跳转回归。
+2. 搜索结果分类展示（项目/文档/代码）与代码文件名检索。
+3. 搜索历史与热门搜索词。

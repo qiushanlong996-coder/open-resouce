@@ -517,3 +517,7 @@
   .collaboration-statusbar { align-items: flex-start; flex-direction: column; }
   .collaboration-editor-root .ProseMirror { padding: 25px 18px 70px; }
 }
+
+/* 从通知/搜索跳转到某条评论时的短暂高亮定位。 */
+.comment-card.is-focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 122, 255, .22); animation: comment-focus-pulse 2.4s ease-out; }
+@keyframes comment-focus-pulse { 0% { box-shadow: 0 0 0 4px rgba(0, 122, 255, .38); } 100% { box-shadow: 0 0 0 3px rgba(0, 122, 255, .0); } }

@@ -397,6 +397,8 @@ function App() {
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null)
   const selectedProjectSlug = useRef<string | null>(null)
   const documentRequestSequence = useRef(0)
+  // 从通知跳转过来时，记录要定位的评论线程 ID，等评论加载后滚动高亮。
+  const pendingCommentFocus = useRef<string | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.themeMode = themeMode
@@ -539,6 +541,22 @@ function App() {
     return () => controller.abort()
   }, [activeDocument, selectedProject])
 
+  // 从通知跳转过来时，等目标文档的评论加载完再滚动定位并短暂高亮。
+  useEffect(() => {
+    const targetId = pendingCommentFocus.current
+    if (!targetId) return
+    if (!comments.some((comment) => comment.id === targetId)) return
+    pendingCommentFocus.current = null
+    // 评论卡片渲染完成后再定位。
+    window.setTimeout(() => {
+      const element = document.getElementById(`comment-${targetId}`)
+      if (!element) return
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      element.classList.add('is-focused')
+      window.setTimeout(() => element.classList.remove('is-focused'), 2400)
+    }, 80)
+  }, [comments])
+
   useEffect(() => {
     if (!selectedProject || !activeDocument) return
     const projectSlug = selectedProject.slug
@@ -601,7 +619,27 @@ function App() {
     }
   }
 
+  // navigateToNotification 按通知类型跳转到来源。
+  const navigateToNotification = (entry: AppNotification) => {
+    // 驳回的项目未发布，公开详情会 404，跳到作者项目中心查看驳回原因。
+    if (entry.type === 'project.rejected') {
+      setAuthorCenterOpen(true)
+      return
+    }
+    if (!entry.project_slug) return
+    if (entry.document_slug) {
+      // 回复通知：打开对应文档，评论加载后再定位到该评论线程。
+      pendingCommentFocus.current = entry.comment_id ?? null
+      openSearchResult(entry.project_slug, entry.document_slug)
+      return
+    }
+    // 审核通过等仅带项目的通知：打开已发布项目详情。
+    openProjectBySlug(entry.project_slug)
+  }
+
   const openNotification = async (entry: AppNotification) => {
+    setNotificationPanelOpen(false)
+    navigateToNotification(entry)
     if (entry.read_at) return
     try {
       await markNotificationRead(entry.id)
@@ -633,22 +671,27 @@ function App() {
     setSelectedProject(null)
   }
 
-  // openSearchResult 从搜索结果跳转。搜索只给了 slug，需先拉项目详情。
-  const openSearchResult = (projectSlug: string, documentSlug: string) => {
+  // openProjectBySlug 只有 slug 时打开项目详情。目录里没有（比如列表分页未
+  // 加载到）时直接拉详情。afterOpen 在项目打开后执行，用于继续定位文档。
+  const openProjectBySlug = (projectSlug: string, afterOpen?: () => void) => {
     const known = catalogProjects.find((project) => project.slug === projectSlug)
     if (known) {
       openProject(known)
-      // 目录加载完会默认打开首篇，这里再切到命中的那篇。
-      window.setTimeout(() => openDocument(documentSlug), 0)
+      if (afterOpen) window.setTimeout(afterOpen, 0)
       return
     }
-    // 目录里没有（比如列表分页未加载到）时直接拉详情。
     getProject(projectSlug)
       .then((response) => {
         openProject(mapProjectDetail(response.data))
-        window.setTimeout(() => openDocument(documentSlug), 0)
+        if (afterOpen) window.setTimeout(afterOpen, 0)
       })
       .catch(() => showToast('项目打开失败'))
+  }
+
+  // openSearchResult 从搜索结果或通知跳转。打开项目后再切到命中的那篇文档
+  //（目录加载完会默认打开首篇）。
+  const openSearchResult = (projectSlug: string, documentSlug: string) => {
+    openProjectBySlug(projectSlug, () => openDocument(documentSlug))
   }
 
   const openProject = (project: Project) => {
@@ -1840,7 +1883,7 @@ function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, o
   }
 
   return (
-    <article className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}>
+    <article id={`comment-${comment.id}`} className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}>
       <div className="comment-card-head">
         <span className="avatar small-avatar">{comment.initials}</span>
         <div><strong>{comment.user}</strong><small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small></div>
