@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+// 协作编辑器是独立的惰加载 chunk，必须自己引入 Crepe 主题样式。
+// 否则直接进协作编辑时编辑器没有任何样式，布局会完全错乱。
+import '@milkdown/crepe/theme/common/style.css'
+import '@milkdown/crepe/theme/frame.css'
 import type { AuthUser } from './api/client'
 
 type CollaborationStatus = 'connecting' | 'online' | 'saving' | 'saved' | 'offline'
@@ -163,6 +167,9 @@ export default function CollaborativeMarkdownEditor({
         root: rootRef.current,
         defaultValue: '',
         features: { [Crepe.Feature.TopBar]: true },
+        featureConfigs: {
+          [Crepe.Feature.Placeholder]: { text: '开始共同编辑这篇文档…' },
+        },
       })
       crepe.editor.use(collab)
       crepe.on((listener) => {
