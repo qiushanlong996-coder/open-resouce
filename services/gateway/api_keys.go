@@ -280,24 +280,29 @@ func adminAPIKeyHandler(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusNoContent)
 }
 
-// openProjectsHandler 是 Bearer 鉴权的公开只读示例：证明密钥可用。
+// openProjectsHandler 是 Bearer 鉴权的开放接口入口。
 //
-//	GET /api/v1/open/projects   Authorization: Bearer <key>
+//	GET  /api/v1/open/projects   列出已发布项目（证明密钥链路可用）
+//	POST /api/v1/open/projects   以密钥所有者身份创建草稿项目（供外部 AI Agent 发布）
 func openProjectsHandler(writer http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodGet {
-		writer.Header().Set("Allow", http.MethodGet)
+	key, ok := requireAPIKey(writer, request)
+	if !ok {
+		return
+	}
+	switch request.Method {
+	case http.MethodGet:
+		projects, err := managedProjectRepositoryStore.ListPublished(request.Context())
+		if err != nil {
+			writeManagedProjectError(writer, request, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"data": projects, "request_id": requestIDFromContext(request.Context())})
+	case http.MethodPost:
+		openCreateProject(writer, request, key.OwnerID)
+	default:
+		writer.Header().Set("Allow", "GET, POST")
 		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
-		return
 	}
-	if _, ok := requireAPIKey(writer, request); !ok {
-		return
-	}
-	projects, err := managedProjectRepositoryStore.ListPublished(request.Context())
-	if err != nil {
-		writeManagedProjectError(writer, request, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, map[string]any{"data": projects, "request_id": requestIDFromContext(request.Context())})
 }
 
 // requireAPIKey 从 Authorization: Bearer 头解析并校验 Open API 密钥。

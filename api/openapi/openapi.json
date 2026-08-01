@@ -837,6 +837,71 @@
           "200": { "description": "已发布项目列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectListResponse" } } } },
           "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
+      },
+      "post": {
+        "summary": "开放 API：创建草稿项目",
+        "description": "以 API 密钥所有者身份创建草稿项目（供外部 AI Agent / MCP 使用）。cover/document/code 对象键需先经 /api/v1/open/files/presign 上传获得，且必须落在所有者命名空间内。创建后仍为草稿，需再调用 submit 进入审核。",
+        "operationId": "openCreateProject",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectInput" } } } },
+        "responses": {
+          "201": { "description": "已创建的草稿项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } },
+          "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "密钥所有者已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "项目标识已被使用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "项目资料不完整或文件不属于当前账号", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/open/projects/{projectID}/submit": {
+      "post": {
+        "summary": "开放 API：提交草稿进入审核",
+        "description": "把草稿或被驳回的项目提交进入管理员审核队列（状态转为 pending_review）。发布仍需管理员批准，本接口不会自动发布。仅密钥所有者可提交自己的项目。",
+        "operationId": "openSubmitProject",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "已进入审核的项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } },
+          "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "密钥所有者已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目不存在或不属于当前密钥所有者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "当前状态不允许提交", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/open/projects/{projectID}/documents": {
+      "post": {
+        "summary": "开放 API：追加知识库文档",
+        "description": "为密钥所有者的项目追加一篇知识库文档（Markdown）。仅密钥所有者可操作自己的项目。",
+        "operationId": "openCreateProjectDocument",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentInput" } } } },
+        "responses": {
+          "201": { "description": "已创建的文档", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentResponse" } } } },
+          "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "密钥所有者已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目不存在或不属于当前密钥所有者", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "文档标识已被使用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "文档字段不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/open/files/presign": {
+      "post": {
+        "summary": "开放 API：签发预签名上传 URL",
+        "description": "以密钥所有者身份为封面（image）、文档（document）或代码归档（code）签发一次性预签名 OSS PUT。Agent 客户端直传后，用返回的 object_key 创建项目。校验与限额同 Cookie 版 /api/v1/files/presign-upload：image ≤10MiB，document ≤50MiB，code ≤500MiB。",
+        "operationId": "openPresignUpload",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectUploadRequest" } } } },
+        "responses": {
+          "200": { "description": "预签名上传授权", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectUploadResponse" } } } },
+          "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "密钥所有者已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "文件类型或大小不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "对象存储暂时不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "对象存储未启用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       }
     },
     "/api/v1/projects": {
