@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"sort"
+	"time"
 )
 
 type documentNode struct {
@@ -48,8 +50,89 @@ type documentDetailResponse struct {
 }
 
 type documentRepository interface {
-	List(projectSlug string) ([]documentNode, bool)
-	Get(projectSlug, documentSlug string) (documentDetail, bool, bool)
+	List(ctx context.Context, projectSlug string) ([]documentNode, bool, error)
+	Get(ctx context.Context, projectSlug, documentSlug string) (documentDetail, bool, bool, error)
+}
+
+// publishedDocumentSlug 是已发布项目正文的固定文档标识。
+// 当前一个项目只有一篇正文（存于 managed_projects.description），
+// 后续扩展为多篇文档时再改为真实的文档表。
+const publishedDocumentSlug = "overview"
+
+// managedDocumentRepository 将已发布项目的真实 Markdown 作为文档对外提供，
+// 未命中时回退到种子演示项目，保证演示内容仍可浏览。
+type managedDocumentRepository struct {
+	fallback documentRepository
+}
+
+func (repository managedDocumentRepository) List(
+	ctx context.Context, projectSlug string,
+) ([]documentNode, bool, error) {
+	document, found, err := repository.publishedDocument(ctx, projectSlug)
+	if err != nil {
+		return nil, false, err
+	}
+	if found {
+		return []documentNode{{
+			ID: document.ID, Slug: document.Slug, Title: document.Title,
+			Order: 1, Children: []documentNode{},
+		}}, true, nil
+	}
+	return repository.fallback.List(ctx, projectSlug)
+}
+
+func (repository managedDocumentRepository) Get(
+	ctx context.Context, projectSlug, documentSlug string,
+) (documentDetail, bool, bool, error) {
+	document, found, err := repository.publishedDocument(ctx, projectSlug)
+	if err != nil {
+		return documentDetail{}, false, false, err
+	}
+	if found {
+		// 已发布项目只有一篇正文；空 slug 视为请求默认文档。
+		if documentSlug == "" || documentSlug == document.Slug {
+			return document, true, true, nil
+		}
+		return documentDetail{}, true, false, nil
+	}
+	return repository.fallback.Get(ctx, projectSlug, documentSlug)
+}
+
+func (repository managedDocumentRepository) publishedDocument(
+	ctx context.Context, projectSlug string,
+) (documentDetail, bool, error) {
+	if managedProjectRepositoryStore == nil || projectSlug == "" {
+		return documentDetail{}, false, nil
+	}
+	project, found, err := managedProjectRepositoryStore.FindPublishedBySlug(ctx, projectSlug)
+	if err != nil || !found {
+		return documentDetail{}, false, err
+	}
+	return managedProjectDocument(project), true, nil
+}
+
+// managedProjectDocument 把项目正文转成阅读页需要的文档结构。
+func managedProjectDocument(project managedProject) documentDetail {
+	parsed := parseMarkdownDocument(project.Description)
+	title := parsed.Title
+	if title == "" {
+		title = project.Name
+	}
+	version := project.CurrentVersion
+	if version == "" {
+		version = "—"
+	}
+	return documentDetail{
+		ID:        "doc-" + project.ID,
+		ProjectID: project.ID,
+		Slug:      publishedDocumentSlug,
+		Title:     title,
+		Version:   version,
+		UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339),
+		Markdown:  project.Description,
+		Outline:   parsed.Outline,
+		Blocks:    parsed.Blocks,
+	}
 }
 
 type seedDocumentRepository struct {
@@ -91,12 +174,16 @@ var seedDocuments = map[string]map[string]documentDetail{
 	},
 }
 
-var documents documentRepository = seedDocumentRepository{documents: seedDocuments}
+var documents documentRepository = managedDocumentRepository{
+	fallback: seedDocumentRepository{documents: seedDocuments},
+}
 
-func (repository seedDocumentRepository) List(projectSlug string) ([]documentNode, bool) {
+func (repository seedDocumentRepository) List(
+	_ context.Context, projectSlug string,
+) ([]documentNode, bool, error) {
 	projectDocuments, found := repository.documents[projectSlug]
 	if !found {
-		return nil, false
+		return nil, false, nil
 	}
 	nodes := make([]documentNode, 0, len(projectDocuments))
 	for _, document := range projectDocuments {
@@ -114,16 +201,18 @@ func (repository seedDocumentRepository) List(projectSlug string) ([]documentNod
 		}
 		return nodes[left].Order < nodes[right].Order
 	})
-	return nodes, true
+	return nodes, true, nil
 }
 
-func (repository seedDocumentRepository) Get(projectSlug, documentSlug string) (documentDetail, bool, bool) {
+func (repository seedDocumentRepository) Get(
+	_ context.Context, projectSlug, documentSlug string,
+) (documentDetail, bool, bool, error) {
 	projectDocuments, projectFound := repository.documents[projectSlug]
 	if !projectFound {
-		return documentDetail{}, false, false
+		return documentDetail{}, false, false, nil
 	}
 	document, documentFound := projectDocuments[documentSlug]
-	return document, true, documentFound
+	return document, true, documentFound, nil
 }
 
 func basicQuickStartDocument(projectID, version, introduction string) documentDetail {
@@ -146,7 +235,11 @@ func basicQuickStartDocument(projectID, version, introduction string) documentDe
 
 func documentListHandler(writer http.ResponseWriter, request *http.Request) {
 	projectSlug := request.PathValue("slug")
-	nodes, found := documents.List(projectSlug)
+	nodes, found, err := documents.List(request.Context(), projectSlug)
+	if err != nil {
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "文档服务暂时不可用")
+		return
+	}
 	if !found {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return
@@ -161,7 +254,11 @@ func documentListHandler(writer http.ResponseWriter, request *http.Request) {
 func documentDetailHandler(writer http.ResponseWriter, request *http.Request) {
 	projectSlug := request.PathValue("slug")
 	documentSlug := request.PathValue("documentSlug")
-	document, projectFound, documentFound := documents.Get(projectSlug, documentSlug)
+	document, projectFound, documentFound, err := documents.Get(request.Context(), projectSlug, documentSlug)
+	if err != nil {
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "文档服务暂时不可用")
+		return
+	}
 	if !projectFound {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return

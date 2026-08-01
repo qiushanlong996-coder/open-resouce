@@ -547,7 +547,13 @@ func writeRepositoryError(writer http.ResponseWriter, request *http.Request, err
 }
 
 func findDocument(request *http.Request, writer http.ResponseWriter) (documentDetail, bool) {
-	document, projectFound, documentFound := documents.Get(request.PathValue("slug"), request.PathValue("documentSlug"))
+	document, projectFound, documentFound, err := documents.Get(
+		request.Context(), request.PathValue("slug"), request.PathValue("documentSlug"),
+	)
+	if err != nil {
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "文档服务暂时不可用")
+		return documentDetail{}, false
+	}
 	if !projectFound {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")
 		return documentDetail{}, false

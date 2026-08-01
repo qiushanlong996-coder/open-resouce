@@ -244,39 +244,6 @@ const projects: Project[] = [
   },
 ]
 
-const initialComments: CommentItem[] = [
-  {
-    id: 'demo-comment-1',
-    blockId: 'block-atlas-collaboration',
-    authorId: '',
-    user: '林默',
-    initials: '林',
-    time: '18 分钟前',
-    quote: '每个节点都需要声明输入、输出和失败策略。',
-    text: '这里是否可以补充一个最小节点示例？新用户会更容易理解。',
-    status: 'open',
-    replies: [],
-    replyCount: 0,
-    updatedAt: '',
-    edited: false,
-  },
-  {
-    id: 'demo-comment-2',
-    blockId: 'block-atlas-task',
-    authorId: '',
-    user: '苏打',
-    initials: '苏',
-    time: '昨天',
-    quote: '规划器会将目标拆解为多个可执行步骤。',
-    text: '这一段已经在快速开始中补充了示例，问题已解决。',
-    status: 'resolved',
-    replies: [],
-    replyCount: 0,
-    updatedAt: '',
-    edited: false,
-  },
-]
-
 const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 function mapProjectSummary(project: ProjectSummary): Project {
@@ -337,6 +304,16 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
   }
 }
 
+// firstDocumentSlug 深度优先取目录中的首篇文档，用于打开项目时默认展示。
+function firstDocumentSlug(nodes: DocumentNode[]): string {
+  for (const node of nodes) {
+    if (node.slug) return node.slug
+    const child = firstDocumentSlug(node.children ?? [])
+    if (child) return child
+  }
+  return ''
+}
+
 function reactNodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
   if (Array.isArray(node)) return node.map(reactNodeText).join('')
@@ -351,7 +328,7 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [detailTab, setDetailTab] = useState('文档阅读')
   const [saved, setSaved] = useState<string[]>([])
-  const [comments, setComments] = useState(initialComments)
+  const [comments, setComments] = useState<CommentItem[]>([])
   const [commentsState, setCommentsState] = useState<CatalogState>('online')
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [resolvingCommentID, setResolvingCommentID] = useState<string | null>(null)
@@ -540,7 +517,7 @@ function App() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         setCommentsState('offline')
-        showToast('评论 API 暂时不可用，当前展示缓存评论')
+        setComments([])
       })
     return () => controller.abort()
   }, [activeDocument, selectedProject])
@@ -651,12 +628,22 @@ function App() {
       .catch(() => {
         if (selectedProjectSlug.current === project.slug) setDetailState('offline')
       })
-    Promise.all([getDocuments(project.slug), getDocument(project.slug, 'quick-start')])
-      .then(([treeResponse, documentResponse]) => {
+    // 先取目录再取首篇正文：不同项目的文档 slug 不同（已发布项目为 overview，
+    // 种子项目为 quick-start），硬编码 slug 会导致真实项目取不到文档。
+    getDocuments(project.slug)
+      .then((treeResponse) => {
         if (selectedProjectSlug.current !== project.slug || documentRequestSequence.current !== requestSequence) return
         setDocumentTree(treeResponse.data)
-        setActiveDocument(documentResponse.data)
-        setDocumentState('online')
+        const firstSlug = firstDocumentSlug(treeResponse.data)
+        if (!firstSlug) {
+          setDocumentState('online')
+          return
+        }
+        return getDocument(project.slug, firstSlug).then((documentResponse) => {
+          if (selectedProjectSlug.current !== project.slug || documentRequestSequence.current !== requestSequence) return
+          setActiveDocument(documentResponse.data)
+          setDocumentState('online')
+        })
       })
       .catch(() => {
         if (selectedProjectSlug.current === project.slug && documentRequestSequence.current === requestSequence) setDocumentState('offline')
@@ -1645,10 +1632,10 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
 
   return (
     <section className="doc-workspace">
-      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <button className="tree-item active"><FileText size={15} /> 快速开始</button>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
+      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">{activeDocument ? `${activeDocument.slug.toUpperCase()} / 01` : 'QUICK START / 01'}</span><div><button className="tool-button" title="复制标题链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
-        {documentState !== 'online' && <div className={`document-sync-state ${documentState}`}><span className="gateway-state-dot" />{documentState === 'checking' ? '正在加载在线文档…' : '文档 API 暂时不可用，当前展示缓存内容。'}</div>}
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div><button className="tool-button" title="复制标题链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
+        {documentState === 'offline' && <div className="document-sync-state offline"><span className="gateway-state-dot" />文档服务暂时不可用，请稍后重试。</div>}
         <div className="article-content">
           {activeDocument ? (
             <ReactMarkdown
@@ -1664,16 +1651,15 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
             >
               {activeDocument.markdown}
             </ReactMarkdown>
+          ) : documentState === 'checking' ? (
+            <div className="article-empty">正在加载文档…</div>
           ) : (
-            <>
-          <h1>快速开始</h1><p className="article-lead">Atlas Agent 是一个面向复杂任务的多 Agent 协作运行时。它把任务拆成可观察、可组合的步骤，让每次执行都能被理解和复盘。</p>
-          <div className="callout"><Sparkles size={17} /><div><strong>阅读提示</strong><p>试着选中正文中的一段文字，然后点击浮出的评论按钮。</p></div></div>
-          <h2>从一个清晰的任务开始</h2><p>一个好的 Agent 系统，首先要让目标被准确表达。Atlas 会先接收自然语言任务，再由规划器拆出检索、工具调用和结果检查等步骤。</p>
-          <div className="code-block"><div className="code-head"><span>python</span><button className="code-copy" title="复制代码"><Copy size={14} /></button></div><pre><code><span className="code-purple">from</span> atlas <span className="code-purple">import</span> Runtime{`\n\n`}runtime = Runtime({`\n`}  model=<span className="code-green">"gpt-4.1"</span>,{`\n`}  max_steps=<span className="code-orange">8</span>,{`\n`}  trace=<span className="code-blue">True</span>,{`\n`}){`\n\n`}result = runtime.run(<span className="code-green">"分析这份用户反馈并给出行动计划"</span>)</code></pre></div>
-          <h2>节点之间如何协作</h2><p>每个节点都需要声明输入、输出和失败策略。规划器负责安排顺序，执行器负责调用工具，评审器会在输出前检查引用和结果质量。</p>
-          <div className="workflow-preview"><div className="workflow-node"><span>01</span><strong>规划器</strong><small>拆解目标</small></div><div className="workflow-arrow">→</div><div className="workflow-node active"><span>02</span><strong>执行器</strong><small>调用工具</small></div><div className="workflow-arrow">→</div><div className="workflow-node"><span>03</span><strong>评审器</strong><small>检查结果</small></div></div>
-          <h2>安装依赖</h2><p>建议使用 Python 3.11 及以上版本。创建虚拟环境后，通过以下命令安装运行时：</p><div className="inline-command">$ pip install atlas-agent <button title="复制命令"><Copy size={14} /></button></div>
-            </>
+            // 不再展示任何示例正文：假内容会让作者误以为自己的文档已发布。
+            <div className="article-empty">
+              <FileText size={26} />
+              <h3>该项目暂无可阅读文档</h3>
+              <p>作者在项目中心写入并发布正文后，这里会展示真实内容。</p>
+            </div>
           )}
         </div>
         {commentComposerOpen && <div
