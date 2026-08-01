@@ -115,6 +115,7 @@ import {
   ImageLightbox,
   MermaidDiagram,
 } from './DocumentReader'
+import ErrorBoundary from './ErrorBoundary'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import { useHighlightedCode } from './codeHighlight'
 import './App.css'
@@ -1225,16 +1226,16 @@ function App() {
           showToast(`欢迎，${user.display_name}`)
         }}
       />}
-      {authorCenterOpen && currentUser && <AuthorProjectCenter
+      {authorCenterOpen && currentUser && <ErrorBoundary label="作者项目中心"><AuthorProjectCenter
         onClose={() => setAuthorCenterOpen(false)}
         onChanged={() => {
           showToast('项目状态已更新')
         }}
-      />}
-      {reviewCenterOpen && currentUser?.is_admin && <ProjectReviewCenter
+      /></ErrorBoundary>}
+      {reviewCenterOpen && currentUser?.is_admin && <ErrorBoundary label="项目审核中心"><ProjectReviewCenter
         onClose={() => setReviewCenterOpen(false)}
         onChanged={() => showToast('审核结果已保存')}
-      />}
+      /></ErrorBoundary>}
     </div>
   )
 }
@@ -1490,25 +1491,29 @@ function ProjectDetail({
             <div><span className="section-kicker">LIVE DOCUMENT / {collaborationAccess?.role.toUpperCase()}</span><h2>协作编辑《{activeDocument?.title ?? project.name}》</h2><p>修改会实时同步给其他编辑者，并自动更新公开内容。每篇文档有独立的协作房间。</p></div>
             <button className="outline-button" onClick={() => setCollaborationEditing(false)}><X size={15} /> 退出编辑</button>
           </header>
-          <Suspense fallback={<div className="collaboration-loading">正在加载实时协作编辑器…</div>}>
-            <CollaborativeMarkdownEditor
-              slug={activeDocument ? `${project.slug}/${activeDocument.slug}` : project.slug}
-              initialMarkdown={collaborationInitialMarkdown}
-              user={currentUser}
-              webSocketURL={getProjectCollaborationWebSocketURL(project.slug, activeDocument?.slug)}
-              onSaved={(markdown) => {
-                onPublishedDocumentSaved(markdown)
-                showToast('协作文档已保存')
-              }}
-            />
-          </Suspense>
+          {/* 协作编辑器涉及 WebSocket 与 Yjs，异常时至少要保住“退出编辑”入口。 */}
+          <ErrorBoundary label="实时协作编辑器">
+            <Suspense fallback={<div className="collaboration-loading">正在加载实时协作编辑器…</div>}>
+              <CollaborativeMarkdownEditor
+                slug={activeDocument ? `${project.slug}/${activeDocument.slug}` : project.slug}
+                initialMarkdown={collaborationInitialMarkdown}
+                user={currentUser}
+                webSocketURL={getProjectCollaborationWebSocketURL(project.slug, activeDocument?.slug)}
+                onSaved={(markdown) => {
+                  onPublishedDocumentSaved(markdown)
+                  showToast('协作文档已保存')
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
         </section>
       ) : (
         <>
-          {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} />}
-          {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} />}
-          {detailTab === '下载资源' && <DownloadView project={project} onDownload={onDownload} />}
-          {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
+          {/* 每个标签各自设边界：某个标签内容异常不应连带项目头部与导航一起白屏。 */}
+          {detailTab === '文档阅读' && <ErrorBoundary label="文档阅读" onReset={() => activeDocument && onOpenDocument(activeDocument.slug)}><DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} /></ErrorBoundary>}
+          {detailTab === '代码预览' && <ErrorBoundary label="代码预览"><CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} /></ErrorBoundary>}
+          {detailTab === '下载资源' && <ErrorBoundary label="下载资源"><DownloadView project={project} onDownload={onDownload} /></ErrorBoundary>}
+          {detailTab === '项目概览' && <ErrorBoundary label="项目概览"><OverviewView project={project} onRead={() => setDetailTab('文档阅读')} /></ErrorBoundary>}
         </>
       )}
       {permissionsOpen && collaborationAccess?.can_manage && <ProjectCollaborationPermissions projectSlug={project.slug} onClose={() => setPermissionsOpen(false)} showToast={showToast} />}

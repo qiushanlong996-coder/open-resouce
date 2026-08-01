@@ -200,6 +200,14 @@
 .source-code .hljs-addition { color: #0a7a3d; }
 .source-code .hljs-emphasis { font-style: italic; }
 .source-code .hljs-strong { font-weight: 600; }
+/* React 错误边界的降级展示。区块崩了也要给出可重试的入口，而不是空白。 */
+.error-boundary { max-width: 520px; margin: 60px auto; padding: 22px; color: var(--text-secondary); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid #b42318; }
+.error-boundary strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 14px; }
+.error-boundary p { margin: 0 0 12px; font-size: 12px; line-height: 1.7; }
+.error-boundary code { display: block; padding: 9px 11px; color: #b42318; background: #fff5f4; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; line-height: 1.6; word-break: break-word; }
+.error-boundary-actions { display: flex; gap: 10px; margin-top: 14px; }
+.error-boundary-actions button { min-height: 30px; padding: 0 13px; color: var(--blue); background: var(--soft-blue); border: 1px solid var(--focus-line); font-size: 11px; }
+
 .notification-button { position: relative; }
 .notification-badge { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; display: inline-grid; place-items: center; color: #fff; background: #d92d20; border-radius: 999px; font-size: 8px; font-weight: 600; line-height: 1; }
 .notification-popover { position: absolute; top: 46px; right: 0; z-index: 35; width: 300px; padding: 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 38px rgba(0,0,0,.16); }
