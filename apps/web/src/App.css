@@ -316,6 +316,9 @@
 .document-editor-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 12px; }
 .emoji-picker { position: relative; display: inline-flex; }
 .emoji-popover { position: absolute; top: 34px; left: 0; z-index: 30; width: min(352px, calc(100vw - 36px)); padding: 6px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 45px rgba(0,0,0,.22); }
+.emoji-popover.placement-up { top: auto; bottom: 34px; }
+.selection-composer.is-anchored { position: absolute; bottom: auto; left: clamp(20px, 4vw, 62px); right: clamp(20px, 4vw, 62px); width: auto; max-width: 650px; margin: 0; }
+.selection-composer.is-anchored::before { content: ''; position: absolute; top: -6px; left: 22px; width: 11px; height: 11px; background: inherit; border-top: 1px solid var(--focus-line); border-left: 1px solid var(--focus-line); transform: rotate(45deg); }
 .emoji-mart-host { display: block; width: 100%; }
 .emoji-popover em-emoji-picker { width: 100%; max-height: min(435px, 70vh); --border-radius: 0; --category-icon-size: 18px; --font-family: inherit; }
 .emoji-loading { display: grid; min-height: 120px; place-items: center; color: var(--text-secondary); font-size: 12px; }

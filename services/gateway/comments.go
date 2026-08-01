@@ -228,6 +228,16 @@ var commentRepositoryStore commentRepository = newMemoryCommentRepository()
 
 var _ commentRepository = (*memoryCommentRepository)(nil)
 
+// normalizeCommentReplies 保证单条评论响应的 replies 始终是数组。
+// 仓库实现（如 MySQL 的 Create）可能不填该字段，nil 切片会序列化为 null，
+// 导致客户端对数组做遍历时报错。
+func normalizeCommentReplies(comment documentComment) documentComment {
+	if comment.Replies == nil {
+		comment.Replies = []documentComment{}
+	}
+	return comment
+}
+
 func nestDocumentComments(flat []documentComment) []documentComment {
 	roots := make([]documentComment, 0)
 	rootIndexes := make(map[string]int)
@@ -307,7 +317,7 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 			return
 		}
 		publishCommentEvent("comment.created", document.ID, comment.ID, "")
-		writeJSON(writer, http.StatusCreated, commentResponse{Data: comment, RequestID: requestIDFromContext(request.Context())})
+		writeJSON(writer, http.StatusCreated, commentResponse{Data: normalizeCommentReplies(comment), RequestID: requestIDFromContext(request.Context())})
 	default:
 		writer.Header().Set("Allow", "GET, POST")
 		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
@@ -371,7 +381,7 @@ func documentCommentHandler(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		publishCommentEvent("comment.updated", document.ID, comment.ID, "")
-		writeJSON(writer, http.StatusOK, commentResponse{Data: comment, RequestID: requestIDFromContext(request.Context())})
+		writeJSON(writer, http.StatusOK, commentResponse{Data: normalizeCommentReplies(comment), RequestID: requestIDFromContext(request.Context())})
 		return
 	}
 	if input.Status != "resolved" || input.Body != nil {
@@ -389,7 +399,7 @@ func documentCommentHandler(writer http.ResponseWriter, request *http.Request) {
 	}
 	if found {
 		publishCommentEvent("comment.resolved", document.ID, comment.ID, "")
-		writeJSON(writer, http.StatusOK, commentResponse{Data: comment, RequestID: requestIDFromContext(request.Context())})
+		writeJSON(writer, http.StatusOK, commentResponse{Data: normalizeCommentReplies(comment), RequestID: requestIDFromContext(request.Context())})
 		return
 	}
 	auditCommentPermission(request, "comment_resolve_denied")
@@ -448,7 +458,7 @@ func documentCommentRepliesHandler(writer http.ResponseWriter, request *http.Req
 		document.ID, request.PathValue("commentID"), reply,
 	)
 	writeJSON(writer, http.StatusCreated, commentResponse{
-		Data: reply, RequestID: requestIDFromContext(request.Context()),
+		Data: normalizeCommentReplies(reply), RequestID: requestIDFromContext(request.Context()),
 	})
 }
 
@@ -491,7 +501,7 @@ func documentCommentReplyHandler(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		publishCommentEvent("reply.updated", document.ID, request.PathValue("commentID"), reply.ID)
-		writeJSON(writer, http.StatusOK, commentResponse{Data: reply, RequestID: requestIDFromContext(request.Context())})
+		writeJSON(writer, http.StatusOK, commentResponse{Data: normalizeCommentReplies(reply), RequestID: requestIDFromContext(request.Context())})
 		return
 	}
 	deleted, err := commentRepositoryStore.DeleteReply(

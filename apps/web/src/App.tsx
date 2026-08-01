@@ -329,8 +329,9 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
     quote: comment.quote,
     text: comment.body,
     status: comment.status,
-    replies: comment.replies.map(mapDocumentComment),
-    replyCount: comment.reply_count,
+    // 单条评论响应可能不包含 replies，这里容错以免渲染阶段抛异常导致白屏。
+    replies: (comment.replies ?? []).map(mapDocumentComment),
+    replyCount: comment.reply_count ?? 0,
     updatedAt: comment.updated_at,
     edited: comment.updated_at !== comment.created_at,
   }
@@ -359,6 +360,8 @@ function App() {
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [selectedQuote, setSelectedQuote] = useState('每个节点都需要声明输入、输出和失败策略。')
   const [selectedBlockID, setSelectedBlockID] = useState('block-atlas-collaboration')
+  // 选区评论框的锚点：null 表示回退到底部固定位置（例如从侧边栏直接新建评论）。
+  const [composerAnchor, setComposerAnchor] = useState<{ top: number } | null>(null)
   const [toast, setToast] = useState('')
   const [loginOpen, setLoginOpen] = useState(() => new URLSearchParams(window.location.search).has('reset_token'))
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
@@ -709,6 +712,20 @@ function App() {
       const matchedBlock = activeDocument?.blocks.find((item) => item.text.includes(selection) || selection.includes(item.text))
       if (stableBlockID) setSelectedBlockID(stableBlockID)
       else if (matchedBlock) setSelectedBlockID(matchedBlock.id)
+      // 记录选区底部相对文章容器的偏移，让评论框紧贴选中内容下方出现。
+      const article = anchorElement?.closest<HTMLElement>('.document-article')
+      const range = browserSelection.rangeCount > 0 ? browserSelection.getRangeAt(0) : null
+      if (article && range) {
+        const selectionRect = range.getBoundingClientRect()
+        const articleRect = article.getBoundingClientRect()
+        if (selectionRect.height > 0 || selectionRect.width > 0) {
+          setComposerAnchor({ top: selectionRect.bottom - articleRect.top + article.scrollTop + 10 })
+        } else {
+          setComposerAnchor(null)
+        }
+      } else {
+        setComposerAnchor(null)
+      }
       setCommentComposerOpen(true)
     }
   }
@@ -727,7 +744,8 @@ function App() {
         quote: selectedQuote,
         body: draftComment.trim(),
       })
-      setComments((current) => [mapDocumentComment(response.data), ...current])
+      const created = mapDocumentComment(response.data)
+      setComments((current) => [created, ...current])
       setDraftComment('')
       setCommentComposerOpen(false)
       showToast('评论已发布，已同步到当前文档')
@@ -747,7 +765,13 @@ function App() {
     setResolvingCommentID(commentId)
     try {
       const response = await resolveDocumentComment(selectedProject.slug, activeDocument.slug, commentId)
-      setComments((current) => current.map((comment) => (comment.id === commentId ? mapDocumentComment(response.data) : comment)))
+      // 单条响应不携带回复，合并时保留本地已有回复，避免解决后回复消失。
+      const resolved = mapDocumentComment(response.data)
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId
+          ? { ...resolved, replies: comment.replies, replyCount: comment.replyCount }
+          : comment
+      )))
       showToast('评论已标记为已解决')
     } catch {
       showToast('评论状态更新失败，请稍后重试')
@@ -835,8 +859,12 @@ function App() {
       const response = await updateDocumentComment(
         selectedProject.slug, activeDocument.slug, commentId, body.trim(),
       )
+      // 编辑响应同样不携带回复，需保留本地回复列表。
+      const updated = mapDocumentComment(response.data)
       setComments((current) => current.map((comment) => (
-        comment.id === commentId ? mapDocumentComment(response.data) : comment
+        comment.id === commentId
+          ? { ...updated, replies: comment.replies, replyCount: comment.replyCount }
+          : comment
       )))
       showToast('评论已更新')
       return true
@@ -1140,6 +1168,7 @@ function App() {
           onDownload={() => showToast('演示下载已开始')}
           comments={comments}
           selectedQuote={selectedQuote}
+          composerAnchor={composerAnchor}
           commentComposerOpen={commentComposerOpen}
           setCommentComposerOpen={setCommentComposerOpen}
           draftComment={draftComment}
@@ -1338,6 +1367,7 @@ function ProjectDetail({
   onDownload,
   comments,
   selectedQuote,
+  composerAnchor,
   commentComposerOpen,
   setCommentComposerOpen,
   draftComment,
@@ -1374,6 +1404,7 @@ function ProjectDetail({
   onDownload: () => void
   comments: CommentItem[]
   selectedQuote: string
+  composerAnchor: { top: number } | null
   commentComposerOpen: boolean
   setCommentComposerOpen: (open: boolean) => void
   draftComment: string
@@ -1466,7 +1497,7 @@ function ProjectDetail({
         </section>
       ) : (
         <>
-          {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} />}
+          {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} />}
           {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} />}
           {detailTab === '下载资源' && <DownloadView project={project} onDownload={onDownload} />}
           {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
@@ -1579,7 +1610,7 @@ function ProjectCollaborationPermissions({
   )
 }
 
-function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; showToast: (message: string) => void }) {
+function DocumentView({ project, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, composerAnchor, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, showToast }: { project: Project; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; composerAnchor: { top: number } | null; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; showToast: (message: string) => void }) {
   const headingId = (children: ReactNode) => {
     const title = reactNodeText(children)
     return activeDocument?.outline.find((item) => item.title === title)?.id
@@ -1645,7 +1676,10 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
             </>
           )}
         </div>
-        {commentComposerOpen && <div className="selection-composer"><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
+        {commentComposerOpen && <div
+          className={`selection-composer ${composerAnchor ? 'is-anchored' : ''}`}
+          style={composerAnchor ? { top: `${composerAnchor.top}px` } : undefined}
+        ><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
       <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
     </section>
@@ -1897,12 +1931,45 @@ function DownloadView({ project, onDownload }: { project: Project; onDownload: (
 
 function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
   const [open, setOpen] = useState(false)
-  return <span className="emoji-picker">
-    <button type="button" title="插入 Emoji" onClick={() => setOpen((value) => !value)}>😊</button>
-    {open && <span className="emoji-popover">
+  // 根据按钮下方剩余空间选择弹层方向，避免在底部评论框里被视窗遮挡。
+  const [placement, setPlacement] = useState<'down' | 'up'>('down')
+  const containerRef = useRef<HTMLSpanElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    // 自行处理外部点击：emoji-mart 的 onClickOutside 会在任意文档点击时触发，
+    // 与按钮的 toggle 互相干扰，导致关闭后无法再次打开。
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && containerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  const toggle = () => {
+    setOpen((value) => {
+      if (value) return false
+      const rect = containerRef.current?.getBoundingClientRect()
+      const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
+      setPlacement(spaceBelow < 380 ? 'up' : 'down')
+      return true
+    })
+  }
+
+  return <span className="emoji-picker" ref={containerRef}>
+    <button type="button" title="插入 Emoji" onClick={toggle}>😊</button>
+    {open && <span className={`emoji-popover placement-${placement}`}>
       <Suspense fallback={<span className="emoji-loading">正在加载 Emoji…</span>}>
         <EmojiMartPicker
-          onClose={() => setOpen(false)}
           onSelect={(emoji) => {
             onSelect(emoji)
             setOpen(false)

@@ -1483,3 +1483,60 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 1. 代码预览接入语法高亮着色，并支持单文件下载。
 2. 通知点击跳转到对应项目文档或作者中心。
 3. 为集成测试配置独立测试数据库，与生产库隔离。
+
+## 2026-08-01：文档选区评论四个缺陷修复
+
+### 背景
+
+项目负责人反馈文档阅读页评论区四个问题：Emoji 面板被遮挡、关闭后无法重开、发布评论白屏、评论框未贴在选中内容下方。
+已先在真实浏览器复现全部问题，确认根因后再修复，避免凭推测改代码。
+
+### 白屏缺陷（最严重）
+
+- 现象：点击“发布评论”后整页变空，浏览器控制台报 `Cannot read properties of null (reading 'map')`。
+- 根因一（后端）：MySQL 评论仓库的 `Create` 等写操作不填 `Replies`，nil 切片序列化为 `"replies":null`，违反了契约中 replies 为数组的约定。内存仓库会主动置空数组，所以本地开发时不暴露。
+- 根因二（前端）：`mapDocumentComment` 被写在 `setComments` 的 updater 回调**内部**调用，异常抛在 React 状态处理阶段，不在 `try/catch` 覆盖范围，因此直接卸载整颗组件树而不是提示失败。
+- 修复：后端新增 `normalizeCommentReplies`，在全部 5 个单条评论响应写出点保证 replies 为数组；前端 `mapDocumentComment` 对 `replies` 与 `reply_count` 容错，并将映射移到 updater 外部，使异常能被 `try/catch` 捕获。
+
+### 连带发现并修复：解决或编辑评论会清空回复
+
+- `resolveComment` 和 `editComment` 用不携带回复的单条响应整体替换本地评论，导致该线程已有回复从界面消失。
+- 修复：合并时保留本地 `replies` 和 `replyCount`。
+
+### Emoji 面板两个缺陷
+
+- 无法重开的根因：emoji-mart 的 `onClickOutside` 在任意文档点击时都会触发（内部判断仅为 `e.target != element`），与开关按钮的 toggle 互相干扰。
+- 修复：移除对 `onClickOutside` 的依赖，改由 `EmojiPicker` 自行在捕获阶段监听 `pointerdown`，容器内点击不关闭，并支持 Esc 关闭。
+- 被遮挡的根因：弹层固定向下开（`top: 34px`），而评论框位于视窗底部，面板落在可视区域之外。
+- 修复：根据按钮下方剩余空间自动选择向上或向下弹出。
+
+### 评论框位置
+
+- 原先为 `position: sticky; bottom: 18px`，总是贴在屏幕底部。
+- 修复：选区时记录选区底部相对文章容器的偏移，评论框改为绑定该偏移的绝对定位，并加上指向选区的小箭头；从侧边栏直接新建评论时仍回退到原有底部位置。
+
+### 验证
+
+- 新增 `TestCommentResponsesNeverReturnNullReplies`，使用模拟 MySQL 行为的仓库桩（写操作返回 nil Replies），覆盖创建、编辑、解决、回复和编辑回复 5 个响应。
+- 已反向验证该测试有效：临时禁用修复后测试失败并报出 `"replies":null` 响应，恢复后通过。（注：最初用内存仓库写的版本无法复现缺陷，已改为仓库桩。）
+- `gofmt`、`go vet`、本地全量测试、前端 oxlint、TypeScript 和 Vite 构建均通过。
+- 真实浏览器验证（本地开发服务器代理到线上 API）：
+  - 发布评论不再白屏，新评论正常进入列表，控制台无 `Cannot read properties of null` 错误。
+  - Emoji 面板完整可见且 `em-emoji-picker` 已渲染。
+  - Emoji 按“开-关-开-关-点空白关-再开”六步反复验证均正确。
+  - 选择表情能正确插入输入框。
+  - 评论框定位数值证据：`computedPosition` 从 `sticky` 变为 `absolute`，`inlineTop=301.195px`，且 `composerTop(463) - articleTop(162) = 301` 与之吻合。
+- 新版已部署，发布目录 `20260801040834`，主资源 `index-D4GgQG1p.js`，主样式 `index-Ca2rRfVI.css`；Gateway 与 Nginx 均 `active`，内网 `/healthz`、`/readyz` 和公网 `/api/v1` 均 200。
+- 验证期间在生产库产生的 2 个临时账号和 2 条评论已定向删除，用户回到 2 个、评论回到 4 条；Redis 限流键已清理。
+
+### 注意事项
+
+- 本次为复现问题使用了本地 Vite 开发服务器代理到线上 API（`VITE_API_PROXY_TARGET` 写在 gitignore 的 `.env.local`，验证后已删除）。这种方式会向生产库写入测试数据，必须验证后立即清理。
+- 单条评论响应（创建/编辑/解决/回复）本质上不携带完整回复树，前端合并时必须保留本地回复，不能直接整体替换。
+- 以后在 `setState` 的 updater 回调内不要做可能抛异常的数据映射，否则错误会绕过 `try/catch` 并造成白屏。
+
+### 下一步
+
+1. 代码预览接入语法高亮着色，并支持单文件下载。
+2. 为关键页面增加 React 错误边界，避免单一渲染异常卸载整站。
+3. 为集成测试配置独立测试数据库，与生产库隔离。

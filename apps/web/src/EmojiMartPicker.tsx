@@ -7,18 +7,16 @@ type EmojiSelection = {
   native: string
 }
 
+// 这里不使用 emoji-mart 的 onClickOutside：它在任意文档点击时都会触发，
+// 与外层开关按钮的 toggle 互相干扰。外部点击关闭由调用方统一处理。
 export default function EmojiMartPicker({
   onSelect,
-  onClose,
 }: {
   onSelect: (emoji: string) => void
-  onClose: () => void
 }) {
   const rootRef = useRef<HTMLSpanElement | null>(null)
   const onSelectRef = useRef(onSelect)
-  const onCloseRef = useRef(onClose)
   onSelectRef.current = onSelect
-  onCloseRef.current = onClose
 
   useEffect(() => {
     const picker = new Picker({
@@ -32,7 +30,6 @@ export default function EmojiMartPicker({
       maxFrequentRows: 2,
       previewPosition: 'none',
       skinTonePosition: 'search',
-      onClickOutside: () => onCloseRef.current(),
       onEmojiSelect: (emoji: EmojiSelection) => onSelectRef.current(emoji.native),
     }) as unknown as HTMLElement
     rootRef.current?.appendChild(picker)
