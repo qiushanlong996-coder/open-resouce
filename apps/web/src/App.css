@@ -347,6 +347,8 @@
 .document-tree-actions button:hover:not(:disabled) { color: var(--blue); background: var(--surface); }
 .document-tree-actions button:disabled { opacity: .3; }
 .document-tree-tip { margin: 10px 0 0; color: var(--text-tertiary); font-size: 9px; line-height: 1.6; }
+.document-tree-create .document-tree-row { padding-left: 0; }
+.document-tree-slug-hint { display: block; padding: 2px 0 5px 22px; color: var(--text-tertiary); font-size: 9px; word-break: break-all; }
 .document-context-banner { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; color: var(--text-secondary); background: var(--soft-blue); border: 1px solid var(--focus-line); font-size: 12px; }
 .document-context-banner button { padding: 0; color: var(--blue); background: transparent; border: 0; font-size: 11px; }
 .author-toast { position: absolute; top: 14px; left: 50%; z-index: 60; display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; color: #fff; background: rgba(20,20,22,.92); transform: translateX(-50%); font-size: 11px; }

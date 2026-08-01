@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Link2, Plus, Trash2 } from 'lucide-react'
 import {
   ApiError,
   createAuthorProjectDocument,
@@ -14,13 +14,41 @@ import {
 // 项目文档树管理：新建、重命名、改写正文、调整层级与排序、删除。
 // 对齐在线文档工具的知识库操作，一个项目可以有多层文档。
 
-// slugFromTitle 根据标题推导默认 slug；中文标题无法直接转写时回退为时间戳。
+type PinyinModule = typeof import('pinyin-pro')
+
+// 拼音词典较大（gzip 后约 140 KB），按需动态加载，不让文档面板本身变重。
+// 模块级缓存，一个会话内只加载一次。
+let pinyinModule: PinyinModule | null = null
+let pinyinLoader: Promise<PinyinModule> | null = null
+
+function loadPinyin() {
+  pinyinLoader ??= import('pinyin-pro').then((module) => {
+    pinyinModule = module
+    return module
+  })
+  return pinyinLoader
+}
+
+// asciiSlug 只做 ASCII 规范化，不依赖拼音词典。
+function asciiSlug(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+// slugFromTitle 根据标题推导默认 slug。
+// 中文标题先转写为拼音，否则中文站点的文档地址会全是无意义的随机串。
+// 词典尚未加载完时先返回 ASCII 结果，加载完会自动重算。
 function slugFromTitle(title: string) {
-  const ascii = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return ascii || `doc-${Date.now().toString(36)}`
+  const trimmed = title.trim()
+  if (!trimmed) return ''
+  let romanized = trimmed
+  if (/[\u4e00-\u9fa5]/.test(trimmed) && pinyinModule) {
+    // toneType: 'none' 去掉声调，nonZh: 'consecutive' 保留英文与数字原样。
+    romanized = pinyinModule
+      .pinyin(trimmed, { toneType: 'none', type: 'array', nonZh: 'consecutive' })
+      .join('-')
+  }
+  // 纯符号或非汉字非 ASCII 标题仍需一个托底值。
+  return (asciiSlug(romanized) || `doc-${Date.now().toString(36)}`).slice(0, 160)
 }
 
 function flattenTree(nodes: DocumentNode[], depth = 0): { node: DocumentNode; depth: number }[] {
@@ -58,6 +86,11 @@ export default function ProjectDocumentTree({
   const [creatingParent, setCreatingParent] = useState<string | null | undefined>(undefined)
   const [createDraft, setCreateDraft] = useState('')
   const [pendingDeleteID, setPendingDeleteID] = useState('')
+  // 正在编辑标识的文档。slug 决定阅读页地址，作者应能自己改。
+  const [slugEditID, setSlugEditID] = useState('')
+  const [slugDraft, setSlugDraft] = useState('')
+  // 拼音词典加载完后递增，触发标识预览重算。
+  const [pinyinReady, setPinyinReady] = useState(0)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
 
@@ -108,10 +141,13 @@ export default function ProjectDocumentTree({
       return
     }
     setBusy(true)
-    createAuthorProjectDocument(projectID, {
-      parent_id: parentID, slug: slugFromTitle(trimmed), title: trimmed,
-      markdown: `# ${trimmed}\n\n`,
-    })
+    // 先等词典就绪再生成 slug，避免中文标题拿到时间戳托底值。
+    loadPinyin()
+      .catch(() => null)
+      .then(() => createAuthorProjectDocument(projectID, {
+        parent_id: parentID, slug: slugFromTitle(trimmed), title: trimmed,
+        markdown: `# ${trimmed}\n\n`,
+      }))
       .then((response) => {
         showToast('文档已创建')
         setCreatingParent(undefined)
@@ -129,6 +165,10 @@ export default function ProjectDocumentTree({
     setCreatingParent(parentID)
     setCreateDraft('')
     if (parentID) setCollapsed((current) => ({ ...current, [parentID]: false }))
+    // 开始新建时预加载词典，作者输入标题时就能看到拼音标识。
+    if (!pinyinModule) {
+      loadPinyin().then(() => setPinyinReady((current) => current + 1)).catch(() => undefined)
+    }
   }
 
   const submitRename = (document: ProjectDocument) => {
@@ -145,6 +185,30 @@ export default function ProjectDocumentTree({
       })
       .catch((reason: unknown) => {
         showToast(reason instanceof ApiError ? reason.message : '重命名失败')
+      })
+      .finally(() => setBusy(false))
+  }
+
+  const submitSlug = (document: ProjectDocument) => {
+    const slug = slugDraft.trim().toLowerCase()
+    setSlugEditID('')
+    if (!slug || slug === document.slug) return
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      showToast('文档标识只能用小写字母、数字和连字符')
+      return
+    }
+    setBusy(true)
+    updateAuthorProjectDocument(projectID, document.id, {
+      parent_id: document.parent_id, slug, title: document.title, markdown: document.markdown,
+    })
+      .then((response) => {
+        // 改标识会改变阅读页地址，明确告知而不是默默生效。
+        showToast(`文档标识已改为 ${slug}，原阅读链接已失效`)
+        if (document.id === selectedDocumentID) onSelectRef.current(response.data)
+        load()
+      })
+      .catch((reason: unknown) => {
+        showToast(reason instanceof ApiError ? reason.message : '标识修改失败')
       })
       .finally(() => setBusy(false))
   }
@@ -230,24 +294,28 @@ export default function ProjectDocumentTree({
   })
 
   // 内联新建输入行：parent 为 null 表示新建根文档。
+  // 实时展示会生成的标识，作者能预先知道阅读页地址。
   const renderCreateRow = (parent: string | null, depth: number) => (
-    <div className="document-tree-row is-editing" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-      <span className="document-tree-toggle"><FileText size={13} /></span>
-      <input
-        autoFocus
-        className="document-tree-rename"
-        value={createDraft}
-        placeholder={parent ? '子文档标题' : '文档标题'}
-        onChange={(event) => setCreateDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') createDocument(parent, createDraft)
-          if (event.key === 'Escape') { setCreatingParent(undefined); setCreateDraft('') }
-        }}
-      />
-      <span className="document-tree-actions is-visible">
-        <button type="button" title="确认新建" disabled={busy} onClick={() => createDocument(parent, createDraft)}>✓</button>
-        <button type="button" title="取消" onClick={() => { setCreatingParent(undefined); setCreateDraft('') }}>✕</button>
-      </span>
+    <div className="document-tree-create" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+      <div className="document-tree-row is-editing">
+        <span className="document-tree-toggle"><FileText size={13} /></span>
+        <input
+          autoFocus
+          className="document-tree-rename"
+          value={createDraft}
+          placeholder={parent ? '子文档标题' : '文档标题'}
+          onChange={(event) => setCreateDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') createDocument(parent, createDraft)
+            if (event.key === 'Escape') { setCreatingParent(undefined); setCreateDraft('') }
+          }}
+        />
+        <span className="document-tree-actions is-visible">
+          <button type="button" title="确认新建" disabled={busy} onClick={() => createDocument(parent, createDraft)}>✓</button>
+          <button type="button" title="取消" onClick={() => { setCreatingParent(undefined); setCreateDraft('') }}>✕</button>
+        </span>
+      </div>
+      {createDraft.trim() && <span className="document-tree-slug-hint" key={pinyinReady}>标识：{slugFromTitle(createDraft)}</span>}
     </div>
   )
 
@@ -283,6 +351,28 @@ export default function ProjectDocumentTree({
                   <span className="document-tree-actions is-visible">
                     <button type="button" className="danger" disabled={busy} onClick={() => removeDocument(document)}>删除</button>
                     <button type="button" onClick={() => setPendingDeleteID('')}>取消</button>
+                  </span>
+                </div>
+              )
+            }
+            if (slugEditID === node.id) {
+              return (
+                <div key={node.id} className="document-tree-row is-editing" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                  <span className="document-tree-toggle"><FileText size={13} /></span>
+                  <input
+                    autoFocus
+                    className="document-tree-rename"
+                    value={slugDraft}
+                    placeholder="文档标识（小写字母、数字、连字符）"
+                    onChange={(event) => setSlugDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') submitSlug(document)
+                      if (event.key === 'Escape') setSlugEditID('')
+                    }}
+                  />
+                  <span className="document-tree-actions is-visible">
+                    <button type="button" title="保存标识" disabled={busy} onClick={() => submitSlug(document)}>✓</button>
+                    <button type="button" title="取消" onClick={() => setSlugEditID('')}>✕</button>
                   </span>
                 </div>
               )
@@ -333,6 +423,7 @@ export default function ProjectDocumentTree({
                   <button type="button" title="降为上一篇的子文档" disabled={busy} onClick={() => changeParent(document, 'in')}>→</button>
                   <button type="button" title="升到上一层" disabled={busy || !document.parent_id} onClick={() => changeParent(document, 'out')}>←</button>
                   <button type="button" title="新建子文档" disabled={busy} onClick={() => startCreate(document.id)}><Plus size={12} /></button>
+                  <button type="button" title={`修改文档标识（当前：${document.slug}）`} disabled={busy} onClick={() => { setSlugDraft(document.slug); setSlugEditID(node.id) }}><Link2 size={12} /></button>
                   <button type="button" title="删除文档" disabled={busy} onClick={() => setPendingDeleteID(node.id)}><Trash2 size={12} /></button>
                 </span>
                 </div>
@@ -343,7 +434,7 @@ export default function ProjectDocumentTree({
           })}
         </div>
       )}
-      <p className="document-tree-tip">双击标题可重命名；→ 降级，← 升级，↑↓ 调整同级顺序。</p>
+      <p className="document-tree-tip">双击标题可重命名；→ 降级，← 升级，↑↓ 调整同级顺序；链接图标可改文档标识（即阅读页地址）。</p>
     </section>
   )
 }
