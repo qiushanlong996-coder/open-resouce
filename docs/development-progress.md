@@ -2238,3 +2238,24 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - **均未部署、未做真人浏览器验证**（本环境无浏览器自动化）。
 - 管理控制台含后端改动与 3 个迁移（000013/14/15），上线需：迁移先上测试库→应用服务器跑集成测试→上生产库→交叉编译 Gateway 原子替换重启→发前端。换肤与品牌为纯前端。
 - 管理员白名单由 `ADMIN_EMAILS` 决定；开放 API 的 Bearer key 由管理员在控制台签发。
+
+## 2026-08-01：管理控制台 / 换肤 / 品牌视觉 上线部署
+
+- 迁移 `000013/000014/000015`（封禁、API密钥、审计）已应用到生产库（先测试库跑集成测试通过，再上生产）。
+- 应用服务器集成测试全通过，含新增 `TestMySQLAdminRepositoriesIntegration`。
+- Gateway 新二进制原子替换并重启（保留 `gateway.previous` 回退）；前端发布目录 `20260801150112`，主资源 `index-CedE3f3C.js`、样式 `index-cdB5kAWq.css`。
+- 内网 `/healthz` ok、`/readyz` 200；Gateway `active`。
+
+### 公网端到端回归（8443，真实执行）
+
+- 管理员登录 200、`is_admin:true`、`level:6`（管理员默认满级）。
+- `GET /admin/stats` 200（users 3 / projects 7[published 6, draft 1] / comments 6 / pending 0）；`GET /admin/users` 200；匿名 `/admin/stats` **401**（鉴权门禁）。
+- 开放 API 密钥完整生命周期：签发 201（明文 `ork_…` 仅返回一次）→ Bearer `GET /open/projects` **200** → 撤销 204 → 撤销后 Bearer **401**。
+- 首页服务新资源 `index-CedE3f3C.js`，标题为「新猿译码」（新品牌上线）。
+- 回归产生的测试密钥与审计行已用 root 定向清理（`api_keys`/`admin_audit` 归零，users 回到 3）；应用服务器临时目录已删。
+
+### 注意事项
+
+- 封禁写门禁（被封用户写操作 403）由 `TestMySQLAdminRepositoriesIntegration` 覆盖并在集成测试中通过；未在公网单独走真人封禁流程。
+- 换肤与品牌为纯前端，随本次前端发布上线；换肤个别主题深色小字对比度偏低（见上条），可读性主体不受影响。
+- 仍未做真人浏览器观感验证（换肤切换、头像/logo 视觉、管理台交互）；接口与静态资源已确认到位。
