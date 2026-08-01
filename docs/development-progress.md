@@ -2203,3 +2203,38 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 纯前端部署（Gateway 与迁移无改动，只发前端）。发布目录 `20260801140410`，主资源 `index-C3poQCGM.js`、主样式 `index-BOYSls48.css`。
 - 验证：公网 8443 首页返回 200 且已引用新资源 `index-C3poQCGM.js`；`/api/v1` 返回 200；Gateway `active`。应用服务器临时目录已清理。
 - 仍未做真人浏览器观感验证（评论跳转高亮、粘贴/拖拽上传交互）；接口与静态资源已确认到位，观感可打开站点手动确认。
+
+## 2026-08-01：管理控制台 + 全套换肤 + 品牌视觉（三 agent 并行开发）
+
+三个相互独立的功能，用三个 worktree 隔离的 agent 并行实现，再依次合并回 main、整体验证。合并冲突仅在 App.tsx / main.tsx 的 import 区（各 agent 都只加 import），已手工解决；App.css/index.html/Go/OpenAPI 无冲突（文件归属划清）。
+
+### 功能一：独立管理控制台（后端 + 前端）
+
+- 新表迁移 `000013_create_user_bans`、`000014_create_api_keys`、`000015_create_admin_audit`。
+- 新增 Go：`user_bans.go`、`api_keys.go`、`admin_audit.go`、`admin_console.go`（+测试）；改 `auth.go`(CountUsers/ListUsers)、`managed_projects.go`(CountByStatus/ListAll/Takedown + 审核审计)、`comments*.go`/`favorites.go`/`share.go`/`comment_likes.go`（封禁写操作门禁 `ensureNotBanned`）、`main.go`(接线+路由)。
+- 新接口：`GET /admin/stats`、`GET /admin/users`、`POST|DELETE /admin/users/{id}/ban`、`GET /admin/projects`、`POST /admin/projects/{id}/takedown`、`GET|POST /admin/api-keys`、`DELETE /admin/api-keys/{id}`、`GET /admin/audit`，以及 Bearer 鉴权的开放接口 `GET /api/v1/open/projects`。API key 仅存 SHA-256 摘要+前缀，签发时明文只返回一次。
+- 封禁门禁：被封用户的写操作（评论/回复/点赞/收藏/分享/建项目）返回 403，浏览不受影响；解封恢复。
+- 前端 `AdminConsole.tsx` + `admin.css`（独立样式，不碰 App.css）：左侧模块导航 + 表格/搜索/分页/操作；账号菜单对管理员显示"管理控制台"入口。
+- 后续项（已标注）：项目审核中心仍是独立弹窗（从菜单入口进，概览显示待审数）；审计日志用 limit 无游标分页；MySQL 集成测试本地跳过。
+
+### 功能二：全套换肤主题系统（前端）
+
+- 5 套完整主题：海蓝 ocean（默认）、暮紫 violet、薄荷 mint、石墨 graphite、暖阳 sunset。每套定义明暗两套完整 CSS 变量 + `--app-bg` 渐变背景（纯 CSS 分层 radial+linear，低透明度保证可读性，无外部/二进制图）。
+- `themes.ts`（单一数据源）+ `themes.css`（背景接线+切换器样式，main.tsx 最后导入）。`applyTheme` 把选中主题变量写成 `<html>` 内联自定义属性；light/dark/system 经 `matchMedia` 跟随系统。`ThemePanel` 渲染带渐变色板+说明的 5 套主题，实时切换、持久化。
+- 已知：部分主题深色模式下强调色小字体对比度约 3:1（大字/UI 可，小正文低于 AA）；结构文字与卡片对比度在 10 种组合下均舒适。
+
+### 功能三：品牌视觉（前端，手工 SVG）
+
+- 本环境无图像生成 MCP，采用手工 SVG（专业、无版权、可缩放）。`BrandMark.tsx`：蓝色圆角方块 + 白色火花字形（fill 用 `var(--blue)`，跟随主题色，明暗均清晰）。`favicon.svg` 同款（16px 可辨），`index.html` 标题改为「新猿译码」+ apple-touch-icon。头像去掉纯 `--ink` 方块，改为由 `var(--blue)` 派生的柔和渐变（`color-mix`）+ 高光/内环，白字在各主题可读。新样式在 `brand.css`（不碰 App.css）。
+
+### 验证（合并后整体）
+
+- 后端：`gofmt` 干净、`go vet` 干净、`go test ./services/gateway/` 通过、OpenAPI 校验通过（63 路径、76 schema）。
+- 前端：oxlint 零警告、tsc + Vite 构建通过（4669 模块）。
+- worktree 与临时分支已清理。
+
+### 注意事项 · 部署
+
+- **均未部署、未做真人浏览器验证**（本环境无浏览器自动化）。
+- 管理控制台含后端改动与 3 个迁移（000013/14/15），上线需：迁移先上测试库→应用服务器跑集成测试→上生产库→交叉编译 Gateway 原子替换重启→发前端。换肤与品牌为纯前端。
+- 管理员白名单由 `ADMIN_EMAILS` 决定；开放 API 的 Bearer key 由管理员在控制台签发。
