@@ -1947,3 +1947,40 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 1. 部署前端到公网 8443 入口并补真人点击跳转回归。
 2. 搜索结果分类展示（项目/文档/代码）与代码文件名检索。
 3. 搜索历史与热门搜索词。
+
+## 2026-08-01：用户等级系统（后端经验引擎）
+
+### 背景
+
+产品方要求做 6 级成长体系：发帖、评论、回复、收藏、分享等行为加经验；每级头像框不同、越高越高级且带动画；6 级用户有独特昵称与评论样式；管理员默认 6 级。本条是第 1 个增量——纯后端经验引擎与接口，前端展示与特效在后续增量。
+
+已确认决策：温和曲线阈值 **0/100/300/700/1500/3000**；动作经验 发帖+50、评论+10、回复+5、分享+3、收藏+2、点赞+1（点赞功能暂缺，先留扩展点）。
+
+### 已完成
+
+- 迁移 `000011_create_experience`：`users` 加 `experience INT DEFAULT 0`；新增 `experience_events` 账本表，唯一键 `(user_id, action, source_key)` 保证幂等，用户外键级联清理。存量用户 experience 默认 0＝L1，向后兼容。
+- 新增 `experience.go`：`levelForExperience`（1-6 映射）、`levelForUser`（管理员恒为 6）、动作经验常量、`awardExperienceBestEffort`（异步、失败只记日志，绝不阻塞主动作）、`enrichCommentLevels`（评论作者等级批量补全，避免 N+1）。
+- `authRepository` 接口新增 `AddExperience`（幂等）与 `LevelsByUserIDs`，内存与 MySQL 双实现。MySQL 用 `INSERT IGNORE` 命中唯一键返回 0 行来实现幂等，加经验与写账本在同一事务。
+- `authUser` 增 `experience`/`level` 字段；4 处用户查询补 `experience` 列；`publicAuthUser` 计算 `level`（管理员置 6）。`/auth/me` 等所有返回用户的接口自动带上等级。
+- 挂经验：评论创建 +10、回复 +5、收藏（仅加入时）+2、项目审核通过给作者 +50。
+- 新增 `POST /api/v1/projects/{slug}/share`（登录，覆盖种子与已发布项目），分享 +3，每项目每人一次。
+- 评论列表接口用 `enrichCommentLevels` 给每条评论与回复补 `author_level`，不改各仓库 SQL。
+- OpenAPI 更新为 52 条路径、63 个 schema：新增 share 路径、AuthUser 加 `experience`/`level`、评论加 `author_level`。
+
+### 验证
+
+- `gofmt`、`go vet`、本地全量 `go test` 通过；linux/amd64 交叉编译通过。
+- 新增单元测试：`levelForExperience` 边界（含负数兜底）、管理员等级覆盖、内存 `AddExperience` 幂等（同 source_key 只加一次、不同目标各加）、`LevelsByUserIDs` 批量与缺失用户不出现、`publicAuthUser` 计算等级且不泄露密码哈希。
+- 新增 `TestMySQLExperienceIntegration`（`requireTestDatabase` 守卫，本地跳过）：真实库上验证幂等、经验累加与等级计算，待在应用服务器用测试库 `open_resouce_test` 补跑。
+
+### 卡点与注意事项
+
+- 分享无需项目已发布即可加经验；点赞功能尚不存在，经验源已按可扩展设计，等点赞落地再接 `xpActionLike`（值 +1，已在需求中约定）。
+- 收藏经验只在“加入收藏”时给（POST），取消收藏不扣；账本幂等使取消后再收藏也不会重复加。
+- 迁移只加列+新表，向后兼容，可安全先上测试库再上生产库。
+
+### 下一步
+
+1. 前端等级展示：`LevelAvatar` 头像框 + 等级徽标 + 接入 `/auth/me` 的 level + 评论作者等级 + 分享调用。
+2. L6 独特昵称/评论样式 + 各级头像框纯 CSS 动画（尊重 `prefers-reduced-motion`）。
+3. 应用服务器用测试库补跑经验集成测试，迁移上生产库，部署新 Gateway。

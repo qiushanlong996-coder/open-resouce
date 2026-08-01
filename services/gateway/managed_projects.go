@@ -702,6 +702,10 @@ func adminReviewActionHandler(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	auditAuth(request, "project_review_"+parts[1], user.Email, user.ID)
+	if parts[1] == "approve" {
+		// 项目通过审核＝发帖成功，给作者加经验（每项目一次，幂等）。
+		awardExperienceBestEffort(project.OwnerID, xpActionPost, project.ID, xpPost)
+	}
 	notifyProjectReview(request.Context(), project, user, parts[1], input.Reason)
 	// 项目只有发布后才应进入搜索；驳回则从索引中清除。
 	syncProjectSearchIndex(project, parts[1])

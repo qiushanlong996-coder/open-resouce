@@ -155,5 +155,8 @@ func projectFavoriteHandler(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "收藏服务暂时不可用")
 		return
 	}
+	if request.Method == http.MethodPost {
+		awardExperienceBestEffort(user.ID, xpActionFavorite, project.ID, xpFavorite)
+	}
 	writer.WriteHeader(http.StatusNoContent)
 }

@@ -73,6 +73,8 @@ type authUser struct {
 	DisplayName  string `json:"display_name"`
 	HasPassword  bool   `json:"has_password"`
 	IsAdmin      bool   `json:"is_admin"`
+	Experience   int    `json:"experience"`
+	Level        int    `json:"level"`
 	PasswordHash string `json:"-"`
 }
 
@@ -103,22 +105,28 @@ type authRepository interface {
 	DeleteUserSession(context.Context, string, string) (authSession, bool, error)
 	UpdatePasswordAndDeleteOtherSessions(context.Context, string, string, string) error
 	UpdateDisplayName(context.Context, string, string) (authUser, bool, error)
+	// AddExperience 幂等地给用户加经验，返回是否实际记入（重复动作返回 false）。
+	AddExperience(ctx context.Context, userID, action, sourceKey string, points int) (bool, error)
+	// LevelsByUserIDs 批量返回用户等级，用于评论作者等级展示。
+	LevelsByUserIDs(ctx context.Context, ids []string) (map[string]int, error)
 	CreatePasswordResetToken(context.Context, string, passwordResetToken) (authUser, bool, error)
 	ConsumePasswordResetToken(context.Context, string, time.Time, string) (bool, error)
 }
 
 type memoryAuthRepository struct {
 	sync.RWMutex
-	usersByEmail map[string]authUser
-	sessions     map[string]authSession
-	resetTokens  map[string]passwordResetToken
+	usersByEmail     map[string]authUser
+	sessions         map[string]authSession
+	resetTokens      map[string]passwordResetToken
+	experienceLedger map[string]struct{}
 }
 
 func newMemoryAuthRepository() *memoryAuthRepository {
 	return &memoryAuthRepository{
-		usersByEmail: make(map[string]authUser),
-		sessions:     make(map[string]authSession),
-		resetTokens:  make(map[string]passwordResetToken),
+		usersByEmail:     make(map[string]authUser),
+		sessions:         make(map[string]authSession),
+		resetTokens:      make(map[string]passwordResetToken),
+		experienceLedger: make(map[string]struct{}),
 	}
 }
 
@@ -240,6 +248,45 @@ func (repository *memoryAuthRepository) UpdateDisplayName(
 	return authUser{}, false, nil
 }
 
+func (repository *memoryAuthRepository) AddExperience(
+	_ context.Context, userID, action, sourceKey string, points int,
+) (bool, error) {
+	repository.Lock()
+	defer repository.Unlock()
+	key := userID + "|" + action + "|" + sourceKey
+	if _, done := repository.experienceLedger[key]; done {
+		return false, nil
+	}
+	for email, user := range repository.usersByEmail {
+		if user.ID == userID {
+			user.Experience += points
+			repository.usersByEmail[email] = user
+			repository.experienceLedger[key] = struct{}{}
+			return true, nil
+		}
+	}
+	// 用户不存在：不记账本，视为未加。
+	return false, nil
+}
+
+func (repository *memoryAuthRepository) LevelsByUserIDs(
+	_ context.Context, ids []string,
+) (map[string]int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	levels := make(map[string]int)
+	for _, user := range repository.usersByEmail {
+		if _, ok := wanted[user.ID]; ok {
+			levels[user.ID] = levelForUser(user.Email, user.Experience)
+		}
+	}
+	return levels, nil
+}
+
 func (repository *memoryAuthRepository) CreatePasswordResetToken(
 	_ context.Context, email string, token passwordResetToken,
 ) (authUser, bool, error) {
@@ -317,10 +364,10 @@ func (repository *mysqlAuthRepository) CreateUser(ctx context.Context, user auth
 }
 
 func (repository *mysqlAuthRepository) FindUserByEmail(ctx context.Context, email string) (authUser, bool, error) {
-	const query = `SELECT id, email, display_name, password_hash FROM users WHERE email = ?`
+	const query = `SELECT id, email, display_name, password_hash, experience FROM users WHERE email = ?`
 	var user authUser
 	err := repository.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash,
+		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
@@ -347,13 +394,13 @@ func (repository *mysqlAuthRepository) FindUserByTokenHash(
 	ctx context.Context, tokenHash string, now time.Time,
 ) (authUser, bool, error) {
 	const query = `
-		SELECT users.id, users.email, users.display_name, users.password_hash
+		SELECT users.id, users.email, users.display_name, users.password_hash, users.experience
 		FROM auth_sessions
 		JOIN users ON users.id = auth_sessions.user_id
 		WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?`
 	var user authUser
 	err := repository.db.QueryRowContext(ctx, query, tokenHash, now.UTC()).Scan(
-		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash,
+		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
@@ -488,12 +535,75 @@ func (repository *mysqlAuthRepository) UpdateDisplayName(
 	}
 	var user authUser
 	err = repository.db.QueryRowContext(
-		ctx, `SELECT id, email, display_name, password_hash FROM users WHERE id = ?`, userID,
-	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash)
+		ctx, `SELECT id, email, display_name, password_hash, experience FROM users WHERE id = ?`, userID,
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience)
 	if err != nil {
 		return authUser{}, false, fmt.Errorf("read user after display name update: %w", err)
 	}
 	return user, true, nil
+}
+
+func (repository *mysqlAuthRepository) AddExperience(
+	ctx context.Context, userID, action, sourceKey string, points int,
+) (bool, error) {
+	transaction, err := repository.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin experience award: %w", err)
+	}
+	defer transaction.Rollback()
+	// INSERT IGNORE 命中唯一键 (user, action, source_key) 时返回 0 行，
+	// 由此实现幂等：同一动作对同一目标只加一次经验。
+	result, err := transaction.ExecContext(ctx,
+		`INSERT IGNORE INTO experience_events (id, user_id, action, source_key, points)
+		 VALUES (?, ?, ?, ?, ?)`,
+		"xp-"+newRequestID(), userID, action, sourceKey, points)
+	if err != nil {
+		return false, fmt.Errorf("insert experience event: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read experience event result: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if _, err := transaction.ExecContext(ctx,
+		`UPDATE users SET experience = experience + ? WHERE id = ?`, points, userID); err != nil {
+		return false, fmt.Errorf("increment user experience: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, fmt.Errorf("commit experience award: %w", err)
+	}
+	return true, nil
+}
+
+func (repository *mysqlAuthRepository) LevelsByUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]int, error) {
+	levels := make(map[string]int)
+	if len(ids) == 0 {
+		return levels, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	arguments := make([]any, len(ids))
+	for index, id := range ids {
+		arguments[index] = id
+	}
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT id, email, experience FROM users WHERE id IN (`+placeholders+`)`, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("load user levels: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, email string
+		var experience int
+		if err := rows.Scan(&id, &email, &experience); err != nil {
+			return nil, fmt.Errorf("scan user level: %w", err)
+		}
+		levels[id] = levelForUser(email, experience)
+	}
+	return levels, rows.Err()
 }
 
 func (repository *mysqlAuthRepository) CreatePasswordResetToken(
@@ -507,9 +617,9 @@ func (repository *mysqlAuthRepository) CreatePasswordResetToken(
 	var user authUser
 	err = transaction.QueryRowContext(
 		ctx,
-		`SELECT id, email, display_name, password_hash FROM users WHERE email = ? FOR UPDATE`,
+		`SELECT id, email, display_name, password_hash, experience FROM users WHERE email = ? FOR UPDATE`,
 		email,
-	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash)
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
 	}
@@ -756,6 +866,7 @@ func authMeHandler(writer http.ResponseWriter, request *http.Request) {
 func publicAuthUser(user authUser) authUser {
 	user.HasPassword = user.PasswordHash != ""
 	user.IsAdmin = isAdminEmail(user.Email)
+	user.Level = levelForUser(user.Email, user.Experience)
 	user.PasswordHash = ""
 	return user
 }

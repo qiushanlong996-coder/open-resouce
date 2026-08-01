@@ -93,6 +93,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/search/reindex", searchReindexHandler)
 	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
 	mux.HandleFunc("/api/v1/projects/{slug}/favorite", projectFavoriteHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/share", projectShareHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/collaboration/access", collaborationAccessHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/collaboration/ws", projectCollaborationWebSocketHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/collaborators", projectCollaboratorsHandler)

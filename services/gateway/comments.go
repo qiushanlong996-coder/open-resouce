@@ -13,20 +13,21 @@ import (
 )
 
 type documentComment struct {
-	ID         string            `json:"id"`
-	DocumentID string            `json:"document_id"`
-	ParentID   *string           `json:"parent_id"`
-	BlockID    string            `json:"block_id"`
-	AuthorID   string            `json:"author_id,omitempty"`
-	Author     string            `json:"author"`
-	Quote      string            `json:"quote"`
-	Body       string            `json:"body"`
-	Status     string            `json:"status"`
-	CreatedAt  string            `json:"created_at"`
-	UpdatedAt  string            `json:"updated_at"`
-	ResolvedAt *string           `json:"resolved_at"`
-	Replies    []documentComment `json:"replies"`
-	ReplyCount int               `json:"reply_count"`
+	ID          string            `json:"id"`
+	DocumentID  string            `json:"document_id"`
+	ParentID    *string           `json:"parent_id"`
+	BlockID     string            `json:"block_id"`
+	AuthorID    string            `json:"author_id,omitempty"`
+	Author      string            `json:"author"`
+	AuthorLevel int               `json:"author_level,omitempty"`
+	Quote       string            `json:"quote"`
+	Body        string            `json:"body"`
+	Status      string            `json:"status"`
+	CreatedAt   string            `json:"created_at"`
+	UpdatedAt   string            `json:"updated_at"`
+	ResolvedAt  *string           `json:"resolved_at"`
+	Replies     []documentComment `json:"replies"`
+	ReplyCount  int               `json:"reply_count"`
 }
 
 type commentListResponse struct {
@@ -280,6 +281,7 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 			writeRepositoryError(writer, request, err)
 			return
 		}
+		result = enrichCommentLevels(request.Context(), result)
 		writeJSON(writer, http.StatusOK, commentListResponse{Data: result, RequestID: requestIDFromContext(request.Context())})
 	case http.MethodPost:
 		actor, authenticated := requireCurrentUser(writer, request)
@@ -317,6 +319,7 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 			return
 		}
 		publishCommentEvent("comment.created", document.ID, comment.ID, "")
+		awardExperienceBestEffort(actor.ID, xpActionComment, comment.ID, xpComment)
 		writeJSON(writer, http.StatusCreated, commentResponse{Data: normalizeCommentReplies(comment), RequestID: requestIDFromContext(request.Context())})
 	default:
 		writer.Header().Set("Allow", "GET, POST")
@@ -453,6 +456,7 @@ func documentCommentRepliesHandler(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	publishCommentEvent("reply.created", document.ID, request.PathValue("commentID"), reply.ID)
+	awardExperienceBestEffort(actor.ID, xpActionReply, reply.ID, xpReply)
 	notifyCommentReply(
 		request.Context(), request.PathValue("slug"), request.PathValue("documentSlug"),
 		document.ID, request.PathValue("commentID"), reply,
