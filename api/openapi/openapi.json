@@ -370,6 +370,44 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/code": {
+      "get": {
+        "summary": "获取已发布项目代码包的目录树",
+        "description": "仅已发布项目可用。目录条目由归档内文件路径推导补齐，穿越路径被丢弃。条目超过 2000 或解压总量超限时 truncated 为 true。",
+        "operationId": "getProjectCodeTree",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "q", "in": "query", "required": false, "description": "按文件路径模糊匹配，命中后只返回文件条目", "schema": { "type": "string", "maxLength": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "代码目录树", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodeTreeResponse" } } } },
+          "400": { "description": "查询参数无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目未发布或没有代码包", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "413": { "description": "代码包超过在线浏览上限，请下载后查看", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "415": { "description": "代码包格式不支持在线浏览", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "代码包无法解析", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/code/file": {
+      "get": {
+        "summary": "读取代码包中的单个文本文件",
+        "description": "最多返回 512 KB，超出部分截断并置 truncated。非 UTF-8 或含空字节的二进制文件返回 415。",
+        "operationId": "getProjectCodeFile",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "path", "in": "query", "required": true, "description": "归档内相对路径，不得包含 .. 或以 / 开头", "schema": { "type": "string", "minLength": 1, "maxLength": 400 } }
+        ],
+        "responses": {
+          "200": { "description": "文件内容", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodeFileResponse" } } } },
+          "400": { "description": "文件路径无效或存在路径穿越", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目、代码包或文件不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "413": { "description": "代码包超过在线浏览上限", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "415": { "description": "文件不是文本文件或归档格式不支持", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "代码包无法解析", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/assets": {
       "get": {
         "summary": "读取已发布项目 Markdown 正文引用的 OSS 资源",
@@ -1576,6 +1614,45 @@
         "required": ["data", "request_id"],
         "properties": {
           "data": { "type": "array", "items": { "type": "string" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CodeEntry": {
+        "type": "object",
+        "required": ["path", "name", "dir", "size"],
+        "properties": {
+          "path": { "type": "string", "description": "归档内归一化相对路径" },
+          "name": { "type": "string" },
+          "dir": { "type": "boolean" },
+          "size": { "type": "integer", "minimum": 0, "description": "目录条目为 0" }
+        }
+      },
+      "CodeTreeResponse": {
+        "type": "object",
+        "required": ["data", "truncated", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/CodeEntry" } },
+          "readme_path": { "type": "string", "description": "优先展示的 README 路径，根目录优先" },
+          "truncated": { "type": "boolean" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CodeFile": {
+        "type": "object",
+        "required": ["path", "size", "language", "content", "truncated"],
+        "properties": {
+          "path": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 },
+          "language": { "type": "string", "description": "用于语法高亮的语言标识" },
+          "content": { "type": "string" },
+          "truncated": { "type": "boolean" }
+        }
+      },
+      "CodeFileResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/CodeFile" },
           "request_id": { "type": "string" }
         }
       },

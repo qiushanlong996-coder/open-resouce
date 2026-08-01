@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,8 @@ import (
 type fakeObjectStorage struct {
 	key, contentType string
 	size             int64
+	// objects 为 GetObject 提供可控的对象内容，供代码浏览等读取型接口测试使用。
+	objects map[string][]byte
 }
 
 func TestAliyunObjectStorageIntegration(t *testing.T) {
@@ -89,6 +92,18 @@ func (storage *fakeObjectStorage) PresignUpload(
 func (storage *fakeObjectStorage) PresignDownload(_ context.Context, key string) (string, error) {
 	storage.key = key
 	return "https://oss.example.test/download", nil
+}
+
+func (storage *fakeObjectStorage) GetObject(_ context.Context, key string, limit int64) ([]byte, error) {
+	storage.key = key
+	body, found := storage.objects[key]
+	if !found {
+		return nil, fmt.Errorf("fake object %q not found", key)
+	}
+	if int64(len(body)) > limit {
+		return nil, errObjectTooLarge
+	}
+	return body, nil
 }
 
 func TestObjectUploadAuthorization(t *testing.T) {

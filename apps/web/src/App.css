@@ -168,6 +168,19 @@
 .profile-editor > div button { width: auto; flex: 1; text-align: center; }
 .theme-control { position: relative; }
 .notification-control { position: relative; }
+.file-search { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; margin-bottom: 10px; color: var(--text-tertiary); background: var(--soft); border: 1px solid var(--line); }
+.file-search input { width: 100%; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 11px; }
+.file-tree-empty { padding: 18px 8px; color: var(--text-tertiary); font-size: 10px; line-height: 1.6; }
+.file-item.is-dir { color: var(--text-tertiary); font-weight: 500; }
+.file-item:not(.is-dir):hover { background: var(--soft); }
+.file-item > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-head-actions { display: inline-flex; align-items: center; gap: 6px; }
+.source-head-actions .tool-button:disabled { opacity: .45; }
+.source-head > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-placeholder { min-height: 430px; display: grid; place-items: center; padding: 20px; color: var(--text-tertiary); text-align: center; font-size: 11px; line-height: 1.7; }
+.source-notice { padding: 9px 12px; color: #8a5a12; background: #fdf5e6; font-size: 10px; line-height: 1.5; }
+.source-line { display: block; white-space: pre; }
+.line-content { white-space: pre; }
 .notification-button { position: relative; }
 .notification-badge { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; display: inline-grid; place-items: center; color: #fff; background: #d92d20; border-radius: 999px; font-size: 8px; font-weight: 600; line-height: 1; }
 .notification-popover { position: absolute; top: 46px; right: 0; z-index: 35; width: 300px; padding: 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 38px rgba(0,0,0,.16); }

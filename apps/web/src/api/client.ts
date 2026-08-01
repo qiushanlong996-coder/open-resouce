@@ -237,6 +237,33 @@ export type CommentResponse = {
   request_id: string
 }
 
+export type CodeEntry = {
+  path: string
+  name: string
+  dir: boolean
+  size: number
+}
+
+export type CodeTreeResponse = {
+  data: CodeEntry[]
+  readme_path?: string
+  truncated: boolean
+  request_id: string
+}
+
+export type CodeFile = {
+  path: string
+  size: number
+  language: string
+  content: string
+  truncated: boolean
+}
+
+export type CodeFileResponse = {
+  data: CodeFile
+  request_id: string
+}
+
 export type AppNotification = {
   id: string
   actor_id?: string
@@ -423,6 +450,27 @@ export function getFavorites(signal?: AbortSignal) {
 
 export function getNotifications(signal?: AbortSignal) {
   return apiRequest<NotificationListResponse>('/api/v1/notifications', { signal })
+}
+
+export function getProjectCodeTree(projectSlug: string, query?: string, signal?: AbortSignal) {
+  const parameters = new URLSearchParams()
+  if (query) parameters.set('q', query)
+  const queryString = parameters.toString()
+  return apiRequest<CodeTreeResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/code${queryString ? `?${queryString}` : ''}`,
+    { signal },
+  )
+}
+
+export function getProjectCodeFile(projectSlug: string, filePath: string, signal?: AbortSignal) {
+  return apiRequest<CodeFileResponse>(
+    `/api/v1/projects/${encodeURIComponent(projectSlug)}/code/file?path=${encodeURIComponent(filePath)}`,
+    { signal },
+  )
+}
+
+export function getProjectCodeArchiveURL(projectSlug: string) {
+  return `${apiBaseURL}/api/v1/projects/${encodeURIComponent(projectSlug)}/resources/code`
 }
 
 export function markNotificationRead(notificationID: string) {

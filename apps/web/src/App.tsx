@@ -40,6 +40,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  ApiError,
   changePassword,
   confirmPasswordReset,
   createAuthorProject,
@@ -60,6 +61,9 @@ import {
   getNotificationEventsURL,
   getNotifications,
   getProject,
+  getProjectCodeArchiveURL,
+  getProjectCodeFile,
+  getProjectCodeTree,
   getProjectCollaborationAccess,
   getProjectCollaborators,
   getProjectCollaborationWebSocketURL,
@@ -89,6 +93,8 @@ import {
   type AppNotification,
   type AuthSession,
   type AuthUser,
+  type CodeEntry,
+  type CodeFile,
   type ManagedProject,
   type ManagedProjectInput,
   type CollaborationAccess,
@@ -269,14 +275,6 @@ const initialComments: CommentItem[] = [
     updatedAt: '',
     edited: false,
   },
-]
-
-const codeFiles = [
-  { name: 'README.md', type: 'md', size: '8.4 KB' },
-  { name: 'atlas', type: 'folder', size: '—' },
-  { name: 'runtime.py', type: 'py', size: '12.6 KB' },
-  { name: 'planner.py', type: 'py', size: '7.2 KB' },
-  { name: 'config.example.yaml', type: 'yaml', size: '1.8 KB' },
 ]
 
 const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
@@ -1469,7 +1467,7 @@ function ProjectDetail({
       ) : (
         <>
           {detailTab === '文档阅读' && <DocumentView project={project} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} />}
-          {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} />}
+          {detailTab === '代码预览' && <CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} />}
           {detailTab === '下载资源' && <DownloadView project={project} onDownload={onDownload} />}
           {detailTab === '项目概览' && <OverviewView project={project} onRead={() => setDetailTab('文档阅读')} />}
         </>
@@ -1732,8 +1730,161 @@ function OverviewView({ project, onRead }: { project: Project; onRead: () => voi
   return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><MarkdownCanvas markdown={project.description} projectSlug={project.slug} /><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '—'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
 }
 
-function CodeView({ project, onCopy }: { project: Project; onCopy: () => void }) {
-  return <section className="code-view"><div className="file-tree"><div className="sidebar-heading"><span>代码目录</span><span className="meta-label">main</span></div>{codeFiles.map((file) => <button key={file.name} className={`file-item ${file.name === 'runtime.py' ? 'active' : ''}`}><span>{file.type === 'folder' ? <ChevronRight size={14} /> : <FileCode2 size={15} />}</span><span>{file.name}</span><small>{file.size}</small></button>)}<div className="file-tree-note"><GitBranch size={16} /><span>{project.repo}</span></div></div><div className="source-panel"><div className="source-head"><span>atlas / runtime.py</span><button className="tool-button" onClick={onCopy}><Copy size={14} /> 复制代码</button></div><pre className="source-code"><code><span className="line-number">01</span> <span className="code-purple">class</span> <span className="code-blue">Runtime</span>:{`\n`}<span className="line-number">02</span>     <span className="code-purple">def</span> <span className="code-blue">__init__</span>(self, model, max_steps=<span className="code-orange">8</span>):{`\n`}<span className="line-number">03</span>         self.model = model{`\n`}<span className="line-number">04</span>         self.max_steps = max_steps{`\n`}<span className="line-number">05</span>         self.trace = TraceStore(){`\n\n`}<span className="line-number">07</span>     <span className="code-purple">def</span> <span className="code-blue">run</span>(self, task):{`\n`}<span className="line-number">08</span>         plan = self.planner.create(task){`\n`}<span className="line-number">09</span>         <span className="code-purple">for</span> step <span className="code-purple">in</span> plan.steps:{`\n`}<span className="line-number">10</span>             result = self.execute(step){`\n`}<span className="line-number">11</span>             self.trace.append(result){`\n`}<span className="line-number">12</span>         <span className="code-purple">return</span> self.reviewer.check(self.trace)</code></pre></div></section>
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function CodeView({ project, onCopy, showToast }: {
+  project: Project
+  onCopy: () => void
+  showToast: (message: string) => void
+}) {
+  const [entries, setEntries] = useState<CodeEntry[]>([])
+  const [treeState, setTreeState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [treeError, setTreeError] = useState('')
+  const [truncated, setTruncated] = useState(false)
+  const [fileSearch, setFileSearch] = useState('')
+  const [activePath, setActivePath] = useState('')
+  const [activeFile, setActiveFile] = useState<CodeFile | null>(null)
+  const [fileState, setFileState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [fileError, setFileError] = useState('')
+  // README 只在首次加载目录时自动打开，避免用户切换文件后被重置。
+  const autoOpenedRef = useRef('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setTreeState('loading')
+      getProjectCodeTree(project.slug, fileSearch.trim() || undefined, controller.signal)
+        .then((response) => {
+          setEntries(response.data)
+          setTruncated(response.truncated)
+          setTreeState('ready')
+          const readme = response.readme_path
+          if (!fileSearch.trim() && readme && autoOpenedRef.current !== project.slug) {
+            autoOpenedRef.current = project.slug
+            setActivePath(readme)
+          }
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          setEntries([])
+          setTreeState('error')
+          setTreeError(error instanceof ApiError ? error.message : '代码目录加载失败')
+        })
+    }, fileSearch ? 250 : 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [fileSearch, project.slug])
+
+  useEffect(() => {
+    if (!activePath) {
+      setActiveFile(null)
+      setFileState('idle')
+      return
+    }
+    const controller = new AbortController()
+    setFileState('loading')
+    getProjectCodeFile(project.slug, activePath, controller.signal)
+      .then((response) => {
+        setActiveFile(response.data)
+        setFileState('ready')
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setActiveFile(null)
+        setFileState('error')
+        setFileError(error instanceof ApiError ? error.message : '代码文件加载失败')
+      })
+    return () => controller.abort()
+  }, [activePath, project.slug])
+
+  const copyContent = () => {
+    if (!activeFile) return
+    navigator.clipboard?.writeText(activeFile.content).then(onCopy).catch(() => {
+      showToast('浏览器拒绝了剪贴板写入，请手动复制')
+    })
+  }
+
+  const lines = activeFile ? activeFile.content.replace(/\n$/, '').split('\n') : []
+
+  return (
+    <section className="code-view">
+      <div className="file-tree">
+        <div className="sidebar-heading">
+          <span>代码目录</span>
+          {truncated && <span className="meta-label">已截断</span>}
+        </div>
+        <label className="file-search">
+          <Search size={14} />
+          <input
+            value={fileSearch}
+            onChange={(event) => setFileSearch(event.target.value)}
+            placeholder="搜索文件名"
+          />
+        </label>
+        {treeState === 'loading' && <div className="file-tree-empty">正在加载代码目录…</div>}
+        {treeState === 'error' && <div className="file-tree-empty">{treeError}</div>}
+        {treeState === 'ready' && entries.length === 0 && (
+          <div className="file-tree-empty">{fileSearch.trim() ? '没有匹配的文件' : '代码包为空'}</div>
+        )}
+        {treeState === 'ready' && entries.map((entry) => (
+          <button
+            key={entry.path}
+            className={`file-item ${entry.path === activePath ? 'active' : ''} ${entry.dir ? 'is-dir' : ''}`}
+            style={{ paddingLeft: `${10 + entry.path.split('/').length * 8}px` }}
+            disabled={entry.dir}
+            title={entry.path}
+            onClick={() => { if (!entry.dir) setActivePath(entry.path) }}
+          >
+            <span>{entry.dir ? <ChevronRight size={14} /> : <FileCode2 size={15} />}</span>
+            <span>{entry.name}</span>
+            {!entry.dir && <small>{formatFileSize(entry.size)}</small>}
+          </button>
+        ))}
+        {project.repo && <div className="file-tree-note"><GitBranch size={16} /><span>{project.repo}</span></div>}
+      </div>
+      <div className="source-panel">
+        <div className="source-head">
+          <span>{activeFile ? `${activeFile.path}　·　${formatFileSize(activeFile.size)}` : '选择左侧文件查看源码'}</span>
+          <span className="source-head-actions">
+            {activeFile && (
+              <a className="tool-button" href={getProjectCodeArchiveURL(project.slug)}>
+                <Download size={14} /> 下载代码包
+              </a>
+            )}
+            <button className="tool-button" disabled={!activeFile} onClick={copyContent}>
+              <Copy size={14} /> 复制代码
+            </button>
+          </span>
+        </div>
+        {fileState === 'loading' && <div className="source-placeholder">正在加载文件…</div>}
+        {fileState === 'error' && <div className="source-placeholder">{fileError}</div>}
+        {fileState === 'idle' && <div className="source-placeholder">该项目代码包已就绪，点击左侧文件开始阅读。</div>}
+        {fileState === 'ready' && activeFile && (
+          <>
+            {activeFile.truncated && (
+              <div className="source-notice">文件较大，仅显示前 512 KB，完整内容请下载代码包。</div>
+            )}
+            <pre className="source-code">
+              <code>
+                {lines.map((line, index) => (
+                  <span className="source-line" key={index}>
+                    <span className="line-number">{String(index + 1).padStart(2, '0')}</span>
+                    <span className={`line-content language-${activeFile.language}`}>{line || ' '}</span>
+                  </span>
+                ))}
+              </code>
+            </pre>
+          </>
+        )}
+      </div>
+    </section>
+  )
 }
 
 function DownloadView({ project, onDownload }: { project: Project; onDownload: () => void }) {

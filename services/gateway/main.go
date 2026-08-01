@@ -93,6 +93,8 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/projects/{slug}/collaborators", projectCollaboratorsHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/collaborators/{userID}", projectCollaboratorHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/resources/{kind}", projectResourceDownloadHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/code", projectCodeTreeHandler)
+	mux.HandleFunc("/api/v1/projects/{slug}/code/file", projectCodeFileHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/assets", projectInlineAssetHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/events", documentCommentEventsHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/documents/{documentSlug}/comments/{commentID}/replies/{replyID}", documentCommentReplyHandler)

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -35,6 +37,34 @@ type objectUploadAuthorization struct {
 type objectStorage interface {
 	PresignUpload(context.Context, string, string, int64) (objectUploadAuthorization, error)
 	PresignDownload(context.Context, string) (string, error)
+	// GetObject 读取对象字节，最多读取 limit 字节；超过 limit 时返回 errObjectTooLarge。
+	GetObject(ctx context.Context, objectKey string, limit int64) ([]byte, error)
+}
+
+var errObjectTooLarge = errors.New("object exceeds size limit")
+
+func (storage *aliyunObjectStorage) GetObject(
+	ctx context.Context, objectKey string, limit int64,
+) ([]byte, error) {
+	result, err := storage.client.GetObject(ctx, &oss.GetObjectRequest{
+		Bucket: oss.Ptr(storage.bucket), Key: oss.Ptr(objectKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get OSS object: %w", err)
+	}
+	defer result.Body.Close()
+	if result.ContentLength > limit {
+		return nil, errObjectTooLarge
+	}
+	// 多读一字节用于识别 Content-Length 缺失或不准时的超限情况。
+	body, err := io.ReadAll(io.LimitReader(result.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read OSS object: %w", err)
+	}
+	if int64(len(body)) > limit {
+		return nil, errObjectTooLarge
+	}
+	return body, nil
 }
 
 func (storage *aliyunObjectStorage) PresignDownload(ctx context.Context, objectKey string) (string, error) {
