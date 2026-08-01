@@ -2,5 +2,8 @@
 .pnpm-store/
 deploy/compose/.env
 
+# 本地凭据速查表。绝不入库。
+password.md
+
 # Go 编译产物
 /gateway
