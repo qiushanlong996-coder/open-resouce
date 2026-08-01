@@ -114,6 +114,8 @@ type authRepository interface {
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers 分页返回用户摘要，search 非空时按邮箱/昵称模糊匹配，同时返回匹配总数。
 	ListUsers(ctx context.Context, search string, limit, offset int) ([]adminUserSummary, int, error)
+	// UserStats 汇总最近 days 天的注册趋势（按日零填充）与等级分布，供管理概览图表。
+	UserStats(ctx context.Context, days int) (userStatsData, error)
 	CreatePasswordResetToken(context.Context, string, passwordResetToken) (authUser, bool, error)
 	ConsumePasswordResetToken(context.Context, string, time.Time, string) (bool, error)
 }
@@ -191,6 +193,32 @@ func (repository *memoryAuthRepository) ListUsers(
 	page := make([]adminUserSummary, end-offset)
 	copy(page, matched[offset:end])
 	return page, total, nil
+}
+
+func (repository *memoryAuthRepository) UserStats(_ context.Context, days int) (userStatsData, error) {
+	if days <= 0 {
+		days = userStatsDefaultDays
+	}
+	repository.RLock()
+	defer repository.RUnlock()
+	registrations, index := buildRegistrationBuckets(days)
+	levelCounts := make(map[int]int)
+	total := 0
+	for _, user := range repository.usersByEmail {
+		total++
+		levelCounts[levelForUser(user.Email, user.Experience)]++
+		created, ok := repository.userCreatedAt[user.ID]
+		if !ok {
+			continue
+		}
+		if pos, ok := index[created.UTC().Format("2006-01-02")]; ok {
+			registrations[pos].Count++
+		}
+	}
+	return userStatsData{
+		TotalUsers: total, Days: days,
+		Registrations: registrations, LevelHistogram: levelHistogramFromCounts(levelCounts),
+	}, nil
 }
 
 func (repository *memoryAuthRepository) FindUserByEmail(_ context.Context, email string) (authUser, bool, error) {
@@ -707,6 +735,63 @@ func (repository *mysqlAuthRepository) ListUsers(
 		result = append(result, summary)
 	}
 	return result, total, rows.Err()
+}
+
+func (repository *mysqlAuthRepository) UserStats(ctx context.Context, days int) (userStatsData, error) {
+	if days <= 0 {
+		days = userStatsDefaultDays
+	}
+	var total int
+	if err := repository.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+		return userStatsData{}, fmt.Errorf("count users for stats: %w", err)
+	}
+	registrations, index := buildRegistrationBuckets(days)
+	since := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -(days - 1))
+	trend, err := repository.db.QueryContext(ctx,
+		`SELECT DATE(created_at), COUNT(*) FROM users WHERE created_at >= ? GROUP BY DATE(created_at)`, since)
+	if err != nil {
+		return userStatsData{}, fmt.Errorf("registration trend: %w", err)
+	}
+	defer trend.Close()
+	for trend.Next() {
+		var day string
+		var count int
+		if err := trend.Scan(&day, &count); err != nil {
+			return userStatsData{}, fmt.Errorf("scan registration trend: %w", err)
+		}
+		// DATE(...) 可能以带时间的形式回读，统一截到 YYYY-MM-DD。
+		if len(day) > 10 {
+			day = day[:10]
+		}
+		if pos, ok := index[day]; ok {
+			registrations[pos].Count = count
+		}
+	}
+	if err := trend.Err(); err != nil {
+		return userStatsData{}, fmt.Errorf("iterate registration trend: %w", err)
+	}
+	// 等级由邮箱（管理员恒为最高级）与经验共同决定，逐行在 Go 侧归档。
+	levelCounts := make(map[int]int)
+	levels, err := repository.db.QueryContext(ctx, `SELECT email, experience FROM users`)
+	if err != nil {
+		return userStatsData{}, fmt.Errorf("level histogram: %w", err)
+	}
+	defer levels.Close()
+	for levels.Next() {
+		var email string
+		var experience int
+		if err := levels.Scan(&email, &experience); err != nil {
+			return userStatsData{}, fmt.Errorf("scan level histogram: %w", err)
+		}
+		levelCounts[levelForUser(email, experience)]++
+	}
+	if err := levels.Err(); err != nil {
+		return userStatsData{}, fmt.Errorf("iterate level histogram: %w", err)
+	}
+	return userStatsData{
+		TotalUsers: total, Days: days,
+		Registrations: registrations, LevelHistogram: levelHistogramFromCounts(levelCounts),
+	}, nil
 }
 
 func (repository *mysqlAuthRepository) CreatePasswordResetToken(

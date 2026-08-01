@@ -270,6 +270,142 @@ func TestAdminAPIKeysAndOpenEndpoint(t *testing.T) {
 	}
 }
 
+func TestAdminUserStats(t *testing.T) {
+	setupAdminConsoleTest(t)
+	t.Setenv("ADMIN_EMAILS", "console-admin@example.com")
+	adminCookie, _ := registerTestUser(t, "console-admin@example.com", "控制台管理员")
+	_, target := registerTestUser(t, "console-target@example.com", "目标用户")
+
+	// 非管理员应被拒绝（403）。
+	userCookie, _ := registerTestUser(t, "stats-user@example.com", "普通用户")
+	denied := doAdminRequest(t, http.MethodGet, "/api/v1/admin/user-stats", "", userCookie)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin user-stats status = %d, want 403", denied.Code)
+	}
+
+	// 封禁一名用户，验证 banned 计数。
+	ban := doAdminRequest(t, http.MethodPost, "/api/v1/admin/users/"+target.ID+"/ban", `{"reason":"spam"}`, adminCookie)
+	if ban.Code != http.StatusNoContent {
+		t.Fatalf("ban status = %d: %s", ban.Code, ban.Body)
+	}
+
+	response := doAdminRequest(t, http.MethodGet, "/api/v1/admin/user-stats?days=7", "", adminCookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("user-stats status = %d: %s", response.Code, response.Body)
+	}
+	var body struct {
+		Data struct {
+			TotalUsers    int `json:"total_users"`
+			Banned        int `json:"banned"`
+			Days          int `json:"days"`
+			Registrations []struct {
+				Date  string `json:"date"`
+				Count int    `json:"count"`
+			} `json:"registrations"`
+			LevelHistogram []struct {
+				Level int `json:"level"`
+				Count int `json:"count"`
+			} `json:"level_histogram"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Days != 7 {
+		t.Fatalf("days = %d, want 7", body.Data.Days)
+	}
+	if len(body.Data.Registrations) != 7 {
+		t.Fatalf("registrations len = %d, want 7 (zero-filled)", len(body.Data.Registrations))
+	}
+	if body.Data.TotalUsers < 3 {
+		t.Fatalf("total_users = %d, want >= 3", body.Data.TotalUsers)
+	}
+	if body.Data.Banned != 1 {
+		t.Fatalf("banned = %d, want 1", body.Data.Banned)
+	}
+	// 等级直方图应覆盖 1..maxUserLevel，且今天注册的用户被计入最后一个桶。
+	if len(body.Data.LevelHistogram) != maxUserLevel {
+		t.Fatalf("level_histogram len = %d, want %d", len(body.Data.LevelHistogram), maxUserLevel)
+	}
+	trendSum := 0
+	for _, point := range body.Data.Registrations {
+		trendSum += point.Count
+	}
+	if trendSum < 3 {
+		t.Fatalf("registration trend sum = %d, want >= 3 (all registered today)", trendSum)
+	}
+}
+
+func TestAdminAuditActionFilter(t *testing.T) {
+	setupAdminConsoleTest(t)
+	t.Setenv("ADMIN_EMAILS", "console-admin@example.com")
+	adminCookie, _ := registerTestUser(t, "console-admin@example.com", "控制台管理员")
+	_, target := registerTestUser(t, "console-target@example.com", "目标用户")
+
+	// 触发两类审计动作：签发密钥 + 封禁用户。
+	if issue := doAdminRequest(t, http.MethodPost, "/api/v1/admin/api-keys", `{"name":"k"}`, adminCookie); issue.Code != http.StatusCreated {
+		t.Fatalf("issue key status = %d: %s", issue.Code, issue.Body)
+	}
+	if ban := doAdminRequest(t, http.MethodPost, "/api/v1/admin/users/"+target.ID+"/ban", `{"reason":"spam"}`, adminCookie); ban.Code != http.StatusNoContent {
+		t.Fatalf("ban status = %d: %s", ban.Code, ban.Body)
+	}
+
+	// 按 action 过滤：仅返回封禁事件，不含密钥签发。
+	filtered := doAdminRequest(t, http.MethodGet, "/api/v1/admin/audit?action=user_banned", "", adminCookie)
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("filtered audit status = %d: %s", filtered.Code, filtered.Body)
+	}
+	if !strings.Contains(filtered.Body.String(), "user_banned") {
+		t.Fatalf("filtered audit missing user_banned: %s", filtered.Body)
+	}
+	if strings.Contains(filtered.Body.String(), "api_key_issued") {
+		t.Fatalf("action filter leaked other actions: %s", filtered.Body)
+	}
+}
+
+func TestReviewThroughConsoleEndpoints(t *testing.T) {
+	setupAdminConsoleTest(t)
+	t.Setenv("ADMIN_EMAILS", "console-admin@example.com")
+	adminCookie, _ := registerTestUser(t, "console-admin@example.com", "控制台管理员")
+	ownerCookie, _ := registerTestUser(t, "console-owner@example.com", "项目作者")
+
+	// 作者创建并提交项目进入待审核。
+	create := doAdminRequest(t, http.MethodPost, "/api/v1/author/projects", adminTestProjectBody, ownerCookie)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", create.Code, create.Body)
+	}
+	var created struct {
+		Data managedProject `json:"data"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	submit := doAdminRequest(t, http.MethodPost,
+		"/api/v1/author/projects/"+created.Data.ID+"/submit", "", ownerCookie)
+	if submit.Code != http.StatusOK {
+		t.Fatalf("submit status = %d: %s", submit.Code, submit.Body)
+	}
+
+	// 控制台内容审核复用的列表端点应能看到该项目。
+	pending := doAdminRequest(t, http.MethodGet, "/api/v1/admin/reviews", "", adminCookie)
+	if pending.Code != http.StatusOK || !strings.Contains(pending.Body.String(), created.Data.ID) {
+		t.Fatalf("pending reviews status = %d: %s", pending.Code, pending.Body)
+	}
+
+	// 通过审核端点批准，项目应转为已发布。
+	approve := doAdminRequest(t, http.MethodPost,
+		"/api/v1/admin/reviews/"+created.Data.ID+"/approve", "", adminCookie)
+	if approve.Code != http.StatusOK || !strings.Contains(approve.Body.String(), `"status":"published"`) {
+		t.Fatalf("approve status = %d: %s", approve.Code, approve.Body)
+	}
+
+	// 审核动作应写入审计日志，且可按 action 过滤到。
+	audit := doAdminRequest(t, http.MethodGet, "/api/v1/admin/audit?action=project_review_approve", "", adminCookie)
+	if !strings.Contains(audit.Body.String(), "project_review_approve") {
+		t.Fatalf("audit missing review approve: %s", audit.Body)
+	}
+}
+
 // doAdminRequest 发起带 cookie 的请求并返回响应记录器。
 func doAdminRequest(t *testing.T, method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
@@ -373,7 +509,7 @@ func TestMySQLAdminRepositoriesIntegration(t *testing.T) {
 		t.Fatalf("record audit: %v", err)
 	}
 	t.Cleanup(func() { _, _ = database.Exec(`DELETE FROM admin_audit WHERE id = ?`, entryID) })
-	entries, err := audit.List(ctx, 10)
+	entries, err := audit.List(ctx, "", 10)
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}

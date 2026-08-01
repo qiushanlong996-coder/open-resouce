@@ -100,6 +100,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/api-keys", adminAPIKeysHandler)
 	mux.HandleFunc("/api/v1/admin/api-keys/{keyID}", adminAPIKeyHandler)
 	mux.HandleFunc("/api/v1/admin/audit", adminAuditHandler)
+	mux.HandleFunc("/api/v1/admin/user-stats", adminUserStatsHandler)
 	mux.HandleFunc("/api/v1/open/projects", openProjectsHandler)
 	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
 	mux.HandleFunc("/api/v1/projects/{slug}/favorite", projectFavoriteHandler)

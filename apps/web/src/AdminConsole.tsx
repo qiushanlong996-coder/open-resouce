@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, LayoutDashboard, Users, FolderKanban, KeyRound, ScrollText, Search, RefreshCw, Copy,
+  ClipboardCheck, ExternalLink,
 } from 'lucide-react'
 import {
   getAdminStats, getAdminUsers, banUser, unbanUser,
   getAdminProjects, takedownProject, getApiKeys, issueApiKey, revokeApiKey, getAdminAudit,
+  getAdminUserStats, getPendingProjectReviews, reviewProject,
   type AuthUser, type AdminStats, type AdminUser, type ManagedProject, type ApiKey, type AdminAuditEntry,
+  type AdminUserStats,
 } from './api/client'
 import './admin.css'
 
-type ModuleID = 'overview' | 'users' | 'projects' | 'apikeys' | 'audit'
+type ModuleID = 'overview' | 'reviews' | 'users' | 'projects' | 'apikeys' | 'audit'
 
 const MODULES: { id: ModuleID; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
+  { id: 'reviews', label: '内容审核', icon: ClipboardCheck },
   { id: 'users', label: '用户管理', icon: Users },
   { id: 'projects', label: '项目管理', icon: FolderKanban },
   { id: 'apikeys', label: '开放 API', icon: KeyRound },
@@ -59,6 +63,7 @@ export default function AdminConsole({ onClose, currentUser }: { onClose: () => 
           </header>
           <div className="admin-body">
             {active === 'overview' && <OverviewPanel />}
+            {active === 'reviews' && <ReviewsPanel />}
             {active === 'users' && <UsersPanel currentUser={currentUser} />}
             {active === 'projects' && <ProjectsPanel />}
             {active === 'apikeys' && <ApiKeysPanel />}
@@ -109,9 +114,190 @@ function OverviewPanel() {
         {Object.entries(stats.projects_by_status).length === 0
           ? <span className="admin-chip">暂无项目</span>
           : Object.entries(stats.projects_by_status).map(([status, count]) => (
-            <span className="admin-chip" key={status}>{status}: {count}</span>
+            <span className="admin-chip" key={status}>{STATUS_LABELS[status] ?? status}: {count}</span>
           ))}
       </div>
+      <UserStatsSection />
+    </div>
+  )
+}
+
+const LEVEL_LABELS = ['Lv.1', 'Lv.2', 'Lv.3', 'Lv.4', 'Lv.5', 'Lv.6']
+
+function shortDate(value: string) {
+  // value 形如 2026-08-01 → 08-01
+  return value.length >= 10 ? value.slice(5) : value
+}
+
+// UserStatsSection 展示注册趋势与等级分布。图表为纯 CSS 柱状条（无第三方依赖），
+// 单一色相表达量级，配合数值标签与可读结构，兼顾无障碍。
+function UserStatsSection() {
+  const [stats, setStats] = useState<AdminUserStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    getAdminUserStats(14, controller.signal)
+      .then((response) => setStats(response.data))
+      .catch((value) => { if (!controller.signal.aborted) setError(errorMessage(value, '用户统计加载失败')) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [])
+
+  if (loading) return <div className="admin-loading">正在加载用户统计…</div>
+  if (error) return <div className="admin-error">{error}</div>
+  if (!stats) return null
+
+  const trendMax = Math.max(1, ...stats.registrations.map((point) => point.count))
+  const newInWindow = stats.registrations.reduce((sum, point) => sum + point.count, 0)
+  const levelMax = Math.max(1, ...stats.level_histogram.map((bucket) => bucket.count))
+
+  return (
+    <div className="admin-userstats">
+      <div className="admin-stat-grid">
+        <div className="admin-stat"><div className="value">{stats.total_users}</div><div className="label">用户总数</div></div>
+        <div className="admin-stat"><div className="value">{newInWindow}</div><div className="label">近 {stats.days} 天新增</div></div>
+        <div className="admin-stat"><div className="value">{stats.banned}</div><div className="label">已封禁</div></div>
+      </div>
+
+      <figure className="admin-chart" aria-label={`近 ${stats.days} 天每日注册用户数`}>
+        <figcaption>近 {stats.days} 天注册趋势</figcaption>
+        <div className="admin-vbars" role="img" aria-label={`近 ${stats.days} 天每日注册数，最高 ${trendMax}`}>
+          {stats.registrations.map((point) => (
+            <div className="admin-vbar" key={point.date} title={`${point.date}：${point.count} 人`}>
+              <div className="admin-vbar-track">
+                <div
+                  className="admin-vbar-fill"
+                  style={{ height: `${Math.round((point.count / trendMax) * 100)}%` }}
+                />
+              </div>
+              <span className="admin-vbar-label">{shortDate(point.date)}</span>
+            </div>
+          ))}
+        </div>
+      </figure>
+
+      <figure className="admin-chart" aria-label="用户等级分布">
+        <figcaption>等级分布</figcaption>
+        <div className="admin-hbars">
+          {stats.level_histogram.map((bucket) => (
+            <div className="admin-hbar" key={bucket.level}>
+              <span className="admin-hbar-name">{LEVEL_LABELS[bucket.level - 1] ?? `Lv.${bucket.level}`}</span>
+              <div className="admin-hbar-track">
+                <div
+                  className="admin-hbar-fill"
+                  style={{ width: `${Math.round((bucket.count / levelMax) * 100)}%` }}
+                />
+              </div>
+              <span className="admin-hbar-value">{bucket.count}</span>
+            </div>
+          ))}
+        </div>
+      </figure>
+    </div>
+  )
+}
+
+// ReviewsPanel 把原「项目审核中心」并入控制台：列出待审核项目、预览关键内容
+// （名称/简介/详情、文档与代码入口），并通过既有的 /admin/reviews 端点通过/驳回。
+function ReviewsPanel() {
+  const [projects, setProjects] = useState<ManagedProject[]>([])
+  const [reason, setReason] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [processing, setProcessing] = useState<string | null>(null)
+
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true)
+    setError('')
+    getPendingProjectReviews(signal)
+      .then((response) => setProjects(response.data))
+      .catch((value) => { if (!signal?.aborted) setError(errorMessage(value, '审核列表加载失败')) })
+      .finally(() => { if (!signal?.aborted) setLoading(false) })
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
+  const review = async (project: ManagedProject, action: 'approve' | 'reject') => {
+    const trimmed = (reason[project.id] ?? '').trim()
+    if (action === 'reject' && !trimmed) {
+      setError('驳回项目时必须填写审核意见')
+      return
+    }
+    setProcessing(project.id)
+    setError('')
+    try {
+      await reviewProject(project.id, action, trimmed)
+      setProjects((current) => current.filter((item) => item.id !== project.id))
+    } catch (value) {
+      setError(errorMessage(value, '审核操作失败'))
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-toolbar">
+        <span className="admin-toolbar-note">只有审核通过的项目才会进入公开目录与搜索。</span>
+        <button className="admin-btn" onClick={() => load()} aria-label="刷新"><RefreshCw size={15} /></button>
+      </div>
+      {error && <div className="admin-error">{error}</div>}
+      {loading ? <div className="admin-loading">正在加载…</div>
+        : projects.length === 0 ? <div className="admin-empty">当前没有待审核项目。</div>
+          : <div className="admin-review-list">
+            {projects.map((project) => (
+              <article className="admin-review-card" key={project.id}>
+                <div className="admin-review-head">
+                  <div>
+                    <strong>{project.name}</strong>
+                    <small className="admin-mono">{project.slug} · {project.category} · v{project.current_version}</small>
+                  </div>
+                  <span className="admin-badge warn">待审核</span>
+                </div>
+                <p className="admin-review-summary">{project.summary || '（无简介）'}</p>
+                <details className="admin-review-detail">
+                  <summary>查看完整资料</summary>
+                  <p>{project.description || '（无详细介绍）'}</p>
+                  <div className="admin-review-meta">
+                    {project.tech_stack.length > 0 && <span className="admin-chip">{project.tech_stack.join(' · ')}</span>}
+                    {project.license && <span className="admin-chip">{project.license}</span>}
+                  </div>
+                </details>
+                <div className="admin-review-links">
+                  {project.repository_url && (
+                    <a className="admin-btn" href={project.repository_url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={13} /> 代码仓库
+                    </a>
+                  )}
+                  <a className="admin-btn" href={`/projects/${encodeURIComponent(project.slug)}`} target="_blank" rel="noreferrer">
+                    <ExternalLink size={13} /> 文档预览
+                  </a>
+                  {project.document_object_key && <span className="admin-badge muted">含文档包</span>}
+                  {project.code_object_key && <span className="admin-badge muted">含代码包</span>}
+                </div>
+                <textarea
+                  className="admin-review-reason"
+                  maxLength={500}
+                  placeholder="审核意见；驳回时必填"
+                  value={reason[project.id] ?? ''}
+                  onChange={(event) => setReason((current) => ({ ...current, [project.id]: event.target.value }))}
+                />
+                <div className="admin-review-actions">
+                  <button className="admin-btn danger" disabled={processing !== null} onClick={() => void review(project, 'reject')}>驳回</button>
+                  <button className="admin-btn primary" disabled={processing !== null} onClick={() => void review(project, 'approve')}>
+                    {processing === project.id ? '处理中…' : '审核通过'}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>}
     </div>
   )
 }
@@ -428,19 +614,33 @@ function ApiKeysPanel() {
   )
 }
 
+// 已知的审计动作类型；用于日志筛选下拉。后端 action 取值来自 recordAdminAudit 调用点。
+const AUDIT_ACTIONS: { value: string; label: string }[] = [
+  { value: 'user_banned', label: '封禁用户' },
+  { value: 'user_unbanned', label: '解封用户' },
+  { value: 'project_takedown', label: '下架项目' },
+  { value: 'project_review_approve', label: '审核通过' },
+  { value: 'project_review_reject', label: '审核驳回' },
+  { value: 'api_key_issued', label: '签发密钥' },
+  { value: 'api_key_revoked', label: '撤销密钥' },
+]
+
+const AUDIT_LIMIT = 200
+
 function AuditPanel() {
   const [entries, setEntries] = useState<AdminAuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [action, setAction] = useState('')
 
   const load = useCallback((signal?: AbortSignal) => {
     setLoading(true)
     setError('')
-    getAdminAudit(100, signal)
+    getAdminAudit({ limit: AUDIT_LIMIT, action: action || undefined }, signal)
       .then((response) => setEntries(response.data))
       .catch((value) => { if (!signal?.aborted) setError(errorMessage(value, '审计日志加载失败')) })
       .finally(() => { if (!signal?.aborted) setLoading(false) })
-  }, [])
+  }, [action])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -448,10 +648,17 @@ function AuditPanel() {
     return () => controller.abort()
   }, [load])
 
+  const actionLabel = (value: string) => AUDIT_ACTIONS.find((item) => item.value === value)?.label ?? value
+
   return (
     <div>
       <div className="admin-toolbar">
+        <select className="admin-btn" value={action} onChange={(event) => setAction(event.target.value)}>
+          <option value="">全部动作</option>
+          {AUDIT_ACTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
         <button className="admin-btn" onClick={() => load()}><RefreshCw size={15} /> 刷新</button>
+        <span className="admin-toolbar-note">最多显示最近 {AUDIT_LIMIT} 条</span>
       </div>
       {error && <div className="admin-error">{error}</div>}
       {loading ? <div className="admin-loading">正在加载…</div>
@@ -464,7 +671,7 @@ function AuditPanel() {
               {entries.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatDate(entry.created_at)}</td>
-                  <td><span className="admin-badge muted">{entry.action}</span></td>
+                  <td><span className="admin-badge muted" title={entry.action}>{actionLabel(entry.action)}</span></td>
                   <td className="admin-mono">{entry.actor_email || entry.actor_id || '—'}</td>
                   <td className="admin-mono">{entry.target || '—'}</td>
                   <td>{entry.detail || '—'}</td>

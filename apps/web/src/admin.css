@@ -246,6 +246,137 @@
   word-break: break-all;
 }
 
+.admin-toolbar-note {
+  font-size: 12px;
+  color: var(--muted, #86868b);
+}
+
+/* ==================== 用户统计图表（纯 CSS，无第三方依赖） ==================== */
+.admin-userstats { margin-top: 24px; }
+.admin-userstats .admin-stat-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+
+.admin-chart {
+  margin: 20px 0 0;
+  padding: 16px;
+  border: 1px solid var(--line, #e5e5ea);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+.admin-chart figcaption {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #86868b);
+  margin-bottom: 14px;
+}
+
+/* 注册趋势：竖向柱条，单一蓝色相表达量级，圆角数据端锚在基线。 */
+.admin-vbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 140px;
+}
+.admin-vbar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+}
+.admin-vbar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-height: 0;
+}
+.admin-vbar-fill {
+  width: 100%;
+  min-height: 2px;
+  background: var(--blue, #0066cc);
+  border-radius: 4px 4px 0 0;
+  transition: height 0.2s ease;
+}
+.admin-vbar-label {
+  font-size: 10px;
+  color: var(--muted, #86868b);
+  white-space: nowrap;
+  transform: rotate(-45deg);
+  transform-origin: center;
+}
+
+/* 等级分布：横向柱条。 */
+.admin-hbars { display: flex; flex-direction: column; gap: 10px; }
+.admin-hbar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.admin-hbar-name { width: 44px; color: var(--muted, #86868b); flex-shrink: 0; }
+.admin-hbar-track {
+  flex: 1;
+  height: 14px;
+  background: var(--surface-muted, #f5f5f7);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.admin-hbar-fill {
+  height: 100%;
+  min-width: 2px;
+  background: var(--blue, #0066cc);
+  border-radius: 7px;
+  transition: width 0.2s ease;
+}
+.admin-hbar-value { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ==================== 内容审核 ==================== */
+.admin-review-list { display: flex; flex-direction: column; gap: 14px; }
+.admin-review-card {
+  border: 1px solid var(--line, #e5e5ea);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--surface, #fff);
+}
+.admin-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-review-head strong { font-size: 15px; display: block; }
+.admin-review-head small { color: var(--muted, #86868b); }
+.admin-review-summary { margin: 10px 0; font-size: 14px; }
+.admin-review-detail { margin-bottom: 10px; font-size: 13px; }
+.admin-review-detail summary { cursor: pointer; color: var(--blue, #0066cc); }
+.admin-review-detail p { margin: 8px 0; color: var(--ink, #1d1d1f); }
+.admin-review-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-review-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.admin-review-links .admin-btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.admin-review-reason {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #e5e5ea);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.admin-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 @media (max-width: 720px) {
   .admin-shell { grid-template-columns: 1fr; }
   .admin-nav {

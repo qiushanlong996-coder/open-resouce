@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,7 +30,8 @@ type adminAuditEntry struct {
 
 type adminAuditRepository interface {
 	Record(ctx context.Context, entry adminAuditEntry) error
-	List(ctx context.Context, limit int) ([]adminAuditEntry, error)
+	// List 按时间倒序返回最近的管理操作；action 非空时仅返回该动作类型。
+	List(ctx context.Context, action string, limit int) ([]adminAuditEntry, error)
 }
 
 type memoryAdminAuditRepository struct {
@@ -49,14 +51,23 @@ func (repository *memoryAdminAuditRepository) Record(_ context.Context, entry ad
 	return nil
 }
 
-func (repository *memoryAdminAuditRepository) List(_ context.Context, limit int) ([]adminAuditEntry, error) {
+func (repository *memoryAdminAuditRepository) List(_ context.Context, action string, limit int) ([]adminAuditEntry, error) {
 	repository.RLock()
 	defer repository.RUnlock()
-	if limit <= 0 || limit > len(repository.entries) {
-		limit = len(repository.entries)
+	filtered := repository.entries
+	if action != "" {
+		filtered = make([]adminAuditEntry, 0, len(repository.entries))
+		for _, entry := range repository.entries {
+			if entry.Action == action {
+				filtered = append(filtered, entry)
+			}
+		}
+	}
+	if limit <= 0 || limit > len(filtered) {
+		limit = len(filtered)
 	}
 	result := make([]adminAuditEntry, limit)
-	copy(result, repository.entries[:limit])
+	copy(result, filtered[:limit])
 	return result, nil
 }
 
@@ -81,13 +92,20 @@ func (repository *mysqlAdminAuditRepository) Record(ctx context.Context, entry a
 	return nil
 }
 
-func (repository *mysqlAdminAuditRepository) List(ctx context.Context, limit int) ([]adminAuditEntry, error) {
+func (repository *mysqlAdminAuditRepository) List(ctx context.Context, action string, limit int) ([]adminAuditEntry, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := repository.db.QueryContext(ctx,
-		`SELECT id, COALESCE(actor_id, ''), actor_email, action, target, detail, created_at
-		 FROM admin_audit ORDER BY created_at DESC LIMIT ?`, limit)
+	query := `SELECT id, COALESCE(actor_id, ''), actor_email, action, target, detail, created_at
+		 FROM admin_audit`
+	arguments := []any{}
+	if action != "" {
+		query += ` WHERE action = ?`
+		arguments = append(arguments, action)
+	}
+	query += ` ORDER BY created_at DESC LIMIT ?`
+	arguments = append(arguments, limit)
+	rows, err := repository.db.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list admin audit: %w", err)
 	}
@@ -155,7 +173,8 @@ func adminAuditHandler(writer http.ResponseWriter, request *http.Request) {
 			limit = parsed
 		}
 	}
-	entries, err := adminAuditRepositoryStore.List(request.Context(), limit)
+	action := strings.TrimSpace(request.URL.Query().Get("action"))
+	entries, err := adminAuditRepositoryStore.List(request.Context(), action, limit)
 	if err != nil {
 		slog.ErrorContext(request.Context(), "list admin audit failed",
 			"request_id", requestIDFromContext(request.Context()), "error", err)

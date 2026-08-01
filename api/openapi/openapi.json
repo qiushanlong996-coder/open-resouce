@@ -821,9 +821,24 @@
         "summary": "列出近期管理操作",
         "operationId": "listAdminAudit",
         "security": [{ "cookieAuth": [] }],
-        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } }],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } },
+          { "name": "action", "in": "query", "description": "按动作类型过滤（如 user_banned、project_review_approve）", "schema": { "type": "string" } }
+        ],
         "responses": {
           "200": { "description": "审计条目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminAuditListResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/user-stats": {
+      "get": {
+        "summary": "用户注册趋势与等级分布",
+        "operationId": "getAdminUserStats",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "days", "in": "query", "description": "注册趋势天数窗口", "schema": { "type": "integer", "minimum": 1, "maximum": 90, "default": 14 } }],
+        "responses": {
+          "200": { "description": "用户统计", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserStatsResponse" } } } },
           "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
@@ -1488,6 +1503,44 @@
         "required": ["data", "request_id"],
         "properties": {
           "data": { "type": "array", "items": { "$ref": "#/components/schemas/AdminAuditEntry" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AdminUserStatsResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["total_users", "banned", "days", "registrations", "level_histogram"],
+            "properties": {
+              "total_users": { "type": "integer" },
+              "banned": { "type": "integer" },
+              "days": { "type": "integer" },
+              "registrations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["date", "count"],
+                  "properties": {
+                    "date": { "type": "string", "description": "UTC 日期 YYYY-MM-DD" },
+                    "count": { "type": "integer" }
+                  }
+                }
+              },
+              "level_histogram": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["level", "count"],
+                  "properties": {
+                    "level": { "type": "integer" },
+                    "count": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
           "request_id": { "type": "string" }
         }
       },
