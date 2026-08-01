@@ -2500,6 +2500,22 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     }
   }
 
+  const uploadRichFile = async (file: File) => {
+    const kind = /\.(zip|tar|gz|tgz)$/i.test(file.name) ? 'code' : 'document'
+    setUploading(`inline-${kind}`)
+    setError('')
+    try {
+      const objectKey = await uploadProjectFile(file, kind)
+      return `oss://${objectKey}`
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '附件上传失败'
+      setError(message)
+      throw reason
+    } finally {
+      setUploading(null)
+    }
+  }
+
   const uploadFile = async (file: File, kind: 'image' | 'document' | 'code', field: 'cover_object_key' | 'document_object_key' | 'code_object_key') => {
     setUploading(kind)
     setError('')
@@ -2573,7 +2589,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
             {uploading?.startsWith('inline-') && <span>上传中…</span>}
           </div>
           <div className={`markdown-workspace mode-${editorMode}`}>
-            {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeDocument?.id ?? activeProject?.id ?? 'new-project'} value={activeDocument ? documentDraft : input.description} onChange={(markdown) => activeDocument ? setDocumentDraft(markdown.slice(0, 200000)) : update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} /></Suspense>}
+            {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeDocument?.id ?? activeProject?.id ?? 'new-project'} value={activeDocument ? documentDraft : input.description} onChange={(markdown) => activeDocument ? setDocumentDraft(markdown.slice(0, 200000)) : update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} onUploadFile={uploadRichFile} onNotify={showAuthorToast} /></Suspense>}
             {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required={!activeDocument} minLength={activeDocument ? 0 : 20} maxLength={activeDocument ? 200000 : 50000} value={activeDocument ? documentDraft : input.description} onChange={(event) => activeDocument ? setDocumentDraft(event.target.value) : update('description', event.target.value)} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
             {(editorMode === 'preview' || editorMode === 'split') && <MarkdownCanvas markdown={activeDocument ? documentDraft : input.description} authorPreview />}
           </div>
