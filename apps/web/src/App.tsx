@@ -124,6 +124,7 @@ const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
 const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
 const CollaborativeMarkdownEditor = lazy(() => import('./CollaborativeMarkdownEditor'))
 const ProjectDocumentTree = lazy(() => import('./ProjectDocumentTree'))
+const DocumentSearchPanel = lazy(() => import('./DocumentSearchPanel'))
 
 type Project = {
   id: string
@@ -386,6 +387,7 @@ function App() {
     return stored === 'ocean' || stored === 'violet' || stored === 'mint' ? stored : 'ocean'
   })
   const [themePanelOpen, setThemePanelOpen] = useState(false)
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false)
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
   const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
   const [catalogState, setCatalogState] = useState<CatalogState>('checking')
@@ -629,6 +631,24 @@ function App() {
     selectedProjectSlug.current = null
     documentRequestSequence.current += 1
     setSelectedProject(null)
+  }
+
+  // openSearchResult 从搜索结果跳转。搜索只给了 slug，需先拉项目详情。
+  const openSearchResult = (projectSlug: string, documentSlug: string) => {
+    const known = catalogProjects.find((project) => project.slug === projectSlug)
+    if (known) {
+      openProject(known)
+      // 目录加载完会默认打开首篇，这里再切到命中的那篇。
+      window.setTimeout(() => openDocument(documentSlug), 0)
+      return
+    }
+    // 目录里没有（比如列表分页未加载到）时直接拉详情。
+    getProject(projectSlug)
+      .then((response) => {
+        openProject(mapProjectDetail(response.data))
+        window.setTimeout(() => openDocument(documentSlug), 0)
+      })
+      .catch(() => showToast('项目打开失败'))
   }
 
   const openProject = (project: Project) => {
@@ -1012,6 +1032,14 @@ function App() {
             </button>
             {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); setThemePanelOpen(false) }} onSkinChange={setSkin} />}
           </div>
+          <button
+            className="icon-button quiet"
+            title="搜索全站文档"
+            aria-label="搜索全站文档"
+            onClick={() => setSearchPanelOpen(true)}
+          >
+            <Search size={17} />
+          </button>
           <div className="notification-control">
             <button
               className="icon-button quiet notification-button"
@@ -1226,6 +1254,12 @@ function App() {
           showToast(`欢迎，${user.display_name}`)
         }}
       />}
+      {searchPanelOpen && <Suspense fallback={null}>
+        <DocumentSearchPanel
+          onOpenResult={openSearchResult}
+          onClose={() => setSearchPanelOpen(false)}
+        />
+      </Suspense>}
       {authorCenterOpen && currentUser && <ErrorBoundary label="作者项目中心"><AuthorProjectCenter
         onClose={() => setAuthorCenterOpen(false)}
         onChanged={() => {

@@ -87,8 +87,10 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents", authorProjectDocumentsHandler)
 	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents/", authorProjectDocumentsHandler)
 	mux.HandleFunc("/api/v1/author/projects/", authorProjectHandler)
+	mux.HandleFunc("/api/v1/search", searchHandler)
 	mux.HandleFunc("/api/v1/admin/reviews", adminReviewsHandler)
 	mux.HandleFunc("/api/v1/admin/reviews/", adminReviewActionHandler)
+	mux.HandleFunc("/api/v1/admin/search/reindex", searchReindexHandler)
 	mux.HandleFunc("/api/v1/projects", requireMethod(http.MethodGet, projectListHandler))
 	mux.HandleFunc("/api/v1/projects/{slug}/favorite", projectFavoriteHandler)
 	mux.HandleFunc("/api/v1/projects/{slug}/collaboration/access", collaborationAccessHandler)
@@ -258,6 +260,20 @@ func main() {
 		objectStorageStore = storage
 		slog.Info("Aliyun OSS object storage enabled",
 			"region", os.Getenv("OSS_REGION"), "bucket", os.Getenv("OSS_BUCKET"))
+	}
+
+	if elasticURL := strings.TrimSpace(os.Getenv("ELASTICSEARCH_URL")); elasticURL != "" {
+		indexName := strings.TrimSpace(os.Getenv("ELASTICSEARCH_INDEX"))
+		if indexName == "" {
+			indexName = "open-resouce-documents"
+		}
+		searchIndexStore = newElasticSearchIndex(
+			elasticURL, indexName,
+			os.Getenv("ELASTICSEARCH_USERNAME"), os.Getenv("ELASTICSEARCH_PASSWORD"),
+		)
+		// 建索引失败不阻断启动：搜索是附加能力，不应拖垮整个服务。
+		warmSearchIndex()
+		slog.Info("Elasticsearch document search enabled", "index", indexName)
 	}
 
 	server := &http.Server{

@@ -703,6 +703,8 @@ func adminReviewActionHandler(writer http.ResponseWriter, request *http.Request)
 	}
 	auditAuth(request, "project_review_"+parts[1], user.Email, user.ID)
 	notifyProjectReview(request.Context(), project, user, parts[1], input.Reason)
+	// 项目只有发布后才应进入搜索；驳回则从索引中清除。
+	syncProjectSearchIndex(project, parts[1])
 	writeJSON(writer, http.StatusOK, map[string]any{"data": project, "request_id": requestIDFromContext(request.Context())})
 }
 

@@ -208,6 +208,25 @@
 .error-boundary-actions { display: flex; gap: 10px; margin-top: 14px; }
 .error-boundary-actions button { min-height: 30px; padding: 0 13px; color: var(--blue); background: var(--soft-blue); border: 1px solid var(--focus-line); font-size: 11px; }
 
+/* 全站文档搜索面板。与阅读页的文内搜索是两回事：这里跨项目跨文档。 */
+.search-panel { width: min(680px, 92vw); max-height: 76vh; margin: 8vh auto 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0,0,0,.22); }
+.search-panel-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; color: var(--text-tertiary); border-bottom: 1px solid var(--line); }
+.search-panel-input input { min-width: 0; flex: 1; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 15px; }
+.search-panel-input button { display: grid; place-items: center; padding: 4px; color: var(--text-tertiary); background: transparent; border: 0; }
+.search-spinner { animation: search-spin 1s linear infinite; }
+@keyframes search-spin { to { transform: rotate(360deg); } }
+.search-panel-body { min-height: 120px; overflow-y: auto; }
+.search-panel-hint { margin: 0; padding: 26px 18px; color: var(--text-tertiary); font-size: 12px; line-height: 1.7; }
+.search-panel-hint.is-error { color: #b42318; }
+.search-result { width: 100%; display: block; padding: 13px 16px; color: var(--text-secondary); background: transparent; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.search-result:hover { background: var(--soft); }
+.search-result strong { display: block; color: var(--ink); font-size: 13px; }
+.search-result small { display: block; margin-top: 3px; color: var(--text-tertiary); font-size: 10px; }
+.search-result-snippet { display: block; margin-top: 6px; font-size: 11px; line-height: 1.7; }
+/* ES 返回的 <em> 标记命中词。 */
+.search-result-snippet em { color: var(--blue); background: var(--soft-blue); font-style: normal; font-weight: 600; }
+.search-panel-foot { padding: 10px 16px; color: var(--text-tertiary); background: var(--soft); border-top: 1px solid var(--line); font-size: 10px; }
+
 .notification-button { position: relative; }
 .notification-badge { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; display: inline-grid; place-items: center; color: #fff; background: #d92d20; border-radius: 999px; font-size: 8px; font-weight: 600; line-height: 1; }
 .notification-popover { position: absolute; top: 46px; right: 0; z-index: 35; width: 300px; padding: 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 38px rgba(0,0,0,.16); }

@@ -441,6 +441,31 @@ export function updateAuthorProject(projectID: string, input: ManagedProjectInpu
   })
 }
 
+// 跨文档搜索。highlight 是服务端生成的带 <em> 标记的片段。
+export type SearchHit = {
+  project_slug: string
+  project_name: string
+  document_slug: string
+  title: string
+  highlight: string[]
+  score: number
+  updated_at: string
+}
+
+export type SearchResponse = {
+  data: SearchHit[]
+  query: string
+  total: number
+  request_id: string
+}
+
+export function searchDocuments(query: string, signal?: AbortSignal) {
+  return apiRequest<SearchResponse>(
+    `/api/v1/search?q=${encodeURIComponent(query)}`,
+    { signal },
+  )
+}
+
 export function getPendingProjectReviews(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/admin/reviews', { signal })
 }

@@ -692,11 +692,20 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 			if err == nil {
 				// 正文回写到各自的存储位置，避免子文档覆盖项目简介。
 				if target.documentID != "" {
-					_, err = projectDocumentRepositoryStore.UpdateMarkdown(
+					var saved projectDocument
+					saved, err = projectDocumentRepositoryStore.UpdateMarkdown(
 						context.Background(), project.ID, target.documentID, markdown, now)
+					if err == nil {
+						// 协作保存是文档正文的主要更新路径，索引要跟上。
+						syncDocumentIndex(project, saved)
+					}
 				} else {
-					_, err = managedProjectRepositoryStore.UpdatePublishedDescription(
+					var saved managedProject
+					saved, err = managedProjectRepositoryStore.UpdatePublishedDescription(
 						context.Background(), project.ID, markdown, now)
+					if err == nil {
+						indexDocumentBestEffort(projectBodySearchDocument(saved))
+					}
 				}
 			}
 			if err != nil {

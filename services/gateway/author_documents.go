@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -136,6 +137,7 @@ func createAuthorDocument(writer http.ResponseWriter, request *http.Request, pro
 		writeDocumentError(writer, request, err)
 		return
 	}
+	syncDocumentIndex(project, document)
 	writeJSON(writer, http.StatusCreated, projectDocumentResponse{
 		Data: document, RequestID: requestIDFromContext(request.Context()),
 	})
@@ -159,6 +161,7 @@ func updateAuthorDocument(writer http.ResponseWriter, request *http.Request, sco
 		writeDocumentError(writer, request, err)
 		return
 	}
+	syncDocumentIndex(scope.project, document)
 	writeJSON(writer, http.StatusOK, projectDocumentResponse{
 		Data: document, RequestID: requestIDFromContext(request.Context()),
 	})
@@ -194,13 +197,40 @@ func moveAuthorDocument(writer http.ResponseWriter, request *http.Request, scope
 }
 
 func deleteAuthorDocument(writer http.ResponseWriter, request *http.Request, scope authorDocumentContext) {
+	// 删除前先取出待删文档及其子文档，以便同步清理索引。
+	// 删除后就查不到它们了。
+	removable := documentsToRemoveFromIndex(request.Context(), scope.project.ID, scope.documentID)
 	err := projectDocumentRepositoryStore.Delete(
 		request.Context(), scope.project.ID, scope.documentID, time.Now().UTC())
 	if err != nil {
 		writeDocumentError(writer, request, err)
 		return
 	}
+	for _, documentID := range removable {
+		removeFromIndexBestEffort(searchDocumentID(scope.project.ID, documentID))
+	}
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+// documentsToRemoveFromIndex 收集目标文档及其全部后代的 ID。
+// 删除是级联的，索引也必须跟着清，否则搜索会命中已删文档。
+func documentsToRemoveFromIndex(ctx context.Context, projectID, documentID string) []string {
+	stored, err := projectDocumentRepositoryStore.ListByProject(ctx, projectID)
+	if err != nil {
+		// 取不到就至少清自身，剩下的交给重建索引修复。
+		return []string{documentID}
+	}
+	children := make(map[string][]string)
+	for _, document := range stored {
+		if document.ParentID != nil {
+			children[*document.ParentID] = append(children[*document.ParentID], document.ID)
+		}
+	}
+	removable := []string{documentID}
+	for cursor := 0; cursor < len(removable); cursor++ {
+		removable = append(removable, children[removable[cursor]]...)
+	}
+	return removable
 }
 
 func writeDocumentError(writer http.ResponseWriter, request *http.Request, err error) {

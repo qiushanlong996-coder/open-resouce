@@ -594,6 +594,51 @@
         "responses": { "200": { "description": "待审核项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
       }
     },
+    "/api/v1/search": {
+      "get": {
+        "summary": "跨项目跨文档全文搜索",
+        "description": "仅检索已发布项目的文档。由 Elasticsearch 提供，中文用内置 cjk 分析器做 bigram 切分。标题权重高于正文。未配置搜索服务时返回 503 而不是 500。",
+        "operationId": "searchDocuments",
+        "parameters": [
+          {
+            "name": "q", "in": "query", "required": true,
+            "description": "搜索关键词，1 到 100 个字符。",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100 }
+          },
+          {
+            "name": "limit", "in": "query", "required": false,
+            "description": "返回数量上限，默认与最大值均为 30。",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 30 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "命中列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } },
+          "405": { "description": "请求方法不受支持", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "关键词或 limit 不合法", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "搜索服务暂时不可用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "搜索服务未启用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/admin/search/reindex": {
+      "post": {
+        "summary": "重建全量搜索索引",
+        "description": "索引写入是 best-effort 的（ES 故障不能让文档保存失败），因此长期运行可能产生漂移。此接口是修复手段：逐项目清空旧记录后重建。仅管理员可用。",
+        "operationId": "reindexSearch",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "重建结果",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReindexResponse" } } }
+          },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "非管理员", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "405": { "description": "请求方法不受支持", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "重建失败", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "搜索服务未启用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/admin/reviews": {
       "get": {
         "summary": "获取待审核项目",
@@ -1801,6 +1846,42 @@
         "properties": {
           "parent_id": { "type": ["string", "null"], "description": "不传或为 null 表示移到根层级" },
           "sort_order": { "type": "integer", "minimum": 0, "maximum": 500 }
+        }
+      },
+      "SearchHit": {
+        "type": "object",
+        "required": ["project_slug", "project_name", "document_slug", "title", "highlight", "score", "updated_at"],
+        "properties": {
+          "project_slug": { "type": "string" },
+          "project_name": { "type": "string" },
+          "document_slug": { "type": "string", "description": "项目正文为 overview" },
+          "title": { "type": "string" },
+          "highlight": {
+            "type": "array",
+            "description": "带 <em> 标记的命中片段。客户端渲染时必须只信任 <em>，其余一律转义，否则存在 XSS 风险。",
+            "items": { "type": "string" }
+          },
+          "score": { "type": "number" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["data", "query", "total", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/SearchHit" } },
+          "query": { "type": "string" },
+          "total": { "type": "integer" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ReindexResponse": {
+        "type": "object",
+        "required": ["indexed", "skipped", "request_id"],
+        "properties": {
+          "indexed": { "type": "integer", "description": "成功写入的文档数" },
+          "skipped": { "type": "integer", "description": "单条写入失败而跳过的数量，不中断整体重建" },
+          "request_id": { "type": "string" }
         }
       },
       "CodeEntry": {
