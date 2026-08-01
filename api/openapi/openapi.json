@@ -467,6 +467,94 @@
         "responses": { "204": { "description": "已删除" } }
       }
     },
+    "/api/v1/author/projects/{projectID}/documents": {
+      "parameters": [
+        { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "get": {
+        "summary": "获取项目文档列表与目录树",
+        "description": "项目所有者或拥有 editor 权限的协作者可访问。无权限时返回 404，避免泄露项目归属。",
+        "operationId": "listAuthorProjectDocuments",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "文档平铺列表与多层目录树", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目不存在或无编辑权限", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "post": {
+        "summary": "新建项目文档",
+        "operationId": "createAuthorProjectDocument",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentInput" } } }
+        },
+        "responses": {
+          "201": { "description": "文档已创建", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentResponse" } } } },
+          "400": { "description": "请求正文无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目或父文档不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "文档标识已被使用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "文档字段不符合要求", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/author/projects/{projectID}/documents/{documentID}": {
+      "parameters": [
+        { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "documentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "put": {
+        "summary": "更新文档标题、标识、父级与正文",
+        "operationId": "updateAuthorProjectDocument",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentInput" } } }
+        },
+        "responses": {
+          "200": { "description": "文档已更新", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目或文档不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "文档标识已被使用", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "文档字段或目录层级不合法", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "delete": {
+        "summary": "删除文档及其全部子文档",
+        "description": "采用软删除，删除父文档时其后代一并移除。",
+        "operationId": "deleteAuthorProjectDocument",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "文档已删除" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目或文档不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/author/projects/{projectID}/documents/{documentID}/move": {
+      "post": {
+        "summary": "调整文档父级与同级排序",
+        "description": "不能移动到自身或子文档下，目录层级最多 5 层。",
+        "operationId": "moveAuthorProjectDocument",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentMoveRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "目录已调整", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目、文档或目标父级不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "目录层级不合法或排序值超出范围", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/author/projects/{projectID}/submit": {
       "post": {
         "summary": "提交项目审核",
@@ -1615,6 +1703,59 @@
         "properties": {
           "data": { "type": "array", "items": { "type": "string" } },
           "request_id": { "type": "string" }
+        }
+      },
+      "ProjectDocument": {
+        "type": "object",
+        "required": ["id", "project_id", "parent_id", "slug", "title", "markdown", "sort_order", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "parent_id": { "type": ["string", "null"], "description": "根文档为 null" },
+          "slug": { "type": "string", "description": "项目内唯一，仅小写字母、数字和连字符" },
+          "title": { "type": "string" },
+          "markdown": { "type": "string" },
+          "sort_order": { "type": "integer", "minimum": 0 },
+          "created_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectDocumentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "title"],
+        "properties": {
+          "parent_id": { "type": ["string", "null"], "description": "不传或为 null 表示根文档" },
+          "slug": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "markdown": { "type": "string", "maxLength": 200000 }
+        }
+      },
+      "ProjectDocumentResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/ProjectDocument" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ProjectDocumentListResponse": {
+        "type": "object",
+        "required": ["data", "tree", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ProjectDocument" } },
+          "tree": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentNode" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "DocumentMoveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sort_order"],
+        "properties": {
+          "parent_id": { "type": ["string", "null"], "description": "不传或为 null 表示移到根层级" },
+          "sort_order": { "type": "integer", "minimum": 0, "maximum": 500 }
         }
       },
       "CodeEntry": {

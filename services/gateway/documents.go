@@ -68,47 +68,75 @@ type managedDocumentRepository struct {
 func (repository managedDocumentRepository) List(
 	ctx context.Context, projectSlug string,
 ) ([]documentNode, bool, error) {
-	document, found, err := repository.publishedDocument(ctx, projectSlug)
+	project, found, err := repository.publishedProject(ctx, projectSlug)
 	if err != nil {
 		return nil, false, err
 	}
-	if found {
-		return []documentNode{{
-			ID: document.ID, Slug: document.Slug, Title: document.Title,
-			Order: 1, Children: []documentNode{},
-		}}, true, nil
+	if !found {
+		return repository.fallback.List(ctx, projectSlug)
 	}
-	return repository.fallback.List(ctx, projectSlug)
+	// 项目已建文档时返回多层目录；尚未建文档的旧项目继续把项目正文当单篇文档。
+	stored, err := projectDocumentRepositoryStore.ListByProject(ctx, project.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(stored) > 0 {
+		return buildDocumentTree(stored), true, nil
+	}
+	document := managedProjectDocument(project)
+	return []documentNode{{
+		ID: document.ID, Slug: document.Slug, Title: document.Title,
+		Order: 1, Children: []documentNode{},
+	}}, true, nil
 }
 
 func (repository managedDocumentRepository) Get(
 	ctx context.Context, projectSlug, documentSlug string,
 ) (documentDetail, bool, bool, error) {
-	document, found, err := repository.publishedDocument(ctx, projectSlug)
+	project, found, err := repository.publishedProject(ctx, projectSlug)
 	if err != nil {
 		return documentDetail{}, false, false, err
 	}
-	if found {
-		// 已发布项目只有一篇正文；空 slug 视为请求默认文档。
-		if documentSlug == "" || documentSlug == document.Slug {
-			return document, true, true, nil
+	if !found {
+		return repository.fallback.Get(ctx, projectSlug, documentSlug)
+	}
+	stored, err := projectDocumentRepositoryStore.ListByProject(ctx, project.ID)
+	if err != nil {
+		return documentDetail{}, false, false, err
+	}
+	if len(stored) > 0 {
+		target := documentSlug
+		if target == "" {
+			// 未指定时打开目录中的首篇文档。
+			if tree := buildDocumentTree(stored); len(tree) > 0 {
+				target = tree[0].Slug
+			}
+		}
+		for _, document := range stored {
+			if document.Slug == target {
+				return documentDetailFrom(document, project.CurrentVersion), true, true, nil
+			}
 		}
 		return documentDetail{}, true, false, nil
 	}
-	return repository.fallback.Get(ctx, projectSlug, documentSlug)
+	document := managedProjectDocument(project)
+	if documentSlug == "" || documentSlug == document.Slug {
+		return document, true, true, nil
+	}
+	return documentDetail{}, true, false, nil
 }
 
-func (repository managedDocumentRepository) publishedDocument(
+func (repository managedDocumentRepository) publishedProject(
 	ctx context.Context, projectSlug string,
-) (documentDetail, bool, error) {
+) (managedProject, bool, error) {
 	if managedProjectRepositoryStore == nil || projectSlug == "" {
-		return documentDetail{}, false, nil
+		return managedProject{}, false, nil
 	}
 	project, found, err := managedProjectRepositoryStore.FindPublishedBySlug(ctx, projectSlug)
 	if err != nil || !found {
-		return documentDetail{}, false, err
+		return managedProject{}, false, err
 	}
-	return managedProjectDocument(project), true, nil
+	return project, true, nil
 }
 
 // managedProjectDocument 把项目正文转成阅读页需要的文档结构。

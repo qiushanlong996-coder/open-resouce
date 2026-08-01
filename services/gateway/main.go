@@ -83,6 +83,9 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/files/presign-upload", objectUploadAuthorizationHandler)
 	mux.HandleFunc("/api/v1/files/author-asset", authorInlineAssetHandler)
 	mux.HandleFunc("/api/v1/author/projects", authorProjectsHandler)
+	// 文档路由必须注册在 /api/v1/author/projects/ 之前，否则会被项目前缀路由抢先匹配。
+	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents", authorProjectDocumentsHandler)
+	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents/", authorProjectDocumentsHandler)
 	mux.HandleFunc("/api/v1/author/projects/", authorProjectHandler)
 	mux.HandleFunc("/api/v1/admin/reviews", adminReviewsHandler)
 	mux.HandleFunc("/api/v1/admin/reviews/", adminReviewActionHandler)
@@ -184,6 +187,7 @@ func main() {
 		managedProjectRepositoryStore = newMySQLManagedProjectRepository(database)
 		collaborationRepositoryStore = newMySQLCollaborationRepository(database)
 		notificationRepositoryStore = newMySQLNotificationRepository(database)
+		projectDocumentRepositoryStore = newMySQLProjectDocumentRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
 	}

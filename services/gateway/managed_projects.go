@@ -74,6 +74,8 @@ type managedProjectRepository interface {
 	Review(context.Context, string, string, string, string, time.Time) (managedProject, error)
 	ListPublished(context.Context) ([]managedProject, error)
 	FindPublishedBySlug(context.Context, string) (managedProject, bool, error)
+	// FindByID 不限定审核状态，供作者端编辑草稿与已发布项目使用。
+	FindByID(context.Context, string) (managedProject, bool, error)
 	UpdatePublishedDescription(context.Context, string, string, time.Time) (managedProject, error)
 }
 
@@ -210,6 +212,15 @@ func (repository *memoryManagedProjectRepository) FindPublishedBySlug(
 		}
 	}
 	return managedProject{}, false, nil
+}
+
+func (repository *memoryManagedProjectRepository) FindByID(
+	_ context.Context, projectID string,
+) (managedProject, bool, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	project, found := repository.projects[projectID]
+	return project, found, nil
 }
 
 func (repository *memoryManagedProjectRepository) UpdatePublishedDescription(
@@ -371,6 +382,17 @@ func (repository *mysqlManagedProjectRepository) FindPublishedBySlug(
 ) (managedProject, bool, error) {
 	project, err := scanManagedProject(repository.db.QueryRowContext(
 		ctx, managedProjectSelect+` WHERE slug=? AND status='published'`, slug))
+	if errors.Is(err, sql.ErrNoRows) {
+		return managedProject{}, false, nil
+	}
+	return project, err == nil, err
+}
+
+func (repository *mysqlManagedProjectRepository) FindByID(
+	ctx context.Context, projectID string,
+) (managedProject, bool, error) {
+	project, err := scanManagedProject(repository.db.QueryRowContext(
+		ctx, managedProjectSelect+` WHERE id=?`, projectID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return managedProject{}, false, nil
 	}
