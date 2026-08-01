@@ -636,6 +636,17 @@
         }
       }
     },
+    "/api/v1/search/hot": {
+      "get": {
+        "summary": "热门搜索词",
+        "description": "进程内聚合的热门搜索词，按次数降序，最多 10 个。弱一致展示数据，服务重启后清零。",
+        "operationId": "hotSearchTerms",
+        "responses": {
+          "200": { "description": "热门词列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HotSearchResponse" } } } },
+          "405": { "description": "请求方法不受支持", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/admin/search/reindex": {
       "post": {
         "summary": "重建全量搜索索引",
@@ -1921,6 +1932,24 @@
           "data": { "type": "array", "items": { "$ref": "#/components/schemas/SearchHit" } },
           "query": { "type": "string" },
           "total": { "type": "integer" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "HotSearchResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["term", "count"],
+              "properties": {
+                "term": { "type": "string" },
+                "count": { "type": "integer" }
+              }
+            }
+          },
           "request_id": { "type": "string" }
         }
       },

@@ -65,8 +65,34 @@ func searchHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// 记录热门搜索词（进程内聚合，用于热门词展示）。
+	hotSearchTermsStore.record(query)
+
 	writeJSON(writer, http.StatusOK, searchResponse{
 		Data: hits, Query: query, Total: len(hits),
+		RequestID: requestIDFromContext(request.Context()),
+	})
+}
+
+type hotSearchTerm struct {
+	Term  string `json:"term"`
+	Count int    `json:"count"`
+}
+
+type hotSearchResponse struct {
+	Data      []hotSearchTerm `json:"data"`
+	RequestID string          `json:"request_id"`
+}
+
+// searchHotTermsHandler 返回进程内聚合的热门搜索词（公开）。
+func searchHotTermsHandler(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
+		return
+	}
+	writeJSON(writer, http.StatusOK, hotSearchResponse{
+		Data:      hotSearchTermsStore.top(10),
 		RequestID: requestIDFromContext(request.Context()),
 	})
 }

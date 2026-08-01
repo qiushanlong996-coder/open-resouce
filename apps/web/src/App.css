@@ -623,3 +623,12 @@
 .comment-like:hover { color: var(--blue); border-color: #a9ccee; }
 .comment-like.liked { color: var(--blue); border-color: #a9ccee; background: #f1f7fd; }
 .comment-reply .comment-like { margin-top: 6px; }
+
+/* 搜索面板：最近搜索与热门搜索建议 */
+.search-suggest { padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+.search-suggest-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; color: var(--text-tertiary); font-size: 11px; }
+.search-suggest-head span { display: inline-flex; align-items: center; gap: 5px; }
+.search-suggest-head button { padding: 0; color: var(--blue); background: transparent; border: 0; font-size: 11px; }
+.search-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.search-chip { padding: 4px 11px; color: var(--text-secondary); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
+.search-chip:hover { color: var(--blue); border-color: #a9ccee; background: #f1f7fd; }

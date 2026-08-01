@@ -471,6 +471,13 @@ export function searchDocuments(query: string, signal?: AbortSignal) {
   )
 }
 
+export type HotSearchTerm = { term: string; count: number }
+export type HotSearchResponse = { data: HotSearchTerm[]; request_id: string }
+
+export function getHotSearchTerms(signal?: AbortSignal) {
+  return apiRequest<HotSearchResponse>('/api/v1/search/hot', { signal })
+}
+
 export function getPendingProjectReviews(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/admin/reviews', { signal })
 }
