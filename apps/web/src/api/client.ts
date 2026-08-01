@@ -555,6 +555,19 @@ export type AdminAuditEntry = {
 
 export type AdminAuditListResponse = { data: AdminAuditEntry[]; request_id: string }
 
+export type UserRegistrationPoint = { date: string; count: number }
+export type UserLevelBucket = { level: number; count: number }
+
+export type AdminUserStats = {
+  total_users: number
+  banned: number
+  days: number
+  registrations: UserRegistrationPoint[]
+  level_histogram: UserLevelBucket[]
+}
+
+export type AdminUserStatsResponse = { data: AdminUserStats; request_id: string }
+
 export function getAdminStats(signal?: AbortSignal) {
   return apiRequest<AdminStatsResponse>('/api/v1/admin/stats', { signal })
 }
@@ -607,8 +620,14 @@ export function revokeApiKey(keyID: string) {
   return apiRequest<void>(`/api/v1/admin/api-keys/${encodeURIComponent(keyID)}`, { method: 'DELETE' })
 }
 
-export function getAdminAudit(limit: number, signal?: AbortSignal) {
-  return apiRequest<AdminAuditListResponse>(`/api/v1/admin/audit?limit=${limit}`, { signal })
+export function getAdminAudit(params: { limit: number; action?: string }, signal?: AbortSignal) {
+  const query = new URLSearchParams({ limit: String(params.limit) })
+  if (params.action) query.set('action', params.action)
+  return apiRequest<AdminAuditListResponse>(`/api/v1/admin/audit?${query.toString()}`, { signal })
+}
+
+export function getAdminUserStats(days: number, signal?: AbortSignal) {
+  return apiRequest<AdminUserStatsResponse>(`/api/v1/admin/user-stats?days=${days}`, { signal })
 }
 
 // 作者端文档树管理。权限为项目所有者或 editor 协作者。

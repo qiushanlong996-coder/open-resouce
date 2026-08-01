@@ -30,6 +30,8 @@ type banRepository interface {
 	IsBanned(ctx context.Context, userID string) (bool, error)
 	// BannedSet 批量返回给定用户中处于封禁状态的集合，用于列表叠加展示。
 	BannedSet(ctx context.Context, userIDs []string) (map[string]bool, error)
+	// CountBanned 返回当前处于封禁状态的用户总数，供管理概览统计。
+	CountBanned(ctx context.Context) (int, error)
 }
 
 type memoryBanRepository struct {
@@ -79,6 +81,12 @@ func (repository *memoryBanRepository) BannedSet(
 		}
 	}
 	return result, nil
+}
+
+func (repository *memoryBanRepository) CountBanned(_ context.Context) (int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	return len(repository.bans), nil
 }
 
 type mysqlBanRepository struct{ db *sql.DB }
@@ -148,6 +156,14 @@ func (repository *mysqlBanRepository) BannedSet(
 		result[id] = true
 	}
 	return result, rows.Err()
+}
+
+func (repository *mysqlBanRepository) CountBanned(ctx context.Context) (int, error) {
+	var count int
+	if err := repository.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_bans`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count banned users: %w", err)
+	}
+	return count, nil
 }
 
 var banRepositoryStore banRepository = newMemoryBanRepository()

@@ -56,7 +56,6 @@ import {
   getDocumentComments,
   getAuthSessions,
   getAuthorProjects,
-  getPendingProjectReviews,
   getCurrentUser,
   getDocuments,
   getFavorites,
@@ -80,7 +79,6 @@ import {
   markNotificationRead,
   register,
   requestPasswordReset,
-  reviewProject,
   revokeAuthSession,
   setCommentLike,
   setProjectFavorite,
@@ -386,7 +384,6 @@ function App() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
-  const [reviewCenterOpen, setReviewCenterOpen] = useState(false)
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
@@ -1294,9 +1291,6 @@ function App() {
                 <button onClick={() => { setAuthorCenterOpen(true); setAccountPanelOpen(false) }}>
                   作者项目中心
                 </button>
-                {currentUser.is_admin && <button onClick={() => { setReviewCenterOpen(true); setAccountPanelOpen(false) }}>
-                  项目审核中心
-                </button>}
                 {currentUser.is_admin && <button onClick={() => { setAdminConsoleOpen(true); setAccountPanelOpen(false) }}>
                   管理控制台
                 </button>}
@@ -1388,10 +1382,6 @@ function App() {
         onChanged={() => {
           showToast('项目状态已更新')
         }}
-      /></ErrorBoundary>}
-      {reviewCenterOpen && currentUser?.is_admin && <ErrorBoundary label="项目审核中心"><ProjectReviewCenter
-        onClose={() => setReviewCenterOpen(false)}
-        onChanged={() => showToast('审核结果已保存')}
       /></ErrorBoundary>}
       {adminConsoleOpen && currentUser?.is_admin && <ErrorBoundary label="管理控制台"><AdminConsole
         onClose={() => setAdminConsoleOpen(false)}
@@ -2664,60 +2654,6 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
           </div>
         </form>
       </div>
-    </section>
-  </div>
-}
-
-function ProjectReviewCenter({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
-  const [projects, setProjects] = useState<ManagedProject[]>([])
-  const [reason, setReason] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [processing, setProcessing] = useState<string | null>(null)
-  const [error, setError] = useState('')
-  const load = () => {
-    setLoading(true)
-    getPendingProjectReviews()
-      .then((response) => setProjects(response.data))
-      .catch((value: unknown) => setError(value instanceof Error ? value.message : '审核列表加载失败'))
-      .finally(() => setLoading(false))
-  }
-  useEffect(load, [])
-
-  const review = async (project: ManagedProject, action: 'approve' | 'reject') => {
-    const reviewReason = (reason[project.id] ?? '').trim()
-    if (action === 'reject' && !reviewReason) {
-      setError('驳回项目时必须填写审核意见')
-      return
-    }
-    setProcessing(project.id)
-    setError('')
-    try {
-      await reviewProject(project.id, action, reviewReason)
-      setProjects((current) => current.filter((item) => item.id !== project.id))
-      onChanged()
-    } catch (value) {
-      setError(value instanceof Error ? value.message : '审核操作失败')
-    } finally {
-      setProcessing(null)
-    }
-  }
-
-  return <div className="modal-backdrop" role="presentation">
-    <section className="author-center review-center" role="dialog" aria-modal="true" aria-label="项目审核中心">
-      <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
-      <header><span className="section-kicker">ADMIN / REVIEWS</span><h2>项目审核中心</h2><p>只有审核通过的项目才会出现在公开项目目录。</p></header>
-      {error && <div className="auth-error">{error}</div>}
-      {loading ? <p>正在加载…</p> : projects.length === 0 ? <div className="empty-state"><p>当前没有待审核项目。</p></div> :
-        <div className="review-list">{projects.map((project) => <article key={project.id}>
-          <div className="review-project-head"><div><strong>{project.name}</strong><small>{project.slug} · {project.category} · v{project.current_version}</small></div><span className="project-status status-pending_review">待审核</span></div>
-          <p>{project.summary}</p>
-          <details><summary>查看完整资料</summary><p>{project.description}</p><small>{project.tech_stack.join(' · ')} · {project.license}</small></details>
-          <textarea maxLength={500} placeholder="审核意见；驳回时必填" value={reason[project.id] ?? ''} onChange={(event) => setReason((current) => ({ ...current, [project.id]: event.target.value }))} />
-          <div className="review-actions">
-            <button className="outline-button" disabled={processing !== null} onClick={() => void review(project, 'reject')}>驳回</button>
-            <button className="primary-button" disabled={processing !== null} onClick={() => void review(project, 'approve')}>{processing === project.id ? '处理中…' : '审核通过'}</button>
-          </div>
-        </article>)}</div>}
     </section>
   </div>
 }
