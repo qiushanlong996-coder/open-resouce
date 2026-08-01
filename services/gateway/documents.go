@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"sort"
 	"time"
 )
@@ -292,6 +293,11 @@ func documentDetailHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !documentFound {
+		// 当前 slug 找不到时再查历史标识：作者改过 slug 后，
+		// 已分享出去的旧链接应重定向到新地址而不是直接 404。
+		if redirected := redirectRenamedDocument(writer, request, projectSlug, documentSlug); redirected {
+			return
+		}
 		writeAPIError(writer, request, http.StatusNotFound, "document_not_found", "文档不存在")
 		return
 	}
@@ -300,4 +306,34 @@ func documentDetailHandler(writer http.ResponseWriter, request *http.Request) {
 		Data:      document,
 		RequestID: requestIDFromContext(request.Context()),
 	})
+}
+
+// redirectRenamedDocument 在命中历史 slug 时回 301，并告知当前地址。
+// 返回是否已处理本次请求。
+func redirectRenamedDocument(
+	writer http.ResponseWriter, request *http.Request, projectSlug, documentSlug string,
+) bool {
+	if managedProjectRepositoryStore == nil || projectDocumentRepositoryStore == nil {
+		return false
+	}
+	if projectSlug == "" || documentSlug == "" {
+		return false
+	}
+	project, found, err := managedProjectRepositoryStore.FindPublishedBySlug(request.Context(), projectSlug)
+	if err != nil || !found {
+		return false
+	}
+	document, found, err := projectDocumentRepositoryStore.FindByAliasSlug(
+		request.Context(), project.ID, documentSlug)
+	if err != nil || !found {
+		return false
+	}
+	target := "/api/v1/projects/" + url.PathEscape(projectSlug) +
+		"/documents/" + url.PathEscape(document.Slug)
+	writer.Header().Set("Location", target)
+	// 带上当前 slug，方便客户端不跟随重定向时也能直接知道新地址。
+	writer.Header().Set("X-Document-Slug", document.Slug)
+	// 301 而非 302：slug 变更是永久的，希望中间层与搜索引擎更新记录。
+	http.Redirect(writer, request, target, http.StatusMovedPermanently)
+	return true
 }

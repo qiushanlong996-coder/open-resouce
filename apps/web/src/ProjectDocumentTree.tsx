@@ -202,8 +202,8 @@ export default function ProjectDocumentTree({
       parent_id: document.parent_id, slug, title: document.title, markdown: document.markdown,
     })
       .then((response) => {
-        // 改标识会改变阅读页地址，明确告知而不是默默生效。
-        showToast(`文档标识已改为 ${slug}，原阅读链接已失效`)
+        // 旧标识会自动记为历史别名并 301 到新地址，所以旧链接不会失效。
+        showToast(`文档标识已改为 ${slug}，旧链接会自动跳转到新地址`)
         if (document.id === selectedDocumentID) onSelectRef.current(response.data)
         load()
       })

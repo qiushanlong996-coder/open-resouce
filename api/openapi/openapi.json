@@ -536,6 +536,7 @@
       ],
       "put": {
         "summary": "更新文档标题、标识、父级与正文",
+        "description": "修改 slug 时会自动把旧标识记为历史别名，旧阅读链接会 301 到新地址。已被其他文档占用的标识或历史别名会返回 409。",
         "operationId": "updateAuthorProjectDocument",
         "security": [{ "cookieAuth": [] }],
         "requestBody": {
@@ -880,6 +881,16 @@
                 "schema": {
                   "$ref": "#/components/schemas/DocumentDetailResponse"
                 }
+              }
+            }
+          },
+          "301": {
+            "description": "该标识是历史 slug（作者改过文档标识），已永久重定向到当前地址。多次改名后，每个历史标识都指向最新地址。",
+            "headers": {
+              "Location": { "description": "文档当前地址", "schema": { "type": "string" } },
+              "X-Document-Slug": {
+                "description": "文档当前标识，便于不跟随重定向的客户端直接获取新地址",
+                "schema": { "type": "string" }
               }
             }
           },

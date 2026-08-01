@@ -62,6 +62,8 @@ type documentMove struct {
 type projectDocumentRepository interface {
 	ListByProject(ctx context.Context, projectID string) ([]projectDocument, error)
 	FindBySlug(ctx context.Context, projectID, slug string) (projectDocument, bool, error)
+	// FindByAliasSlug 按历史 slug 查找文档，用于旧阅读链接重定向。
+	FindByAliasSlug(ctx context.Context, projectID, slug string) (projectDocument, bool, error)
 	Create(ctx context.Context, projectID, authorID string, input projectDocumentInput) (projectDocument, error)
 	Update(ctx context.Context, projectID, documentID string, input projectDocumentInput) (projectDocument, error)
 	UpdateMarkdown(ctx context.Context, projectID, documentID, markdown string, now time.Time) (projectDocument, error)
@@ -149,10 +151,36 @@ func documentDetailFrom(document projectDocument, version string) documentDetail
 type memoryProjectDocumentRepository struct {
 	sync.RWMutex
 	documents map[string]projectDocument
+	// aliases 记录历史 slug 到文档 ID 的映射，键为 projectID + "\x00" + slug。
+	aliases map[string]string
 }
 
 func newMemoryProjectDocumentRepository() *memoryProjectDocumentRepository {
-	return &memoryProjectDocumentRepository{documents: make(map[string]projectDocument)}
+	return &memoryProjectDocumentRepository{
+		documents: make(map[string]projectDocument),
+		aliases:   make(map[string]string),
+	}
+}
+
+// documentAliasKey 拼接别名索引键，用 NUL 分隔避免不同组合撞键。
+func documentAliasKey(projectID, slug string) string {
+	return projectID + "\x00" + slug
+}
+
+func (repository *memoryProjectDocumentRepository) FindByAliasSlug(
+	_ context.Context, projectID, slug string,
+) (projectDocument, bool, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	documentID, found := repository.aliases[documentAliasKey(projectID, slug)]
+	if !found {
+		return projectDocument{}, false, nil
+	}
+	document, found := repository.documents[documentID]
+	if !found || document.ProjectID != projectID {
+		return projectDocument{}, false, nil
+	}
+	return document, true, nil
 }
 
 func (repository *memoryProjectDocumentRepository) ListByProject(
@@ -200,6 +228,10 @@ func (repository *memoryProjectDocumentRepository) Create(
 	if count >= maxDocumentsPerProject {
 		return projectDocument{}, fmt.Errorf("project document limit reached")
 	}
+	// 新建时也不能占用已有的历史别名。
+	if _, exists := repository.aliases[documentAliasKey(projectID, input.Slug)]; exists {
+		return projectDocument{}, errDocumentSlugExists
+	}
 	if err := repository.validateParentLocked(projectID, "", input.ParentID); err != nil {
 		return projectDocument{}, err
 	}
@@ -227,8 +259,18 @@ func (repository *memoryProjectDocumentRepository) Update(
 			return projectDocument{}, errDocumentSlugExists
 		}
 	}
+	// 新 slug 不能撞上其他文档的历史别名，否则重定向会产生歧义。
+	if owner, exists := repository.aliases[documentAliasKey(projectID, input.Slug)]; exists && owner != documentID {
+		return projectDocument{}, errDocumentSlugExists
+	}
 	if err := repository.validateParentLocked(projectID, documentID, input.ParentID); err != nil {
 		return projectDocument{}, err
+	}
+	// slug 变更时把旧值记为别名，使已分享出去的阅读链接仍能导到本文档。
+	if document.Slug != input.Slug {
+		repository.aliases[documentAliasKey(projectID, document.Slug)] = documentID
+		// 如果新 slug 曾是别名，删除该别名避免自指向。
+		delete(repository.aliases, documentAliasKey(projectID, input.Slug))
 	}
 	document.ParentID, document.Slug, document.Title = input.ParentID, input.Slug, input.Title
 	document.Markdown, document.UpdatedAt = input.Markdown, time.Now().UTC()
@@ -288,6 +330,12 @@ func (repository *memoryProjectDocumentRepository) Delete(
 			}
 		}
 		delete(repository.documents, current)
+		// 文档删除后其历史别名也失效，不能再重定向到不存在的文档。
+		for key, owner := range repository.aliases {
+			if owner == current {
+				delete(repository.aliases, key)
+			}
+		}
 	}
 	return nil
 }
@@ -377,6 +425,22 @@ func (repository *mysqlProjectDocumentRepository) FindBySlug(
 	return document, err == nil, err
 }
 
+func (repository *mysqlProjectDocumentRepository) FindByAliasSlug(
+	ctx context.Context, projectID, slug string,
+) (projectDocument, bool, error) {
+	document, err := scanProjectDocument(repository.db.QueryRowContext(ctx,
+		`SELECT d.id, d.project_id, d.parent_id, d.slug, d.title, d.content_markdown,
+		 d.sort_order, d.created_by, d.created_at, d.updated_at
+		 FROM document_slug_aliases a
+		 JOIN project_documents d ON d.id = a.document_id
+		 WHERE a.project_id = ? AND a.slug = ? AND d.deleted_at IS NULL`,
+		projectID, slug))
+	if errors.Is(err, sql.ErrNoRows) {
+		return projectDocument{}, false, nil
+	}
+	return document, err == nil, err
+}
+
 func (repository *mysqlProjectDocumentRepository) Create(
 	ctx context.Context, projectID, authorID string, input projectDocumentInput,
 ) (projectDocument, error) {
@@ -394,6 +458,16 @@ func (repository *mysqlProjectDocumentRepository) Create(
 	}
 	if count >= maxDocumentsPerProject {
 		return projectDocument{}, fmt.Errorf("project document limit reached")
+	}
+	// 新建也不能占用已有的历史别名，否则旧链接重定向会产生歧义。
+	var aliasCount int
+	if err := transaction.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM document_slug_aliases WHERE project_id = ? AND slug = ?`,
+		projectID, input.Slug).Scan(&aliasCount); err != nil {
+		return projectDocument{}, fmt.Errorf("check document slug alias: %w", err)
+	}
+	if aliasCount > 0 {
+		return projectDocument{}, errDocumentSlugExists
 	}
 	if err := validateDocumentParent(ctx, transaction, projectID, "", input.ParentID); err != nil {
 		return projectDocument{}, err
@@ -433,6 +507,17 @@ func (repository *mysqlProjectDocumentRepository) Update(
 	if err := validateDocumentParent(ctx, transaction, projectID, documentID, input.ParentID); err != nil {
 		return projectDocument{}, err
 	}
+	// 先取旧 slug，变更后需要把它记为别名。
+	var previousSlug string
+	err = transaction.QueryRowContext(ctx,
+		`SELECT slug FROM project_documents WHERE id = ? AND project_id = ? AND deleted_at IS NULL`,
+		documentID, projectID).Scan(&previousSlug)
+	if errors.Is(err, sql.ErrNoRows) {
+		return projectDocument{}, errDocumentNotFound
+	}
+	if err != nil {
+		return projectDocument{}, fmt.Errorf("load previous document slug: %w", err)
+	}
 	result, err := transaction.ExecContext(ctx, `UPDATE project_documents
 		SET parent_id = ?, slug = ?, title = ?, content_markdown = ?
 		WHERE id = ? AND project_id = ? AND deleted_at IS NULL`,
@@ -445,6 +530,22 @@ func (repository *mysqlProjectDocumentRepository) Update(
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return projectDocument{}, errDocumentNotFound
+	}
+	if previousSlug != input.Slug {
+		// 新 slug 若曾是本文档的历史别名，先移除避免自指向。
+		if _, err := transaction.ExecContext(ctx,
+			`DELETE FROM document_slug_aliases WHERE project_id = ? AND slug = ?`,
+			projectID, input.Slug); err != nil {
+			return projectDocument{}, fmt.Errorf("clear reused document alias: %w", err)
+		}
+		// 旧 slug 记为别名。同一旧值可能反复出现（A→B→A→B），用 upsert 幂等处理。
+		if _, err := transaction.ExecContext(ctx,
+			`INSERT INTO document_slug_aliases (project_id, slug, document_id)
+			 VALUES (?, ?, ?)
+			 ON DUPLICATE KEY UPDATE document_id = VALUES(document_id)`,
+			projectID, previousSlug, documentID); err != nil {
+			return projectDocument{}, fmt.Errorf("record document slug alias: %w", err)
+		}
 	}
 	document, err := scanProjectDocument(transaction.QueryRowContext(ctx,
 		projectDocumentSelect+` WHERE id = ?`, documentID))
