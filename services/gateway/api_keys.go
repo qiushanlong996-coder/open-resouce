@@ -280,6 +280,114 @@ func adminAPIKeyHandler(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusNoContent)
 }
 
+// maxUserAPIKeys 限制单个用户可持有的有效密钥数量，避免滥用。
+const maxUserAPIKeys = 20
+
+// userAPIKeysHandler 让任意登录用户自助管理自己的 Open API 密钥。
+//
+//	GET  /api/v1/auth/api-keys   列出当前用户的密钥（不含明文）
+//	POST /api/v1/auth/api-keys   为当前用户签发新密钥（返回明文，仅此一次）
+func userAPIKeysHandler(writer http.ResponseWriter, request *http.Request) {
+	user, ok := requireCurrentUser(writer, request)
+	if !ok {
+		return
+	}
+	switch request.Method {
+	case http.MethodGet:
+		keys, err := apiKeyRepositoryStore.ListByOwner(request.Context(), user.ID)
+		if err != nil {
+			slog.ErrorContext(request.Context(), "list user api keys failed",
+				"request_id", requestIDFromContext(request.Context()), "error", err)
+			writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "密钥服务暂时不可用")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"data": keys, "request_id": requestIDFromContext(request.Context())})
+	case http.MethodPost:
+		if !ensureNotBanned(writer, request, user.ID) {
+			return
+		}
+		var input struct {
+			Name string `json:"name"`
+		}
+		if request.Body != nil && request.ContentLength != 0 && decodeJSONBody(request, &input) != nil {
+			writeAPIError(writer, request, http.StatusBadRequest, "invalid_body", "密钥数据格式不正确")
+			return
+		}
+		input.Name = strings.TrimSpace(input.Name)
+		if input.Name == "" || len([]rune(input.Name)) > 120 {
+			writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_api_key_name", "密钥名称不能为空且不超过 120 字")
+			return
+		}
+		existing, err := apiKeyRepositoryStore.ListByOwner(request.Context(), user.ID)
+		if err != nil {
+			slog.ErrorContext(request.Context(), "list user api keys failed",
+				"request_id", requestIDFromContext(request.Context()), "error", err)
+			writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "密钥服务暂时不可用")
+			return
+		}
+		active := 0
+		for _, key := range existing {
+			if key.RevokedAt == nil {
+				active++
+			}
+		}
+		if active >= maxUserAPIKeys {
+			writeAPIError(writer, request, http.StatusUnprocessableEntity, "api_key_limit_reached",
+				fmt.Sprintf("最多只能持有 %d 个有效密钥，请先撤销不用的密钥", maxUserAPIKeys))
+			return
+		}
+		plaintext, keyHash, prefix, err := generateAPIKey()
+		if err != nil {
+			writeAPIError(writer, request, http.StatusInternalServerError, "key_generation_failed", "密钥生成失败，请重试")
+			return
+		}
+		key := apiKey{
+			ID: "apikey-" + newRequestID(), OwnerID: user.ID, Name: input.Name,
+			Prefix: prefix, CreatedAt: time.Now().UTC(),
+		}
+		if err := apiKeyRepositoryStore.Create(request.Context(), key, keyHash); err != nil {
+			slog.ErrorContext(request.Context(), "create user api key failed",
+				"request_id", requestIDFromContext(request.Context()), "error", err)
+			writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "密钥服务暂时不可用")
+			return
+		}
+		writeJSON(writer, http.StatusCreated, map[string]any{
+			"data": map[string]any{"key": key, "plaintext": plaintext}, "request_id": requestIDFromContext(request.Context()),
+		})
+	default:
+		writer.Header().Set("Allow", "GET, POST")
+		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
+	}
+}
+
+// userAPIKeyHandler 撤销当前用户自己的密钥；撤销他人密钥返回 404 且不产生副作用。
+//
+//	DELETE /api/v1/auth/api-keys/{keyID}
+func userAPIKeyHandler(writer http.ResponseWriter, request *http.Request) {
+	user, ok := requireCurrentUser(writer, request)
+	if !ok {
+		return
+	}
+	if request.Method != http.MethodDelete {
+		writer.Header().Set("Allow", http.MethodDelete)
+		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
+		return
+	}
+	keyID := request.PathValue("keyID")
+	revoked, err := apiKeyRepositoryStore.Revoke(request.Context(), keyID, user.ID, time.Now().UTC())
+	if err != nil {
+		slog.ErrorContext(request.Context(), "revoke user api key failed",
+			"request_id", requestIDFromContext(request.Context()), "error", err)
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "密钥服务暂时不可用")
+		return
+	}
+	if !revoked {
+		writeAPIError(writer, request, http.StatusNotFound, "api_key_not_found", "密钥不存在或已撤销")
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
 // openProjectsHandler 是 Bearer 鉴权的开放接口入口。
 //
 //	GET  /api/v1/open/projects   列出已发布项目（证明密钥链路可用）

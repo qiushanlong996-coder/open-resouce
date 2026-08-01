@@ -121,6 +121,7 @@ import {
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
 import AdminConsole from './AdminConsole'
+import AccessKeyManager from './AccessKeyManager'
 import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
@@ -386,6 +387,7 @@ function App() {
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
+  const [accessKeyOpen, setAccessKeyOpen] = useState(false)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -1292,6 +1294,9 @@ function App() {
                 <button onClick={() => { setAuthorCenterOpen(true); setAccountPanelOpen(false) }}>
                   作者项目中心
                 </button>
+                <button onClick={() => { setAccessKeyOpen(true); setAccountPanelOpen(false) }}>
+                  AccessKey 管理
+                </button>
                 {currentUser.is_admin && <button onClick={() => { setAdminConsoleOpen(true); setAccountPanelOpen(false) }}>
                   管理控制台
                 </button>}
@@ -1387,6 +1392,9 @@ function App() {
       {adminConsoleOpen && currentUser?.is_admin && <ErrorBoundary label="管理控制台"><AdminConsole
         onClose={() => setAdminConsoleOpen(false)}
         currentUser={currentUser}
+      /></ErrorBoundary>}
+      {accessKeyOpen && currentUser && <ErrorBoundary label="AccessKey 管理"><AccessKeyManager
+        onClose={() => setAccessKeyOpen(false)}
       /></ErrorBoundary>}
       <AiAssistant
         projectSlug={selectedProject?.slug ?? null}
