@@ -521,6 +521,10 @@
 /* 从通知/搜索跳转到某条评论时的短暂高亮定位。 */
 .comment-card.is-focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 122, 255, .22); animation: comment-focus-pulse 2.4s ease-out; }
 @keyframes comment-focus-pulse { 0% { box-shadow: 0 0 0 4px rgba(0, 122, 255, .38); } 100% { box-shadow: 0 0 0 3px rgba(0, 122, 255, .0); } }
+.comment-quote { cursor: pointer; }
+/* 点击评论引用跳转到原文时，被定位的正文区块短暂高亮。 */
+.block-located { border-radius: 4px; outline: 2px solid var(--blue); outline-offset: 3px; animation: block-locate-flash 2.2s ease-out; }
+@keyframes block-locate-flash { 0% { background: rgba(0, 122, 255, .18); box-shadow: 0 0 0 6px rgba(0, 122, 255, .16); } 100% { background: transparent; box-shadow: 0 0 0 6px rgba(0, 122, 255, 0); } }
 
 /* ===== 用户等级：头像框与徽标（基础静态样式，动画见增量 3） ===== */
 .level-avatar { position: relative; display: inline-grid; place-items: center; flex: none; border-radius: 9px; }
