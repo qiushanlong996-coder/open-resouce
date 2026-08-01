@@ -521,3 +521,40 @@
 /* 从通知/搜索跳转到某条评论时的短暂高亮定位。 */
 .comment-card.is-focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 122, 255, .22); animation: comment-focus-pulse 2.4s ease-out; }
 @keyframes comment-focus-pulse { 0% { box-shadow: 0 0 0 4px rgba(0, 122, 255, .38); } 100% { box-shadow: 0 0 0 3px rgba(0, 122, 255, .0); } }
+
+/* ===== 用户等级：头像框与徽标（基础静态样式，动画见增量 3） ===== */
+.level-avatar { position: relative; display: inline-grid; place-items: center; flex: none; border-radius: 9px; }
+.level-avatar.size-sm { width: 34px; height: 34px; }
+.level-avatar.size-md { width: 40px; height: 40px; }
+.level-avatar.size-lg { width: 50px; height: 50px; }
+.level-avatar-inner { position: relative; z-index: 1; width: 74%; height: 74%; display: grid; place-items: center; border-radius: 6px; color: #fff; background: var(--ink); font-weight: 600; }
+.level-avatar.size-sm .level-avatar-inner { font-size: 12px; }
+.level-avatar.size-md .level-avatar-inner { font-size: 14px; }
+.level-avatar.size-lg .level-avatar-inner { font-size: 18px; }
+.level-avatar-frame { position: absolute; inset: 0; border-radius: inherit; border: 2px solid transparent; }
+.level-avatar.lvl-1 .level-avatar-frame { border-color: #d2d2d7; }
+.level-avatar.lvl-2 .level-avatar-frame { border-color: #5aa469; }
+.level-avatar.lvl-3 .level-avatar-frame { border-color: #2f80ed; }
+.level-avatar.lvl-4 .level-avatar-frame { border-color: #8a72ff; }
+.level-avatar.lvl-5 .level-avatar-frame { border-color: #f5a623; }
+.level-avatar.lvl-6 .level-avatar-frame { border-color: #ff4d6d; }
+
+.level-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; color: #fff; font-size: 9px; font-weight: 700; line-height: 16px; vertical-align: middle; white-space: nowrap; background: #9a9aa0; }
+.level-badge.lvl-1 { background: #9a9aa0; }
+.level-badge.lvl-2 { background: #5aa469; }
+.level-badge.lvl-3 { background: #2f80ed; }
+.level-badge.lvl-4 { background: #8a72ff; }
+.level-badge.lvl-5 { background: #f5a623; }
+.level-badge.lvl-6 { background: linear-gradient(90deg, #ff4d6d, #ff9a5a); }
+
+/* 名字与徽标同行；评论头像换成 LevelAvatar 后仍保持原有排布 */
+.name-row { display: inline-flex; align-items: center; }
+.comment-card-head .name-row strong { display: inline-block; }
+.reply-head { display: flex; align-items: center; gap: 7px; }
+.reply-head strong { font-size: 11px; }
+.reply-head > span { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+
+/* 账号菜单概览：头像 + 昵称 + 等级 */
+.account-summary { display: flex; align-items: center; gap: 11px; }
+.account-summary-text { min-width: 0; }
+.account-summary-text strong { display: inline-block; }

@@ -1984,3 +1984,25 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 1. 前端等级展示：`LevelAvatar` 头像框 + 等级徽标 + 接入 `/auth/me` 的 level + 评论作者等级 + 分享调用。
 2. L6 独特昵称/评论样式 + 各级头像框纯 CSS 动画（尊重 `prefers-reduced-motion`）。
 3. 应用服务器用测试库补跑经验集成测试，迁移上生产库，部署新 Gateway。
+
+## 2026-08-01：用户等级系统（前端等级展示）
+
+### 已完成（增量 2）
+
+- `api/client.ts`：`AuthUser` 加 `experience`/`level`；`DocumentComment` 加 `author_level`；新增 `shareProject(slug)`。
+- 新增 `LevelAvatar.tsx`：导出 `LevelAvatar`（带等级头像框的头像，1-6 级不同边框色）与 `LevelBadge`（名字旁 `Lv.N` 徽标）。等级 <1 或缺失按 1 级兜底，>6 收敛到 6。
+- 评论映射 `mapDocumentComment` 补 `authorLevel`（缺省 1）；`CommentItem` 加该字段。
+- 评论卡片与回复头像换成 `LevelAvatar`，名字旁加 `LevelBadge`；6 级作者的昵称加 `nickname-legendary`、卡片加 `legendary` class（具体特效在增量 3 落地，此前为无害占位）。
+- 账号菜单概览展示当前用户的 `LevelAvatar` + `LevelBadge`，并显示经验值（管理员显示“管理员 · 满级”）。
+- 项目分享按钮在复制链接后调用 `shareProject`（best-effort，失败不影响复制，仅登录用户计入）。
+- `App.css` 增等级头像框、徽标、名字行与账号概览的基础静态样式。
+
+### 验证
+
+- 前端 oxlint 零警告；TypeScript 类型检查 + Vite 生产构建通过。
+- `LevelAvatar.tsx` 的内部函数 `normalizeLevel`/`levelName` 不导出，避免 fast-refresh 的 only-export-components 警告。
+
+### 下一步
+
+1. L6 独特昵称/评论样式 + 各级头像框纯 CSS 动画（增量 3）。
+2. 应用服务器补跑经验集成测试，迁移上生产库，部署前后端。

@@ -10,6 +10,8 @@ export type AuthUser = {
   display_name: string
   has_password: boolean
   is_admin: boolean
+  experience: number
+  level: number
 }
 
 export type AuthResponse = {
@@ -217,6 +219,7 @@ export type DocumentComment = {
   block_id: string
   author_id?: string
   author: string
+  author_level?: number
   quote: string
   body: string
   status: 'open' | 'resolved'
@@ -593,6 +596,13 @@ export function getNotificationEventsURL() {
 export function setProjectFavorite(projectSlug: string, favorite: boolean) {
   return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/favorite`, {
     method: favorite ? 'POST' : 'DELETE',
+  })
+}
+
+// shareProject 记录一次分享（给分享者加经验，每项目每人一次）。仅登录用户有效。
+export function shareProject(projectSlug: string) {
+  return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/share`, {
+    method: 'POST',
   })
 }
 

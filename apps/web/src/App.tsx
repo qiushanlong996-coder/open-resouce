@@ -80,6 +80,7 @@ import {
   reviewProject,
   revokeAuthSession,
   setProjectFavorite,
+  shareProject,
   setProjectCollaborator,
   submitAuthorProject,
   uploadProjectFile,
@@ -116,6 +117,7 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
+import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import { useHighlightedCode } from './codeHighlight'
 import './App.css'
@@ -155,6 +157,7 @@ type CommentItem = {
   id: string
   blockId: string
   authorId: string
+  authorLevel: number
   user: string
   initials: string
   time: string
@@ -306,6 +309,7 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
     id: comment.id,
     blockId: comment.block_id,
     authorId: comment.author_id ?? '',
+    authorLevel: comment.author_level ?? 1,
     user: comment.author,
     initials: comment.author.slice(0, 1),
     time: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(comment.created_at)),
@@ -1148,8 +1152,12 @@ function App() {
             {currentUser && accountPanelOpen && (
               <div className="account-popover">
                 <div className="account-summary">
-                  <strong>{currentUser.display_name}</strong>
-                  <small>{sessionsLoading ? '正在加载登录设备…' : `${authSessions.length} 个活跃会话`}</small>
+                  <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} />
+                  <div className="account-summary-text">
+                    <strong className={currentUser.level >= 6 ? 'nickname-legendary' : ''}>{currentUser.display_name}</strong>
+                    <LevelBadge level={currentUser.level} />
+                    <small>{currentUser.is_admin ? '管理员 · 满级' : `经验 ${currentUser.experience}`} · {sessionsLoading ? '加载登录设备…' : `${authSessions.length} 个活跃会话`}</small>
+                  </div>
                 </div>
                 {profileEditing ? (
                   <div className="profile-editor">
@@ -1243,7 +1251,12 @@ function App() {
           isSaved={saved.includes(selectedProject.id)}
           onBack={closeProject}
           onToggleSaved={() => toggleSaved(selectedProject.id)}
-          onShare={() => { navigator.clipboard?.writeText(window.location.href); showToast('项目链接已复制') }}
+          onShare={() => {
+            navigator.clipboard?.writeText(window.location.href)
+            showToast('项目链接已复制')
+            // 分享加经验，best-effort：失败不影响复制链接。仅登录用户计入。
+            if (currentUser) void shareProject(selectedProject.slug).catch(() => {})
+          }}
           onDownload={() => showToast('演示下载已开始')}
           comments={comments}
           selectedQuote={selectedQuote}
@@ -1883,10 +1896,13 @@ function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, o
   }
 
   return (
-    <article id={`comment-${comment.id}`} className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''}`}>
+    <article id={`comment-${comment.id}`} className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''} ${comment.authorLevel >= 6 ? 'legendary' : ''}`}>
       <div className="comment-card-head">
-        <span className="avatar small-avatar">{comment.initials}</span>
-        <div><strong>{comment.user}</strong><small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small></div>
+        <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} />
+        <div>
+          <span className="name-row"><strong className={comment.authorLevel >= 6 ? 'nickname-legendary' : ''}>{comment.user}</strong><LevelBadge level={comment.authorLevel} /></span>
+          <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small>
+        </div>
         {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
       </div>
       <button className="comment-quote">“{comment.quote}”</button>
@@ -1896,8 +1912,8 @@ function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, o
       {comment.replies.length > 0 && (
         <div className="comment-replies">
           {comment.replies.map((reply) => (
-            <div className="comment-reply" key={reply.id}>
-              <div><strong>{reply.user}</strong><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
+            <div className={`comment-reply ${reply.authorLevel >= 6 ? 'legendary' : ''}`} key={reply.id}>
+              <div className="reply-head"><LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} /><strong className={reply.authorLevel >= 6 ? 'nickname-legendary' : ''}>{reply.user}</strong><LevelBadge level={reply.authorLevel} /><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
               {editingReplyID === reply.id
                 ? <div className="inline-edit"><textarea autoFocus value={replyEditDraft} disabled={replyEditSubmitting} onChange={(event) => setReplyEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setReplyEditDraft((value) => value + emoji)} /><button disabled={replyEditSubmitting} onClick={() => setEditingReplyID(null)}>取消</button><button disabled={replyEditSubmitting || !replyEditDraft.trim()} onClick={() => submitReplyEdit(reply.id)}>{replyEditSubmitting ? '保存中…' : '保存'}</button></div></div>
                 : <p>{reply.text}</p>}
