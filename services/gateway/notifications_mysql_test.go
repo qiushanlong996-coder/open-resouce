@@ -2,29 +2,14 @@ package main
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 )
 
 func TestMySQLNotificationRepositoryIntegration(t *testing.T) {
-	databaseURL := os.Getenv("MYSQL_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("MYSQL_TEST_DATABASE_URL is not configured")
-	}
+	database := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	database, err := openMySQLDatabase(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open MySQL: %v", err)
-	}
-	// 关闭必须通过 t.Cleanup 注册：defer 在函数 return 时执行，会早于 t.Cleanup 里的清理语句，
-	// 导致连接已关闭、临时数据无法删除。t.Cleanup 按后进先出执行，删除先于关闭。
-	t.Cleanup(func() {
-		if err := database.Close(); err != nil {
-			t.Errorf("close test database: %v", err)
-		}
-	})
 
 	// 通知表以 recipient_id 外键指向 users，集成测试需要先创建临时接收者。
 	recipientID := "user-notify-" + newRequestID()

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -39,22 +38,9 @@ func TestMySQLDSNRejectsIncompleteURL(t *testing.T) {
 }
 
 func TestMySQLCommentRepositoryIntegration(t *testing.T) {
-	databaseURL := os.Getenv("MYSQL_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("MYSQL_TEST_DATABASE_URL is not configured")
-	}
-
+	db := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	db, err := openMySQLDatabase(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Errorf("close test database: %v", err)
-		}
-	})
 
 	repository := newMySQLCommentRepository(db)
 	suffix := newRequestID()

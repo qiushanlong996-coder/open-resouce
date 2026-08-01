@@ -2,28 +2,14 @@ package main
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 )
 
 func TestMySQLAuthRepositoryIntegration(t *testing.T) {
-	databaseURL := os.Getenv("MYSQL_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("MYSQL_TEST_DATABASE_URL is not configured")
-	}
+	database := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	database, err := openMySQLDatabase(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open MySQL: %v", err)
-	}
-	// 关闭必须通过 t.Cleanup 注册：defer 早于 t.Cleanup 执行，会让后面的清理语句在连接关闭后静默失败。
-	t.Cleanup(func() {
-		if err := database.Close(); err != nil {
-			t.Errorf("close test database: %v", err)
-		}
-	})
 
 	userID := "user-integration-" + newRequestID()
 	email := userID + "@example.com"

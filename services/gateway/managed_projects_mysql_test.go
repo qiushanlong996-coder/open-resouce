@@ -2,30 +2,16 @@ package main
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 )
 
 func TestMySQLManagedProjectIntegration(t *testing.T) {
-	dsn := os.Getenv("TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("TEST_MYSQL_DSN is not configured")
-	}
-	db, err := openMySQLDatabase(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 关闭必须通过 t.Cleanup 注册：defer 早于 t.Cleanup 执行，会让后面的清理语句在连接关闭后静默失败。
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Errorf("close test database: %v", err)
-		}
-	})
+	db := requireTestDatabase(t)
 	ctx := context.Background()
 	userID := "user-project-test-" + newRequestID()
 	email := userID + "@example.com"
-	_, err = db.ExecContext(ctx, `INSERT INTO users
+	_, err := db.ExecContext(ctx, `INSERT INTO users
 		(id,email,display_name,password_hash) VALUES (?,?,?,?)`,
 		userID, email, "项目集成测试", "test-only")
 	if err != nil {
