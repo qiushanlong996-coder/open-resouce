@@ -2344,3 +2344,27 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 - 代码已上线，但**服务端未配置 `ANTHROPIC_API_KEY`**，因此助手当前对用户显示"AI 未启用"（接口 503）。
 - 启用方式：在 `/etc/open-resouce/gateway.env` 增加 `ANTHROPIC_API_KEY=...`（可选 `ANTHROPIC_MODEL`、`ANTHROPIC_BASE_URL`），`systemctl restart open-resouce-gateway` 即可。需项目负责人提供 key。
+
+## 2026-08-02：用户自助 AccessKey + 主页开放能力入口（双 agent 并行）
+
+两个围绕开放 API 的独立功能，双 worktree agent 并行实现，合并回 main（仅 App.tsx import 行一处冲突，已解决）。整体验证：go test 通过、OpenAPI 71 路径、oxlint 零警告、Vite 构建通过。
+
+### 功能一：用户自助 AccessKey 管理
+
+- 此前 API key 仅管理员在控制台签发；现在任意登录用户可在账号菜单「AccessKey 管理」自助创建/查看/吊销自己的 key。
+- 后端新增用户级接口（`requireCurrentUser`，owner=当前用户）：`GET/POST /api/v1/auth/api-keys`、`DELETE /api/v1/auth/api-keys/{id}`。复用已有 owner-scoped 仓库（`ListByOwner`/`Revoke(id, ownerID)`），吊销他人 key 返回 404；被封禁用户不能创建（403）；每人上限 20（422）。明文只在创建时返回一次。
+- 前端 `AccessKeyManager.tsx` + `access-key.css`：列表、创建（明文一次性展示+复制+警告）、内联吊销确认；提示用于开放 API 的 Bearer 鉴权。
+- key 以本人身份调开放 API，用户可程序化发布自己的项目（走审核）。
+
+### 功能二：主页开放能力入口 + 接口文档页
+
+- 主页页脚前新增「开放能力」`content-section` 卡片（OPEN API / FOR AGENTS），CTA「查看接口文档」。
+- 新增 `OpenApiDocs.tsx` + `open-api-docs.css`：全屏文档弹窗（Esc/点遮罩关闭），curated JSX 呈现——用途、鉴权（指引去账号菜单「AccessKey 管理」创建）、接口方法/路径/示例、presign→PUT→建草稿→提交流程、字段约束、错误码、审核门禁；主题感知的代码块 + 复制按钮。响应式适配 390px。
+
+### 其它
+
+- 同步更新 `docs/open-api.md`：鉴权说明从"仅管理员控制台签发"改为"用户在账号菜单自助创建 AccessKey（管理员亦可签发）"。
+
+### 注意事项
+
+- 纯前端 + 用户级 key 接口（无新迁移，复用 api_keys 表）。**未部署、未做真人浏览器验证**。上线只需交叉编译 Gateway + 发前端。

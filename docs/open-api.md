@@ -4,15 +4,16 @@ A machine-friendly guide for an external AI agent (skill / MCP tool) to publish 
 project to OpenResource programmatically, including uploading a parsed code archive.
 
 All Open API endpoints are under `/api/v1/open/*` and authenticate with a Bearer
-API key. They act **as the key's owner user** — the admin who issued the key. Any
-project or document you create is owned by that user and shows up in that user's
-author dashboard.
+AccessKey. They act **as the key's owner user**. Any project or document you
+create is owned by that user and shows up in that user's author dashboard.
 
 ## Authentication
 
-- Obtain an API key from the **admin console** (Admin → API Keys → issue). The
-  plaintext key (format `ork_<hex>`) is shown **once** at creation; store it
-  securely. Only the SHA-256 digest is persisted server-side.
+- Create an **AccessKey** yourself: log in on the site, click your avatar in the
+  top-right → **「AccessKey 管理」**, then「创建 AccessKey」. (Admins can also
+  issue keys from the admin console.) The plaintext key (format `ork_<hex>`) is
+  shown **once** at creation; store it securely. Only the SHA-256 digest is
+  persisted server-side.
 - Send it on every request:
 
   ```
