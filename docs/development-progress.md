@@ -2032,3 +2032,24 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 1. 应用服务器用测试库 `open_resouce_test` 补跑 `TestMySQLExperienceIntegration`，迁移 `000011` 应用到生产库。
 2. 交叉编译 Gateway 原子替换重启 + 发布前端，公网回归经验累加、等级展示、分享加经验、6 级特效。
+
+## 2026-08-01：修复无稳定块文档无法评论（422）
+
+### 背景
+
+用户在公网反馈：`POST /api/v1/projects/111/documents/doc1/comments` 返回 422，点击“发布评论”报错。
+
+### 根因
+
+评论创建强制校验 `documentHasBlock(document, block_id)`。而 `parseMarkdownDocument` 只把**段落和代码块**解析为稳定块，标题只进大纲。若文档正文只有标题、正文极短或为空，解析出的块为空数组。前端在文档加载时把 `selectedBlockID` 置为 `blocks[0]?.id ?? ''`，无块时即为空串；发布评论时带 `block_id:""`，后端 `documentHasBlock(document, "")` 为 false，返回 422 `block_not_found`——导致这类文档完全无法评论。
+
+### 修复
+
+- 后端：空 `block_id` 视为**文档级评论**（未锚定到具体块），跳过块校验；非空 `block_id` 仍必须存在。这样只有标题/无可解析块的文档也能被评论。
+- 前端：评论卡片在 `quote` 为空时不再渲染空的引号（文档级评论没有引用原文）。
+
+### 验证
+
+- 新增 `TestCreateCommentAllowsEmptyBlock`：空 block_id 返回 201 且落库；`TestCreateCommentRejectsUnknownBlock` 仍保证非空且不存在的块返回 422。
+- `gofmt`、`go test` 全量通过；前端 oxlint 零警告、Vite 构建通过。
+- 随等级系统一起部署（见下条部署记录）。

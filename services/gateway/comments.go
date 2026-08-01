@@ -300,7 +300,9 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 		}
 		input.Quote = strings.TrimSpace(input.Quote)
 		input.Body = strings.TrimSpace(input.Body)
-		if !documentHasBlock(document, input.BlockID) {
+		// 空 block_id 表示文档级评论（未锚定到具体内容块）：只有标题、
+		// 正文很短或无可解析块的文档也应能被评论。非空 block_id 仍需存在。
+		if input.BlockID != "" && !documentHasBlock(document, input.BlockID) {
 			writeAPIError(writer, request, http.StatusUnprocessableEntity, "block_not_found", "评论锚点不存在")
 			return
 		}

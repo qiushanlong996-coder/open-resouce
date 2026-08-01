@@ -151,6 +151,27 @@ func TestCreateCommentRejectsUnknownBlock(t *testing.T) {
 	}
 }
 
+// 空 block_id 表示文档级评论：即使文档没有可解析的稳定块，也应能评论成功。
+func TestCreateCommentAllowsEmptyBlock(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/projects/atlas-agent/documents/quick-start/comments", strings.NewReader(`{
+		"block_id":"",
+		"author":"测试用户",
+		"body":"文档级评论"
+	}`))
+	response := httptest.NewRecorder()
+	newHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+	var created commentResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Data.BlockID != "" || created.Data.Body != "文档级评论" {
+		t.Fatalf("created comment = %#v", created.Data)
+	}
+}
+
 func TestCommentMethodAndBodyErrors(t *testing.T) {
 	tests := []struct {
 		name   string

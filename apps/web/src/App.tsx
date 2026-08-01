@@ -1905,7 +1905,7 @@ function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, o
         </div>
         {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
       </div>
-      <button className="comment-quote">“{comment.quote}”</button>
+      {comment.quote && <button className="comment-quote">“{comment.quote}”</button>}
       {editing
         ? <div className="inline-edit"><textarea autoFocus value={editDraft} disabled={editSubmitting} onChange={(event) => setEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setEditDraft((value) => value + emoji)} /><button disabled={editSubmitting} onClick={() => setEditing(false)}>取消</button><button disabled={editSubmitting || !editDraft.trim()} onClick={submitEdit}>{editSubmitting ? '保存中…' : '保存'}</button></div></div>
         : <p>{comment.text}</p>}
