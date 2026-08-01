@@ -1805,6 +1805,19 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
       .catch(() => showToast('浏览器未允许复制，请手动复制地址栏链接'))
   }
 
+  // 点击评论引用时，平滑滚动到锚定的原文区块并短暂高亮。
+  const locateBlock = (blockId: string) => {
+    if (!blockId) return
+    const el = articleContentRef.current?.querySelector<HTMLElement>(`[data-block-id="${window.CSS?.escape?.(blockId) ?? blockId}"]`)
+    if (!el) {
+      showToast('未找到对应的原文位置，正文可能已更新')
+      return
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('block-located')
+    setTimeout(() => el.classList.remove('block-located'), 2200)
+  }
+
   const renderHeading = (level: 1 | 2 | 3, children: ReactNode) => {
     const id = headingId(children) ?? ''
     const Tag = `h${level}` as 'h1' | 'h2' | 'h3'
@@ -1887,13 +1900,13 @@ function DocumentView({ project, documentState, documentTree, activeDocument, on
           style={composerAnchor ? { top: `${composerAnchor.top}px` } : undefined}
         ><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
-      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
+      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onLocate={locateBlock} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </section>
   )
 }
 
-function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, onLike, onReply, onDeleteReply, onDelete, onEdit, onEditReply }: { comment: CommentItem; currentUserID: string; resolving: boolean; deleting: boolean; onResolve: () => void; onLike: (commentId: string, liked: boolean) => void; onReply: (body: string) => Promise<boolean>; onDeleteReply: (replyId: string) => Promise<boolean>; onDelete: () => Promise<boolean>; onEdit: (body: string) => Promise<boolean>; onEditReply: (replyId: string, body: string) => Promise<boolean> }) {
+function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, onLike, onReply, onDeleteReply, onDelete, onEdit, onEditReply, onLocate }: { comment: CommentItem; currentUserID: string; resolving: boolean; deleting: boolean; onResolve: () => void; onLike: (commentId: string, liked: boolean) => void; onReply: (body: string) => Promise<boolean>; onDeleteReply: (replyId: string) => Promise<boolean>; onDelete: () => Promise<boolean>; onEdit: (body: string) => Promise<boolean>; onEditReply: (replyId: string, body: string) => Promise<boolean>; onLocate: (blockId: string) => void }) {
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [replySubmitting, setReplySubmitting] = useState(false)
@@ -1944,7 +1957,7 @@ function CommentCard({ comment, currentUserID, resolving, deleting, onResolve, o
         </div>
         {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
       </div>
-      {comment.quote && <button className="comment-quote">“{comment.quote}”</button>}
+      {comment.quote && <button className="comment-quote" title="跳转到原文" onClick={() => onLocate(comment.blockId)}>“{comment.quote}”</button>}
       {editing
         ? <div className="inline-edit"><textarea autoFocus value={editDraft} disabled={editSubmitting} onChange={(event) => setEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setEditDraft((value) => value + emoji)} /><button disabled={editSubmitting} onClick={() => setEditing(false)}>取消</button><button disabled={editSubmitting || !editDraft.trim()} onClick={submitEdit}>{editSubmitting ? '保存中…' : '保存'}</button></div></div>
         : <p>{comment.text}</p>}
