@@ -308,6 +308,20 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/view": {
+      "parameters": [
+        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "post": {
+        "summary": "记录一次项目浏览（beacon）",
+        "description": "前端打开项目详情时调用，累加浏览量。公开，无需登录。",
+        "operationId": "recordProjectView",
+        "responses": {
+          "204": { "description": "浏览已记录" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "summary": "获取当前用户站内通知",
@@ -1524,6 +1538,10 @@
           "comments"
         ],
         "properties": {
+          "views": {
+            "type": "integer",
+            "minimum": 0
+          },
           "downloads": {
             "type": "integer",
             "minimum": 0

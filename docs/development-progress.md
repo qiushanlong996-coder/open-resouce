@@ -2259,3 +2259,36 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 封禁写门禁（被封用户写操作 403）由 `TestMySQLAdminRepositoriesIntegration` 覆盖并在集成测试中通过；未在公网单独走真人封禁流程。
 - 换肤与品牌为纯前端，随本次前端发布上线；换肤个别主题深色小字对比度偏低（见上条），可读性主体不受影响。
 - 仍未做真人浏览器观感验证（换肤切换、头像/logo 视觉、管理台交互）；接口与静态资源已确认到位。
+
+## 2026-08-01：项目浏览量与下载量统计
+
+### 背景
+
+需求 7「数据指标」整节此前是种子假数据（下载量硬编码 12.8k 等）。本次落地真实的浏览量与下载量。
+
+### 已完成（后端）
+
+- 迁移 `000016_create_project_metrics`：`project_metrics(project_id PK, views, downloads, updated_at)`，无外键（project_id 兼容种子与已发布项目）。
+- `project_metrics.go`：仓库（内存 + MySQL），`IncrementView`/`IncrementDownload`（MySQL 用 `INSERT ... ON DUPLICATE KEY UPDATE` 原子累加）、`Snapshot`（批量）。
+- 新增 `POST /api/v1/projects/{slug}/view` 浏览 beacon（公开，无需登录，未知项目 404）。
+- 下载量：资源下载接口命中 document/code 时 `recordDownloadBestEffort`（封面不计）。
+- `projectMetrics` 加 `views`；项目列表与详情用 `overlayProjectMetrics` 覆盖真实 views/downloads（列表在排序前覆盖，使按下载量排序反映真实值）。
+- OpenAPI 更新为 64 路径：新增 view 路径、ProjectMetrics 加 `views`。
+
+### 已完成（前端）
+
+- `client.ts`：metrics 加 `views`，新增 `recordProjectView`。
+- 打开项目详情时打浏览 beacon（fire-and-forget）。
+- 项目卡片底部展示 浏览/下载/Stars；详情指标区新增「浏览」。
+- 演示兜底项目补充 views 展示值。
+
+### 验证
+
+- `gofmt`、`go vet`、`go test`（新增内存统计幂等累加 + 浏览 beacon→详情反映 views + 未知项目 404 测试）通过；OpenAPI 校验通过（64 路径）。
+- 前端 oxlint 零警告、tsc + Vite 构建通过。
+- **未部署**：含后端改动与迁移 `000016`，上线需走迁移→集成测试→Gateway+前端流程。
+
+### 注意事项
+
+- 覆盖后种子项目的下载量从假的大数变为真实计数（初始 0），更诚实；Stars/Comments 暂仍为种子/0，后续可接真实点赞式 star 与真实评论数。
+- 浏览 beacon 未做去重/防刷（每次打开 +1）；如需按用户/时间去重，后续可加。

@@ -135,6 +135,7 @@ export type ProjectSummary = {
   maintainer: string
   updated_at: string
   metrics: {
+    views?: number
     downloads: number
     stars: number
     comments: number
@@ -476,6 +477,11 @@ export type HotSearchResponse = { data: HotSearchTerm[]; request_id: string }
 
 export function getHotSearchTerms(signal?: AbortSignal) {
   return apiRequest<HotSearchResponse>('/api/v1/search/hot', { signal })
+}
+
+// recordProjectView 打一个浏览 beacon（累加项目浏览量）。公开、fire-and-forget。
+export function recordProjectView(projectSlug: string) {
+  return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/view`, { method: 'POST' })
 }
 
 export function getPendingProjectReviews(signal?: AbortSignal) {

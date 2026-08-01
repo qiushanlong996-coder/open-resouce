@@ -29,6 +29,7 @@ type projectSummary struct {
 }
 
 type projectMetrics struct {
+	Views     int `json:"views"`
 	Downloads int `json:"downloads"`
 	Stars     int `json:"stars"`
 	Comments  int `json:"comments"`
@@ -196,6 +197,8 @@ func projectListHandler(writer http.ResponseWriter, request *http.Request) {
 	for _, project := range managed {
 		projects = append(projects, managedProjectSummary(project))
 	}
+	// 用真实统计覆盖 views/downloads，使排序与展示反映实际数据。
+	overlayProjectMetrics(request.Context(), projects)
 	filtered := filterProjects(projects, query, category)
 	sortProjects(filtered, sortBy)
 
@@ -248,6 +251,14 @@ func projectDetailHandler(writer http.ResponseWriter, request *http.Request) {
 				Cover: managed.CoverObjectKey != "", Document: managed.DocumentObjectKey != "",
 				Code: managed.CodeObjectKey != "",
 			},
+		}
+	}
+
+	// 覆盖真实 views/downloads。
+	if snapshot, err := projectMetricsRepositoryStore.Snapshot(request.Context(), []string{project.ID}); err == nil {
+		if entry, ok := snapshot[project.ID]; ok {
+			project.Metrics.Views = entry.Views
+			project.Metrics.Downloads = entry.Downloads
 		}
 	}
 

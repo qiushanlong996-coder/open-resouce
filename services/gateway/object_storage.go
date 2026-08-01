@@ -206,6 +206,10 @@ func projectResourceDownloadHandler(writer http.ResponseWriter, request *http.Re
 		writeAPIError(writer, request, http.StatusBadGateway, "storage_error", "文件存储暂时不可用")
 		return
 	}
+	// 文档与代码包计入下载量；封面是展示图，不计。
+	if parts[2] == "document" || parts[2] == "code" {
+		recordDownloadBestEffort(project.ID)
+	}
 	http.Redirect(writer, request, signedURL, http.StatusTemporaryRedirect)
 }
 

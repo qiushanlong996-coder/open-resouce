@@ -14,6 +14,7 @@ import {
   Code2,
   Copy,
   Download,
+  Eye,
   FileCode2,
   FileText,
   GitBranch,
@@ -62,6 +63,7 @@ import {
   getNotificationEventsURL,
   getNotifications,
   getProject,
+  recordProjectView,
   getProjectCodeArchiveURL,
   getProjectCodeFileDownloadURL,
   getProjectCodeFile,
@@ -144,6 +146,7 @@ type Project = {
   stack: string[]
   license: string
   updated: string
+  views: string
   downloads: string
   stars: string
   comments: number
@@ -199,6 +202,7 @@ const projects: Project[] = [
     stack: ['Python', 'LangGraph', 'OpenAI'],
     license: 'Apache-2.0',
     updated: '2 小时前',
+    views: '46k',
     downloads: '12.8k',
     stars: '2.4k',
     comments: 18,
@@ -219,6 +223,7 @@ const projects: Project[] = [
     stack: ['TypeScript', 'LlamaIndex', 'Elasticsearch'],
     license: 'MIT',
     updated: '昨天',
+    views: '29k',
     downloads: '8.1k',
     stars: '1.8k',
     comments: 12,
@@ -239,6 +244,7 @@ const projects: Project[] = [
     stack: ['Go', 'React', 'Docker'],
     license: 'MIT',
     updated: '3 天前',
+    views: '21k',
     downloads: '5.6k',
     stars: '960',
     comments: 9,
@@ -259,6 +265,7 @@ const projects: Project[] = [
     stack: ['Go', 'MCP', 'Redis'],
     license: 'Apache-2.0',
     updated: '上周',
+    views: '15k',
     downloads: '4.2k',
     stars: '742',
     comments: 7,
@@ -285,6 +292,7 @@ function mapProjectSummary(project: ProjectSummary): Project {
     stack: project.stack,
     license: project.license,
     updated: new Date(project.updated_at).toLocaleDateString('zh-CN'),
+    views: compactNumber.format(project.metrics.views ?? 0).toLowerCase(),
     downloads: compactNumber.format(project.metrics.downloads).toLowerCase(),
     stars: compactNumber.format(project.metrics.stars).toLowerCase(),
     comments: project.metrics.comments,
@@ -724,6 +732,8 @@ function App() {
   const openProject = (project: Project) => {
     selectedProjectSlug.current = project.slug
     setSelectedProject(project)
+    // 记录一次浏览（fire-and-forget，失败不影响打开）。
+    void recordProjectView(project.slug).catch(() => {})
     setDetailTab('文档阅读')
     setDetailState('checking')
     setDocumentState('checking')
@@ -1509,7 +1519,7 @@ function ProjectCard({ project, isSaved, onOpen, onToggleSaved }: { project: Pro
         <div className="card-title-row"><div><span className="project-category">{project.category}</span><h3><button onClick={onOpen}>{project.name}</button></h3></div><button className={`icon-button ${isSaved ? 'saved' : ''}`} title={isSaved ? '取消收藏' : '收藏项目'} aria-label={isSaved ? '取消收藏' : '收藏项目'} onClick={onToggleSaved}><Heart size={17} fill={isSaved ? 'currentColor' : 'none'} /></button></div>
         <p>{project.summary}</p>
         <div className="tag-row">{project.tags.slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div>
-        <div className="card-footer"><span><Star size={13} fill="currentColor" /> {project.stars}</span><span><Download size={13} /> {project.downloads}</span><span className="card-updated">{project.updated}</span></div>
+        <div className="card-footer"><span><Eye size={13} /> {project.views}</span><span><Download size={13} /> {project.downloads}</span><span><Star size={13} fill="currentColor" /> {project.stars}</span><span className="card-updated">{project.updated}</span></div>
       </div>
     </article>
   )
@@ -1635,7 +1645,7 @@ function ProjectDetail({
           <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
         </div>
       </section>
-      <div className="detail-stats"><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
+      <div className="detail-stats"><div><strong>{project.views}</strong><span>浏览</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
       {collaborationEditing && currentUser ? (
