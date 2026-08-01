@@ -122,6 +122,7 @@ import ErrorBoundary from './ErrorBoundary'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import { useHighlightedCode } from './codeHighlight'
+import { themes, applyTheme, isThemeId, type ThemeId } from './themes'
 import './App.css'
 
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
@@ -175,7 +176,7 @@ type CommentItem = {
 }
 
 type ThemeMode = 'light' | 'dark' | 'system'
-type Skin = 'ocean' | 'violet' | 'mint'
+type Skin = ThemeId
 type GatewayState =
   | { status: 'checking' }
   | { status: 'online'; info: ServiceInfo }
@@ -394,8 +395,10 @@ function App() {
   })
   const [skin, setSkin] = useState<Skin>(() => {
     const stored = window.localStorage.getItem('xinyuan-skin')
-    return stored === 'ocean' || stored === 'violet' || stored === 'mint' ? stored : 'ocean'
+    return isThemeId(stored) ? stored : 'ocean'
   })
+  // 跟随系统模式时，需要知道当前系统偏好明暗，才能应用对应的一套主题变量。
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [themePanelOpen, setThemePanelOpen] = useState(false)
   const [searchPanelOpen, setSearchPanelOpen] = useState(false)
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
@@ -411,11 +414,22 @@ function App() {
   const pendingCommentFocus = useRef<string | null>(null)
 
   useEffect(() => {
-    document.documentElement.dataset.themeMode = themeMode
-    document.documentElement.dataset.skin = skin
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.dataset.themeMode = themeMode
+    root.dataset.skin = skin
+    // 结算出最终明暗，并把对应主题的整套 CSS 变量（含 --app-bg）内联到 <html>。
+    const dark = themeMode === 'dark' || (themeMode === 'system' && systemDark)
+    applyTheme(root, skin, dark)
     window.localStorage.setItem('xinyuan-theme-mode', themeMode)
     window.localStorage.setItem('xinyuan-skin', skin)
-  }, [themeMode, skin])
+  }, [themeMode, skin, systemDark])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -2694,12 +2708,6 @@ function ThemePanel({ themeMode, skin, onModeChange, onSkinChange }: { themeMode
     { id: 'dark', label: '深色', icon: <Moon size={15} /> },
     { id: 'system', label: '跟随系统', icon: <MonitorCog size={15} /> },
   ]
-  const skins: { id: Skin; label: string; color: string }[] = [
-    { id: 'ocean', label: '海蓝', color: '#0066cc' },
-    { id: 'violet', label: '暮紫', color: '#7259c8' },
-    { id: 'mint', label: '薄荷', color: '#16846a' },
-  ]
-
   return (
     <div className="theme-popover" onMouseDown={(event) => event.stopPropagation()}>
       <div className="theme-popover-heading"><span><Palette size={15} /> 外观</span><small>偏好设置</small></div>
@@ -2707,9 +2715,23 @@ function ThemePanel({ themeMode, skin, onModeChange, onSkinChange }: { themeMode
         {modes.map((mode) => <button key={mode.id} className={themeMode === mode.id ? 'selected' : ''} onClick={() => onModeChange(mode.id)}>{mode.icon}<span>{mode.label}</span>{themeMode === mode.id && <Check size={14} />}</button>)}
       </div>
       <div className="theme-popover-divider" />
-      <span className="theme-section-label">主题色</span>
+      <span className="theme-section-label">主题</span>
       <div className="skin-list">
-        {skins.map((item) => <button key={item.id} className={skin === item.id ? 'selected' : ''} onClick={() => onSkinChange(item.id)}><span className="skin-swatch" style={{ background: item.color }} /><span>{item.label}</span>{skin === item.id && <Check size={14} />}</button>)}
+        {themes.map((item) => (
+          <button
+            key={item.id}
+            className={`skin-option${skin === item.id ? ' selected' : ''}`}
+            aria-pressed={skin === item.id}
+            onClick={() => onSkinChange(item.id)}
+          >
+            <span className="skin-swatch" style={{ background: item.swatch }} />
+            <span className="skin-option-text">
+              <strong>{item.label}</strong>
+              <small>{item.description}</small>
+            </span>
+            {skin === item.id && <Check size={14} />}
+          </button>
+        ))}
       </div>
     </div>
   )

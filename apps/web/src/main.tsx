@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './ErrorBoundary.tsx'
+// 主题背景接线层放在 App（含 App.css）之后导入，确保 .app-shell 背景规则生效。
+import './themes.css'
 
 // 最外层兜底边界。局部边界已覆盖各功能区块，这一层只处理它们之外的
 // 意外崩溃，保证任何情况下都给出可操作的提示而不是一片空白。

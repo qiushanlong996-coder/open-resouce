@@ -25,19 +25,8 @@
   --focus-line: #a9ccee;
 }
 
-:root[data-skin='violet'] {
-  --blue: #7259c8;
-  --blue-hover: #8068d9;
-  --soft-blue: #f0edff;
-  --focus-line: #c1b6f2;
-}
-
-:root[data-skin='mint'] {
-  --blue: #16846a;
-  --blue-hover: #1b987b;
-  --soft-blue: #e8f7f1;
-  --focus-line: #9fd8c5;
-}
+/* 各皮肤的完整调色板由 src/themes.ts 在运行时以内联变量应用（见 applyTheme），
+   这里保留默认海蓝（上方 :root）及下方的暗色/系统兜底，避免 JS 生效前的闪烁。 */
 
 :root[data-theme-mode='dark'] {
   color-scheme: dark;
