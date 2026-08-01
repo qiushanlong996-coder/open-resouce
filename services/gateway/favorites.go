@@ -144,6 +144,9 @@ func projectFavoriteHandler(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	if request.Method == http.MethodPost && !ensureNotBanned(writer, request, user.ID) {
+		return
+	}
 	project, found := seedProjectDetails[request.PathValue("slug")]
 	if !found {
 		writeAPIError(writer, request, http.StatusNotFound, "project_not_found", "项目不存在")

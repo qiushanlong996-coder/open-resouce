@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,16 @@ type managedProjectRepository interface {
 	// FindByID 不限定审核状态，供作者端编辑草稿与已发布项目使用。
 	FindByID(context.Context, string) (managedProject, bool, error)
 	UpdatePublishedDescription(context.Context, string, string, time.Time) (managedProject, error)
+	// CountByStatus 返回各状态项目数量，供管理概览统计。
+	CountByStatus(context.Context) (map[string]int, error)
+	// ListAll 跨状态分页列出所有项目；status 非空时按该状态过滤，返回匹配总数。
+	ListAll(ctx context.Context, status string, limit, offset int) ([]managedProject, int, error)
+	// Takedown 将非下架项目置为 archived（下架），返回更新后的项目。
+	Takedown(ctx context.Context, projectID string, now time.Time) (managedProject, error)
 }
+
+// projectDownedStatus 是下架项目的状态：移出公开目录与搜索索引。
+const projectDownedStatus = "archived"
 
 type memoryManagedProjectRepository struct {
 	sync.RWMutex
@@ -258,6 +268,67 @@ func (repository *memoryManagedProjectRepository) Review(
 	} else {
 		project.Status = "rejected"
 	}
+	repository.projects[projectID] = project
+	return project, nil
+}
+
+func (repository *memoryManagedProjectRepository) CountByStatus(_ context.Context) (map[string]int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	counts := make(map[string]int)
+	for _, project := range repository.projects {
+		counts[project.Status]++
+	}
+	return counts, nil
+}
+
+func (repository *memoryManagedProjectRepository) ListAll(
+	_ context.Context, status string, limit, offset int,
+) ([]managedProject, int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	matched := make([]managedProject, 0, len(repository.projects))
+	for _, project := range repository.projects {
+		if status != "" && project.Status != status {
+			continue
+		}
+		matched = append(matched, project)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].UpdatedAt.Equal(matched[j].UpdatedAt) {
+			return matched[i].ID < matched[j].ID
+		}
+		return matched[i].UpdatedAt.After(matched[j].UpdatedAt)
+	})
+	total := len(matched)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []managedProject{}, total, nil
+	}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+	page := make([]managedProject, end-offset)
+	copy(page, matched[offset:end])
+	return page, total, nil
+}
+
+func (repository *memoryManagedProjectRepository) Takedown(
+	_ context.Context, projectID string, now time.Time,
+) (managedProject, error) {
+	repository.Lock()
+	defer repository.Unlock()
+	project, found := repository.projects[projectID]
+	if !found {
+		return managedProject{}, errProjectNotFound
+	}
+	if project.Status == projectDownedStatus {
+		return managedProject{}, errProjectImmutable
+	}
+	project.Status, project.UpdatedAt = projectDownedStatus, now
 	repository.projects[projectID] = project
 	return project, nil
 }
@@ -489,6 +560,92 @@ func (repository *mysqlManagedProjectRepository) Review(
 	return project, nil
 }
 
+func (repository *mysqlManagedProjectRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM managed_projects GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("count managed projects by status: %w", err)
+	}
+	defer rows.Close()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scan project status count: %w", err)
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
+}
+
+func (repository *mysqlManagedProjectRepository) ListAll(
+	ctx context.Context, status string, limit, offset int,
+) ([]managedProject, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	where, arguments := "", []any{}
+	if status != "" {
+		where = ` WHERE status = ?`
+		arguments = append(arguments, status)
+	}
+	var total int
+	if err := repository.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM managed_projects`+where, arguments...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count all managed projects: %w", err)
+	}
+	pageArguments := append(append([]any{}, arguments...), limit, offset)
+	rows, err := repository.db.QueryContext(ctx, managedProjectSelect+where+
+		` ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?`, pageArguments...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list all managed projects: %w", err)
+	}
+	defer rows.Close()
+	result := make([]managedProject, 0)
+	for rows.Next() {
+		project, err := scanManagedProject(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		result = append(result, project)
+	}
+	return result, total, rows.Err()
+}
+
+func (repository *mysqlManagedProjectRepository) Takedown(
+	ctx context.Context, projectID string, now time.Time,
+) (managedProject, error) {
+	result, err := repository.db.ExecContext(ctx,
+		`UPDATE managed_projects SET status=?, updated_at=? WHERE id=? AND status<>?`,
+		projectDownedStatus, now, projectID, projectDownedStatus)
+	if err != nil {
+		return managedProject{}, fmt.Errorf("takedown managed project: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		var existing string
+		err := repository.db.QueryRowContext(ctx,
+			`SELECT status FROM managed_projects WHERE id=?`, projectID).Scan(&existing)
+		if errors.Is(err, sql.ErrNoRows) {
+			return managedProject{}, errProjectNotFound
+		}
+		if err != nil {
+			return managedProject{}, fmt.Errorf("classify takedown target: %w", err)
+		}
+		return managedProject{}, errProjectImmutable
+	}
+	project, err := scanManagedProject(repository.db.QueryRowContext(
+		ctx, managedProjectSelect+` WHERE id=?`, projectID))
+	if err != nil {
+		return managedProject{}, err
+	}
+	return project, nil
+}
+
 const managedProjectSelect = `SELECT id, owner_id, slug, name, summary, description,
 	category, tags, tech_stack, license, repository_url, cover_object_key,
 	document_object_key, code_object_key, current_version, status,
@@ -564,6 +721,9 @@ func authorProjectsHandler(writer http.ResponseWriter, request *http.Request) {
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"data": projects, "request_id": requestIDFromContext(request.Context())})
 	case http.MethodPost:
+		if !ensureNotBanned(writer, request, user.ID) {
+			return
+		}
 		var input managedProjectInput
 		if decodeJSONBody(request, &input) != nil || !validateManagedProjectInput(input) {
 			writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_project", "项目资料不完整或格式不正确")
@@ -701,7 +861,7 @@ func adminReviewActionHandler(writer http.ResponseWriter, request *http.Request)
 		writeManagedProjectError(writer, request, err)
 		return
 	}
-	auditAuth(request, "project_review_"+parts[1], user.Email, user.ID)
+	recordAdminAudit(request, user, "project_review_"+parts[1], parts[0], input.Reason)
 	if parts[1] == "approve" {
 		// 项目通过审核＝发帖成功，给作者加经验（每项目一次，幂等）。
 		awardExperienceBestEffort(project.OwnerID, xpActionPost, project.ID, xpPost)

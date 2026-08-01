@@ -21,6 +21,9 @@ func projectShareHandler(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	if !ensureNotBanned(writer, request, user.ID) {
+		return
+	}
 	projectID, found, err := resolveProjectID(request.Context(), request.PathValue("slug"))
 	if err != nil {
 		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "项目服务暂时不可用")

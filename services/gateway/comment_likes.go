@@ -197,6 +197,9 @@ func documentCommentLikeHandler(writer http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
+	if request.Method == http.MethodPost && !ensureNotBanned(writer, request, user.ID) {
+		return
+	}
 	commentID := request.PathValue("commentID")
 	// 校验评论确实属于当前文档，避免对任意 ID 点赞。
 	comments, err := commentRepositoryStore.List(request.Context(), document.ID)

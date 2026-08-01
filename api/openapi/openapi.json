@@ -687,6 +687,144 @@
         "responses": { "200": { "description": "审核后的项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } } }
       }
     },
+    "/api/v1/admin/stats": {
+      "get": {
+        "summary": "管理概览统计",
+        "operationId": "getAdminStats",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "用户、项目、评论等聚合统计", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminStatsResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "summary": "分页/搜索用户",
+        "operationId": "listAdminUsers",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "用户列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserListResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/users/{userID}/ban": {
+      "post": {
+        "summary": "封禁用户",
+        "operationId": "banUser",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "userID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BanUserRequest" } } } },
+        "responses": {
+          "204": { "description": "已封禁" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "delete": {
+        "summary": "解封用户",
+        "operationId": "unbanUser",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "userID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "已解封" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/admin/projects": {
+      "get": {
+        "summary": "跨状态列出所有项目",
+        "operationId": "listAdminProjects",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "项目列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminProjectListResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/projects/{projectID}/takedown": {
+      "post": {
+        "summary": "下架项目",
+        "operationId": "takedownProject",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "projectID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TakedownRequest" } } } },
+        "responses": {
+          "200": { "description": "下架后的项目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "description": "项目已下架", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/admin/api-keys": {
+      "get": {
+        "summary": "列出 API 密钥",
+        "operationId": "listApiKeys",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "密钥列表（不含明文）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiKeyListResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "summary": "签发 API 密钥",
+        "operationId": "issueApiKey",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IssueApiKeyRequest" } } } },
+        "responses": {
+          "201": { "description": "签发成功，明文仅返回一次", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IssuedApiKeyResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/api-keys/{keyID}": {
+      "delete": {
+        "summary": "撤销 API 密钥",
+        "operationId": "revokeApiKey",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "keyID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "已撤销" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/admin/audit": {
+      "get": {
+        "summary": "列出近期管理操作",
+        "operationId": "listAdminAudit",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } }],
+        "responses": {
+          "200": { "description": "审计条目", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminAuditListResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/open/projects": {
+      "get": {
+        "summary": "开放 API：已发布项目列表",
+        "operationId": "openListProjects",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "已发布项目列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedProjectListResponse" } } } },
+          "401": { "description": "缺少或无效的 API 密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "summary": "获取项目列表",
@@ -1177,11 +1315,26 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "open_resouce_session"
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Open API 密钥，形如 ork_<hex>"
       }
     },
     "responses": {
       "BadRequest": {
         "description": "查询参数无效",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "需要管理员权限",
         "content": {
           "application/json": {
             "schema": {
@@ -1202,6 +1355,128 @@
       }
     },
     "schemas": {
+      "AdminStatsResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "users": { "type": "integer" },
+              "projects_total": { "type": "integer" },
+              "projects_by_status": { "type": "object", "additionalProperties": { "type": "integer" } },
+              "pending_reviews": { "type": "integer" },
+              "comments": { "type": "integer" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AdminUser": {
+        "type": "object",
+        "required": ["id", "email", "display_name", "experience", "level", "is_admin", "created_at", "banned"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "display_name": { "type": "string" },
+          "experience": { "type": "integer" },
+          "level": { "type": "integer" },
+          "is_admin": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "banned": { "type": "boolean" }
+        }
+      },
+      "AdminUserListResponse": {
+        "type": "object",
+        "required": ["data", "total", "page", "page_size", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AdminUser" } },
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AdminProjectListResponse": {
+        "type": "object",
+        "required": ["data", "total", "page", "page_size", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ManagedProject" } },
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "BanUserRequest": {
+        "type": "object",
+        "properties": { "reason": { "type": "string", "maxLength": 500 } }
+      },
+      "TakedownRequest": {
+        "type": "object",
+        "properties": { "reason": { "type": "string", "maxLength": 500 } }
+      },
+      "ApiKey": {
+        "type": "object",
+        "required": ["id", "owner_id", "name", "prefix", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "owner_id": { "type": "string" },
+          "name": { "type": "string" },
+          "prefix": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "revoked_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "ApiKeyListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ApiKey" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "IssueApiKeyRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } }
+      },
+      "IssuedApiKeyResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["key", "plaintext"],
+            "properties": {
+              "key": { "$ref": "#/components/schemas/ApiKey" },
+              "plaintext": { "type": "string", "description": "明文密钥，仅在此响应中返回一次" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "AdminAuditEntry": {
+        "type": "object",
+        "required": ["id", "action", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "actor_id": { "type": "string" },
+          "actor_email": { "type": "string" },
+          "action": { "type": "string" },
+          "target": { "type": "string" },
+          "detail": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminAuditListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AdminAuditEntry" } },
+          "request_id": { "type": "string" }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [

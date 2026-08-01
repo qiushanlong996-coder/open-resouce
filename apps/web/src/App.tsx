@@ -119,6 +119,7 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
+import AdminConsole from './AdminConsole'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import { useHighlightedCode } from './codeHighlight'
@@ -376,6 +377,7 @@ function App() {
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
   const [reviewCenterOpen, setReviewCenterOpen] = useState(false)
+  const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -1270,6 +1272,9 @@ function App() {
                 {currentUser.is_admin && <button onClick={() => { setReviewCenterOpen(true); setAccountPanelOpen(false) }}>
                   项目审核中心
                 </button>}
+                {currentUser.is_admin && <button onClick={() => { setAdminConsoleOpen(true); setAccountPanelOpen(false) }}>
+                  管理控制台
+                </button>}
                 <button disabled={logoutSubmitting} onClick={() => void performLogout(false)}>退出当前设备</button>
                 <button disabled={logoutSubmitting} onClick={() => void performLogout(true)}>{logoutSubmitting ? '处理中…' : '退出所有设备'}</button>
               </div>
@@ -1362,6 +1367,10 @@ function App() {
       {reviewCenterOpen && currentUser?.is_admin && <ErrorBoundary label="项目审核中心"><ProjectReviewCenter
         onClose={() => setReviewCenterOpen(false)}
         onChanged={() => showToast('审核结果已保存')}
+      /></ErrorBoundary>}
+      {adminConsoleOpen && currentUser?.is_admin && <ErrorBoundary label="管理控制台"><AdminConsole
+        onClose={() => setAdminConsoleOpen(false)}
+        currentUser={currentUser}
       /></ErrorBoundary>}
     </div>
   )

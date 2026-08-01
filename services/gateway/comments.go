@@ -227,6 +227,19 @@ func (repository *memoryCommentRepository) Resolve(_ context.Context, documentID
 	return documentComment{}, false, nil
 }
 
+// CountAll 返回全部评论（含回复）数量，供管理概览统计。
+// 不在 commentRepository 接口内，管理端通过 commentCounter 断言可选调用。
+func (repository *memoryCommentRepository) CountAll(_ context.Context) (int, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	total := 0
+	// byDocument 以扁平切片存储评论与回复（回复带 ParentID），逐条计数即可。
+	for _, comments := range repository.byDocument {
+		total += len(comments)
+	}
+	return total, nil
+}
+
 var commentRepositoryStore commentRepository = newMemoryCommentRepository()
 
 var _ commentRepository = (*memoryCommentRepository)(nil)
@@ -290,6 +303,9 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 	case http.MethodPost:
 		actor, authenticated := requireCurrentUser(writer, request)
 		if !authenticated {
+			return
+		}
+		if !ensureNotBanned(writer, request, actor.ID) {
 			return
 		}
 		var input createCommentRequest
@@ -427,6 +443,9 @@ func documentCommentRepliesHandler(writer http.ResponseWriter, request *http.Req
 	}
 	actor, authenticated := requireCurrentUser(writer, request)
 	if !authenticated {
+		return
+	}
+	if !ensureNotBanned(writer, request, actor.ID) {
 		return
 	}
 
