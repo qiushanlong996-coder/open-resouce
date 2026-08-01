@@ -34,10 +34,19 @@ type projectCollaborator struct {
 
 type collaborationSnapshot struct {
 	ProjectID string
-	Data      []byte
-	Revision  uint64
-	UpdatedBy string
-	UpdatedAt time.Time
+	// DocumentID 为空串时表示项目正文（尚未建文档的项目）。
+	DocumentID string
+	Data       []byte
+	Revision   uint64
+	UpdatedBy  string
+	UpdatedAt  time.Time
+}
+
+// collaborationRoomKey 把项目与文档组合成协作房间键。
+// 协作必须按文档隔离，否则同一项目下多篇文档同时编辑会共用一个 Yjs
+// 文档而互相串内容。
+func collaborationRoomKey(projectID, documentID string) string {
+	return projectID + "\x00" + documentID
 }
 
 type collaborationRepository interface {
@@ -45,8 +54,8 @@ type collaborationRepository interface {
 	FindCollaboratorRole(context.Context, string, string) (string, bool, error)
 	UpsertCollaborator(context.Context, string, authUser, string, string, time.Time) (projectCollaborator, error)
 	DeleteCollaborator(context.Context, string, string) (bool, error)
-	LoadSnapshot(context.Context, string) (collaborationSnapshot, bool, error)
-	SaveSnapshot(context.Context, string, string, []byte, time.Time) (collaborationSnapshot, error)
+	LoadSnapshot(context.Context, string, string) (collaborationSnapshot, bool, error)
+	SaveSnapshot(context.Context, string, string, string, []byte, time.Time) (collaborationSnapshot, error)
 }
 
 type memoryCollaborationRepository struct {
@@ -116,25 +125,27 @@ func (repository *memoryCollaborationRepository) DeleteCollaborator(
 }
 
 func (repository *memoryCollaborationRepository) LoadSnapshot(
-	_ context.Context, projectID string,
+	_ context.Context, projectID, documentID string,
 ) (collaborationSnapshot, bool, error) {
 	repository.RLock()
 	defer repository.RUnlock()
-	snapshot, found := repository.snapshots[projectID]
+	snapshot, found := repository.snapshots[collaborationRoomKey(projectID, documentID)]
 	snapshot.Data = append([]byte(nil), snapshot.Data...)
 	return snapshot, found, nil
 }
 
 func (repository *memoryCollaborationRepository) SaveSnapshot(
-	_ context.Context, projectID, userID string, data []byte, now time.Time,
+	_ context.Context, projectID, documentID, userID string, data []byte, now time.Time,
 ) (collaborationSnapshot, error) {
 	repository.Lock()
 	defer repository.Unlock()
-	snapshot := repository.snapshots[projectID]
-	snapshot.ProjectID, snapshot.UpdatedBy, snapshot.UpdatedAt = projectID, userID, now
+	key := collaborationRoomKey(projectID, documentID)
+	snapshot := repository.snapshots[key]
+	snapshot.ProjectID, snapshot.DocumentID = projectID, documentID
+	snapshot.UpdatedBy, snapshot.UpdatedAt = userID, now
 	snapshot.Data = append(snapshot.Data[:0], data...)
 	snapshot.Revision++
-	repository.snapshots[projectID] = snapshot
+	repository.snapshots[key] = snapshot
 	return snapshot, nil
 }
 
@@ -230,13 +241,13 @@ func (repository *mysqlCollaborationRepository) DeleteCollaborator(
 }
 
 func (repository *mysqlCollaborationRepository) LoadSnapshot(
-	ctx context.Context, projectID string,
+	ctx context.Context, projectID, documentID string,
 ) (collaborationSnapshot, bool, error) {
 	var snapshot collaborationSnapshot
-	err := repository.db.QueryRowContext(ctx, `SELECT project_id, yjs_snapshot,
+	err := repository.db.QueryRowContext(ctx, `SELECT project_id, document_id, yjs_snapshot,
 		revision, updated_by, updated_at FROM project_collaboration_snapshots
-		WHERE project_id=?`, projectID).Scan(
-		&snapshot.ProjectID, &snapshot.Data, &snapshot.Revision,
+		WHERE project_id=? AND document_id=?`, projectID, documentID).Scan(
+		&snapshot.ProjectID, &snapshot.DocumentID, &snapshot.Data, &snapshot.Revision,
 		&snapshot.UpdatedBy, &snapshot.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -249,18 +260,18 @@ func (repository *mysqlCollaborationRepository) LoadSnapshot(
 }
 
 func (repository *mysqlCollaborationRepository) SaveSnapshot(
-	ctx context.Context, projectID, userID string, data []byte, now time.Time,
+	ctx context.Context, projectID, documentID, userID string, data []byte, now time.Time,
 ) (collaborationSnapshot, error) {
 	_, err := repository.db.ExecContext(ctx, `INSERT INTO project_collaboration_snapshots
-		(project_id, yjs_snapshot, revision, updated_by, updated_at)
-		VALUES (?, ?, 1, ?, ?)
+		(project_id, document_id, yjs_snapshot, revision, updated_by, updated_at)
+		VALUES (?, ?, ?, 1, ?, ?)
 		ON DUPLICATE KEY UPDATE yjs_snapshot=VALUES(yjs_snapshot),
 		revision=revision+1, updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)`,
-		projectID, data, userID, now)
+		projectID, documentID, data, userID, now)
 	if err != nil {
 		return collaborationSnapshot{}, fmt.Errorf("save collaboration snapshot: %w", err)
 	}
-	snapshot, found, err := repository.LoadSnapshot(ctx, projectID)
+	snapshot, found, err := repository.LoadSnapshot(ctx, projectID, documentID)
 	if err != nil || !found {
 		return collaborationSnapshot{}, fmt.Errorf("reload collaboration snapshot: %w", err)
 	}
@@ -451,9 +462,16 @@ type collaborationWireMessage struct {
 type collaborationClient struct {
 	connection *websocket.Conn
 	projectID  string
+	// documentID 为空串时协作目标是项目正文。
+	documentID string
 	user       authUser
 	clientID   uint64
 	writeMu    sync.Mutex
+}
+
+// roomKey 返回当前客户端所属的协作房间键。
+func (client *collaborationClient) roomKey() string {
+	return collaborationRoomKey(client.projectID, client.documentID)
 }
 
 func (client *collaborationClient) write(message collaborationWireMessage) error {
@@ -476,25 +494,28 @@ func newCollaborationHub() *collaborationHub {
 func (hub *collaborationHub) join(client *collaborationClient) {
 	hub.Lock()
 	defer hub.Unlock()
-	if hub.rooms[client.projectID] == nil {
-		hub.rooms[client.projectID] = make(map[*collaborationClient]struct{})
+	key := client.roomKey()
+	if hub.rooms[key] == nil {
+		hub.rooms[key] = make(map[*collaborationClient]struct{})
 	}
-	hub.rooms[client.projectID][client] = struct{}{}
+	hub.rooms[key][client] = struct{}{}
 }
 
 func (hub *collaborationHub) leave(client *collaborationClient) {
 	hub.Lock()
 	defer hub.Unlock()
-	delete(hub.rooms[client.projectID], client)
-	if len(hub.rooms[client.projectID]) == 0 {
-		delete(hub.rooms, client.projectID)
+	key := client.roomKey()
+	delete(hub.rooms[key], client)
+	if len(hub.rooms[key]) == 0 {
+		delete(hub.rooms, key)
 	}
 }
 
 func (hub *collaborationHub) broadcast(sender *collaborationClient, message collaborationWireMessage) {
+	key := sender.roomKey()
 	hub.RLock()
-	clients := make([]*collaborationClient, 0, len(hub.rooms[sender.projectID]))
-	for client := range hub.rooms[sender.projectID] {
+	clients := make([]*collaborationClient, 0, len(hub.rooms[key]))
+	for client := range hub.rooms[key] {
 		if client != sender {
 			clients = append(clients, client)
 		}
@@ -502,17 +523,22 @@ func (hub *collaborationHub) broadcast(sender *collaborationClient, message coll
 	hub.RUnlock()
 	for _, client := range clients {
 		if err := client.write(message); err != nil {
-			slog.Warn("collaboration broadcast failed", "project_id", sender.projectID, "error", err)
+			slog.Warn("collaboration broadcast failed", "project_id", sender.projectID,
+				"document_id", sender.documentID, "error", err)
 		}
 	}
 }
 
+// disconnectProjectUser 踢掉某用户在该项目**全部文档房间**中的连接。
+// 权限是项目级的，掉权后不能只断开其中一篇文档。
 func (hub *collaborationHub) disconnectProjectUser(projectID, userID string) {
 	hub.RLock()
 	clients := make([]*collaborationClient, 0)
-	for client := range hub.rooms[projectID] {
-		if client.user.ID == userID {
-			clients = append(clients, client)
+	for _, room := range hub.rooms {
+		for client := range room {
+			if client.projectID == projectID && client.user.ID == userID {
+				clients = append(clients, client)
+			}
 		}
 	}
 	hub.RUnlock()
@@ -522,6 +548,32 @@ func (hub *collaborationHub) disconnectProjectUser(projectID, userID string) {
 }
 
 var activeCollaborationHub = newCollaborationHub()
+
+// collaborationTarget 描述一次协作会话的编辑对象。
+type collaborationTarget struct {
+	// documentID 为空串表示项目正文。
+	documentID string
+	markdown   string
+}
+
+// resolveCollaborationTarget 把请求中的文档 slug 解析为协作对象。
+// slug 为空时继续协作项目正文，保证还没建文档的项目与旧客户端仍可用。
+func resolveCollaborationTarget(
+	ctx context.Context, project managedProject, documentSlug string,
+) (collaborationTarget, error) {
+	slug := strings.TrimSpace(documentSlug)
+	if slug == "" {
+		return collaborationTarget{markdown: project.Description}, nil
+	}
+	document, found, err := projectDocumentRepositoryStore.FindBySlug(ctx, project.ID, slug)
+	if err != nil {
+		return collaborationTarget{}, err
+	}
+	if !found {
+		return collaborationTarget{}, errDocumentNotFound
+	}
+	return collaborationTarget{documentID: document.ID, markdown: document.Markdown}, nil
+}
 
 func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
@@ -545,6 +597,17 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 		return
 	}
 
+	// 协作目标由 ?document=<slug> 指定；缺省为项目正文。
+	target, err := resolveCollaborationTarget(request.Context(), project, request.URL.Query().Get("document"))
+	if err != nil {
+		if errors.Is(err, errDocumentNotFound) {
+			writeAPIError(writer, request, http.StatusNotFound, "document_not_found", "文档不存在")
+			return
+		}
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "文档服务暂时不可用")
+		return
+	}
+
 	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionContextTakeover,
 	})
@@ -553,7 +616,10 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 		return
 	}
 	connection.SetReadLimit(maxCollaborationSnapshotBytes + (1 << 20))
-	client := &collaborationClient{connection: connection, projectID: project.ID, user: user}
+	client := &collaborationClient{
+		connection: connection, projectID: project.ID,
+		documentID: target.documentID, user: user,
+	}
 	activeCollaborationHub.join(client)
 	defer func() {
 		activeCollaborationHub.leave(client)
@@ -566,13 +632,13 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 	}()
 
 	snapshot, snapshotFound, err := collaborationRepositoryStore.LoadSnapshot(
-		context.Background(), project.ID)
+		context.Background(), project.ID, target.documentID)
 	if err != nil {
 		_ = client.write(collaborationWireMessage{Type: "error", Message: "协作文档加载失败"})
 		return
 	}
 	initial := collaborationWireMessage{
-		Type: "init", Markdown: project.Description, UserID: user.ID,
+		Type: "init", Markdown: target.markdown, UserID: user.ID,
 		DisplayName: user.DisplayName,
 	}
 	if snapshotFound {
@@ -610,17 +676,28 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 		case "snapshot":
 			data, err := base64.StdEncoding.DecodeString(message.Snapshot)
 			markdown := strings.TrimSpace(message.Markdown)
+			// 项目正文作为发布简介有最小长度要求；子文档允许更短、也允许更长。
+			minimum, maximum := 20, 50000
+			if target.documentID != "" {
+				minimum, maximum = 0, maxDocumentMarkdown
+			}
 			if err != nil || len(data) == 0 || len(data) > maxCollaborationSnapshotBytes ||
-				len(markdown) < 20 || len(markdown) > 50000 {
+				len(markdown) < minimum || len(markdown) > maximum {
 				_ = client.write(collaborationWireMessage{Type: "error", Message: "协作文档内容不正确"})
 				continue
 			}
 			now := time.Now().UTC()
 			saved, err := collaborationRepositoryStore.SaveSnapshot(
-				context.Background(), project.ID, user.ID, data, now)
+				context.Background(), project.ID, target.documentID, user.ID, data, now)
 			if err == nil {
-				_, err = managedProjectRepositoryStore.UpdatePublishedDescription(
-					context.Background(), project.ID, markdown, now)
+				// 正文回写到各自的存储位置，避免子文档覆盖项目简介。
+				if target.documentID != "" {
+					_, err = projectDocumentRepositoryStore.UpdateMarkdown(
+						context.Background(), project.ID, target.documentID, markdown, now)
+				} else {
+					_, err = managedProjectRepositoryStore.UpdatePublishedDescription(
+						context.Background(), project.ID, markdown, now)
+				}
 			}
 			if err != nil {
 				_ = client.write(collaborationWireMessage{Type: "error", Message: "协作文档保存失败"})

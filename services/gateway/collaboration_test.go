@@ -146,7 +146,7 @@ func TestCollaborationWebSocketSavesSnapshotAndPublishedMarkdown(t *testing.T) {
 		t.Fatalf("saved message = %#v", saved)
 	}
 
-	snapshot, found, err := collaborationRepositoryStore.LoadSnapshot(context.Background(), project.ID)
+	snapshot, found, err := collaborationRepositoryStore.LoadSnapshot(context.Background(), project.ID, "")
 	if err != nil || !found || snapshot.Revision != 1 {
 		t.Fatalf("snapshot = %#v found=%v err=%v", snapshot, found, err)
 	}

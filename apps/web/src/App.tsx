@@ -608,9 +608,15 @@ function App() {
     }
   }
 
+  // updatePublishedDocument 把协作保存的正文回写到前端状态。
+  // 当前打开了具体文档时只更新该文档，不能拿文档正文覆盖项目简介。
   const updatePublishedDocument = (markdown: string) => {
     const slug = selectedProjectSlug.current
     if (!slug) return
+    if (activeDocument) {
+      setActiveDocument((current) => current ? { ...current, markdown } : current)
+      return
+    }
     setSelectedProject((current) => current?.slug === slug ? { ...current, description: markdown } : current)
     setCatalogProjects((current) => current.map((project) =>
       project.slug === slug ? { ...project, description: markdown } : project))
@@ -1448,7 +1454,8 @@ function ProjectDetail({
 
   const startCollaboration = () => {
     if (!currentUser || !collaborationAccess?.can_edit) return
-    setCollaborationInitialMarkdown(project.description)
+    // 协作目标跟随当前打开的文档；未打开文档时才编辑项目正文。
+    setCollaborationInitialMarkdown(activeDocument?.markdown ?? project.description)
     setCollaborationEditing(true)
   }
 
@@ -1478,15 +1485,15 @@ function ProjectDetail({
       {collaborationEditing && currentUser ? (
         <section className="detail-collaboration-workspace">
           <header>
-            <div><span className="section-kicker">LIVE DOCUMENT / {collaborationAccess?.role.toUpperCase()}</span><h2>协作编辑已发布文档</h2><p>修改会实时同步给其他编辑者，并自动更新公开项目文档。</p></div>
+            <div><span className="section-kicker">LIVE DOCUMENT / {collaborationAccess?.role.toUpperCase()}</span><h2>协作编辑《{activeDocument?.title ?? project.name}》</h2><p>修改会实时同步给其他编辑者，并自动更新公开内容。每篇文档有独立的协作房间。</p></div>
             <button className="outline-button" onClick={() => setCollaborationEditing(false)}><X size={15} /> 退出编辑</button>
           </header>
           <Suspense fallback={<div className="collaboration-loading">正在加载实时协作编辑器…</div>}>
             <CollaborativeMarkdownEditor
-              slug={project.slug}
+              slug={activeDocument ? `${project.slug}/${activeDocument.slug}` : project.slug}
               initialMarkdown={collaborationInitialMarkdown}
               user={currentUser}
-              webSocketURL={getProjectCollaborationWebSocketURL(project.slug)}
+              webSocketURL={getProjectCollaborationWebSocketURL(project.slug, activeDocument?.slug)}
               onSaved={(markdown) => {
                 onPublishedDocumentSaved(markdown)
                 showToast('协作文档已保存')

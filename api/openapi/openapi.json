@@ -707,11 +707,16 @@
     "/api/v1/projects/{slug}/collaboration/ws": {
       "get": {
         "summary": "升级为项目文档实时协作 WebSocket",
-        "description": "使用当前 HttpOnly 会话完成鉴权。连接后交换 init、update、awareness、snapshot、saved 与 presence-* JSON 消息；二进制 Yjs 更新使用 Base64 编码。",
+        "description": "使用当前 HttpOnly 会话完成鉴权。连接后交换 init、update、awareness、snapshot、saved 与 presence-* JSON 消息；二进制 Yjs 更新使用 Base64 编码。协作房间按文档隔离，不同文档的编辑与快照互不影响。",
         "operationId": "connectProjectCollaboration",
         "security": [{ "cookieAuth": [] }],
         "parameters": [
-          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          {
+            "name": "document", "in": "query", "required": false,
+            "description": "目标文档 slug。缺省时协作项目正文，保证尚未建文档的项目仍可编辑。",
+            "schema": { "type": "string", "maxLength": 160 }
+          }
         ],
         "responses": {
           "101": { "description": "协议升级成功" },

@@ -618,11 +618,13 @@ export function deleteProjectCollaborator(slug: string, userID: string) {
   )
 }
 
-export function getProjectCollaborationWebSocketURL(slug: string) {
+// getProjectCollaborationWebSocketURL 返回协作通道地址。
+// documentSlug 为空时协作项目正文；否则协作指定文档，服务端据此分房间。
+export function getProjectCollaborationWebSocketURL(slug: string, documentSlug?: string) {
   const base = apiBaseURL ? new URL(apiBaseURL, window.location.origin) : new URL(window.location.origin)
   base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
   base.pathname = `/api/v1/projects/${encodeURIComponent(slug)}/collaboration/ws`
-  base.search = ''
+  base.search = documentSlug ? `?document=${encodeURIComponent(documentSlug)}` : ''
   base.hash = ''
   return base.toString()
 }
