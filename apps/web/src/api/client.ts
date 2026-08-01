@@ -237,6 +237,26 @@ export type CommentResponse = {
   request_id: string
 }
 
+export type AppNotification = {
+  id: string
+  actor_id?: string
+  actor_name?: string
+  type: 'comment.replied' | 'project.approved' | 'project.rejected'
+  title: string
+  body?: string
+  project_slug?: string
+  document_slug?: string
+  comment_id?: string
+  read_at?: string
+  created_at: string
+}
+
+export type NotificationListResponse = {
+  data: AppNotification[]
+  unread_count: number
+  request_id: string
+}
+
 type ApiErrorBody = {
   error?: {
     code?: string
@@ -399,6 +419,24 @@ export async function uploadProjectFile(file: File, kind: 'image' | 'document' |
 
 export function getFavorites(signal?: AbortSignal) {
   return apiRequest<FavoriteListResponse>('/api/v1/favorites', { signal })
+}
+
+export function getNotifications(signal?: AbortSignal) {
+  return apiRequest<NotificationListResponse>('/api/v1/notifications', { signal })
+}
+
+export function markNotificationRead(notificationID: string) {
+  return apiRequest<void>(`/api/v1/notifications/${encodeURIComponent(notificationID)}/read`, {
+    method: 'POST',
+  })
+}
+
+export function markAllNotificationsRead() {
+  return apiRequest<void>('/api/v1/notifications/read-all', { method: 'POST' })
+}
+
+export function getNotificationEventsURL() {
+  return `${apiBaseURL}/api/v1/notifications/events`
 }
 
 export function setProjectFavorite(projectSlug: string, favorite: boolean) {

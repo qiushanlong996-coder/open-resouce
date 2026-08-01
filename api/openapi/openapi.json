@@ -292,6 +292,55 @@
         }
       }
     },
+    "/api/v1/notifications": {
+      "get": {
+        "summary": "获取当前用户站内通知",
+        "operationId": "listNotifications",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "按时间倒序的通知列表和未读数量，最多返回 50 条", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/notifications/events": {
+      "get": {
+        "summary": "订阅当前用户通知实时事件",
+        "description": "Server-Sent Events 通知流。事件名为 notification，数据为 Notification 对象；通知类型包括 comment.replied、project.approved、project.rejected。",
+        "operationId": "streamNotificationEvents",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "Server-Sent Events 通知事件流", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/notifications/read-all": {
+      "post": {
+        "summary": "将当前用户全部通知标记为已读",
+        "operationId": "markAllNotificationsRead",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "全部通知已标记为已读" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/notifications/{notificationID}/read": {
+      "post": {
+        "summary": "将单条通知标记为已读",
+        "operationId": "markNotificationRead",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "notificationID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "204": { "description": "通知已标记为已读，重复操作幂等" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "通知不存在或不属于当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/files/presign-upload": {
       "post": {
         "summary": "获取 OSS 文件直传授权",
@@ -1527,6 +1576,32 @@
         "required": ["data", "request_id"],
         "properties": {
           "data": { "type": "array", "items": { "type": "string" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": ["id", "type", "title", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "actor_id": { "type": "string" },
+          "actor_name": { "type": "string" },
+          "type": { "type": "string", "enum": ["comment.replied", "project.approved", "project.rejected"] },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "project_slug": { "type": "string" },
+          "document_slug": { "type": "string" },
+          "comment_id": { "type": "string" },
+          "read_at": { "type": "string", "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "NotificationListResponse": {
+        "type": "object",
+        "required": ["data", "unread_count", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } },
+          "unread_count": { "type": "integer", "minimum": 0 },
           "request_id": { "type": "string" }
         }
       },

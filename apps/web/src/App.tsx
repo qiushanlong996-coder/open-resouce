@@ -57,6 +57,8 @@ import {
   getCurrentUser,
   getDocuments,
   getFavorites,
+  getNotificationEventsURL,
+  getNotifications,
   getProject,
   getProjectCollaborationAccess,
   getProjectCollaborators,
@@ -66,6 +68,8 @@ import {
   login,
   logout,
   logoutAll,
+  markAllNotificationsRead,
+  markNotificationRead,
   register,
   requestPasswordReset,
   reviewProject,
@@ -82,6 +86,7 @@ import {
   type DocumentComment as APIDocumentComment,
   type DocumentDetail,
   type DocumentNode,
+  type AppNotification,
   type AuthSession,
   type AuthUser,
   type ManagedProject,
@@ -360,6 +365,11 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(() => new URLSearchParams(window.location.search).has('reset_token'))
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [accountPanelOpen, setAccountPanelOpen] = useState(false)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false)
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
   const [reviewCenterOpen, setReviewCenterOpen] = useState(false)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
@@ -433,6 +443,47 @@ function App() {
       .catch(() => setCurrentUser(null))
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) {
+      setNotifications([])
+      setUnreadNotificationCount(0)
+      setNotificationPanelOpen(false)
+      return
+    }
+    const controller = new AbortController()
+    setNotificationsLoading(true)
+    getNotifications(controller.signal)
+      .then((response) => {
+        setNotifications(response.data)
+        setUnreadNotificationCount(response.unread_count)
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+      })
+      .finally(() => setNotificationsLoading(false))
+
+    const eventSource = new EventSource(getNotificationEventsURL(), { withCredentials: true })
+    let refreshController: AbortController | null = null
+    const refreshNotifications = () => {
+      refreshController?.abort()
+      refreshController = new AbortController()
+      getNotifications(refreshController.signal)
+        .then((response) => {
+          setNotifications(response.data)
+          setUnreadNotificationCount(response.unread_count)
+        })
+        .catch(() => {})
+    }
+    eventSource.addEventListener('notification', refreshNotifications)
+
+    return () => {
+      controller.abort()
+      refreshController?.abort()
+      eventSource.removeEventListener('notification', refreshNotifications)
+      eventSource.close()
+    }
+  }, [currentUser])
 
   useEffect(() => {
     if (!currentUser || !accountPanelOpen) return
@@ -539,6 +590,32 @@ function App() {
   const showToast = (message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2400)
+  }
+
+  const markAllRead = async () => {
+    setMarkingNotifications(true)
+    try {
+      await markAllNotificationsRead()
+      const readAt = new Date().toISOString()
+      setNotifications((current) => current.map((entry) => entry.read_at ? entry : { ...entry, read_at: readAt }))
+      setUnreadNotificationCount(0)
+    } catch {
+      showToast('通知标记失败，请稍后重试')
+    } finally {
+      setMarkingNotifications(false)
+    }
+  }
+
+  const openNotification = async (entry: AppNotification) => {
+    if (entry.read_at) return
+    try {
+      await markNotificationRead(entry.id)
+      const readAt = new Date().toISOString()
+      setNotifications((current) => current.map((item) => item.id === entry.id ? { ...item, read_at: readAt } : item))
+      setUnreadNotificationCount((count) => Math.max(0, count - 1))
+    } catch {
+      showToast('通知标记失败，请稍后重试')
+    }
   }
 
   const updatePublishedDocument = (markdown: string) => {
@@ -901,7 +978,59 @@ function App() {
             </button>
             {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); setThemePanelOpen(false) }} onSkinChange={setSkin} />}
           </div>
-          <button className="icon-button quiet" title="通知" aria-label="通知" onClick={() => showToast('暂时没有新的通知')}><Bell size={18} /></button>
+          <div className="notification-control">
+            <button
+              className="icon-button quiet notification-button"
+              title="通知"
+              aria-label={unreadNotificationCount > 0 ? `通知，${unreadNotificationCount} 条未读` : '通知'}
+              aria-expanded={currentUser ? notificationPanelOpen : undefined}
+              onClick={() => {
+                if (!currentUser) {
+                  setLoginOpen(true)
+                  showToast('登录后可查看通知')
+                  return
+                }
+                setNotificationPanelOpen((open) => !open)
+              }}
+            >
+              <Bell size={18} />
+              {unreadNotificationCount > 0 && (
+                <span className="notification-badge">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>
+              )}
+            </button>
+            {currentUser && notificationPanelOpen && (
+              <div className="notification-popover" aria-label="站内通知">
+                <div className="notification-heading">
+                  <strong>通知</strong>
+                  <button
+                    disabled={markingNotifications || unreadNotificationCount === 0}
+                    onClick={() => void markAllRead()}
+                  >
+                    {markingNotifications ? '处理中…' : '全部已读'}
+                  </button>
+                </div>
+                {notificationsLoading ? (
+                  <div className="notification-empty">正在加载通知…</div>
+                ) : notifications.length === 0 ? (
+                  <div className="notification-empty">暂时没有通知</div>
+                ) : (
+                  <div className="notification-list">
+                    {notifications.map((entry) => (
+                      <button
+                        key={entry.id}
+                        className={`notification-row ${entry.read_at ? '' : 'is-unread'}`}
+                        onClick={() => void openNotification(entry)}
+                      >
+                        <span className="notification-row-title">{entry.title}</span>
+                        {entry.body && <span className="notification-row-body">{entry.body}</span>}
+                        <span className="notification-row-time">{new Date(entry.created_at).toLocaleString('zh-CN')}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <div className="account-control">
             <button
               className="login-button"

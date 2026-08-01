@@ -109,7 +109,12 @@ func TestMySQLFavoriteRepositoryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open MySQL: %v", err)
 	}
-	defer database.Close()
+	// 关闭必须通过 t.Cleanup 注册：defer 早于 t.Cleanup 执行，会让后面的清理语句在连接关闭后静默失败。
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 
 	userID := "user-favorite-" + newRequestID()
 	_, err = database.ExecContext(
@@ -121,7 +126,9 @@ func TestMySQLFavoriteRepositoryIntegration(t *testing.T) {
 		t.Fatalf("create integration user: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = database.Exec(`DELETE FROM users WHERE id = ?`, userID)
+		if _, err := database.Exec(`DELETE FROM users WHERE id = ?`, userID); err != nil {
+			t.Errorf("clean up integration user: %v", err)
+		}
 	})
 
 	repository := newMySQLFavoriteRepository(database)

@@ -18,15 +18,24 @@ func TestMySQLAuthRepositoryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open MySQL: %v", err)
 	}
-	defer database.Close()
+	// 关闭必须通过 t.Cleanup 注册：defer 早于 t.Cleanup 执行，会让后面的清理语句在连接关闭后静默失败。
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 
 	userID := "user-integration-" + newRequestID()
 	email := userID + "@example.com"
 	sessionID := "session-integration-" + newRequestID()
 	tokenHash := sessionTokenHash("integration-" + newRequestID())
 	t.Cleanup(func() {
-		_, _ = database.Exec(`DELETE FROM auth_sessions WHERE id = ?`, sessionID)
-		_, _ = database.Exec(`DELETE FROM users WHERE id = ?`, userID)
+		if _, err := database.Exec(`DELETE FROM auth_sessions WHERE id = ?`, sessionID); err != nil {
+			t.Errorf("clean up integration session: %v", err)
+		}
+		if _, err := database.Exec(`DELETE FROM users WHERE id = ?`, userID); err != nil {
+			t.Errorf("clean up integration user: %v", err)
+		}
 	})
 
 	repository := newMySQLAuthRepository(database)

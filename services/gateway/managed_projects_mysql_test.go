@@ -16,7 +16,12 @@ func TestMySQLManagedProjectIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	// 关闭必须通过 t.Cleanup 注册：defer 早于 t.Cleanup 执行，会让后面的清理语句在连接关闭后静默失败。
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	ctx := context.Background()
 	userID := "user-project-test-" + newRequestID()
 	email := userID + "@example.com"
@@ -27,7 +32,9 @@ func TestMySQLManagedProjectIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(context.Background(), `DELETE FROM users WHERE id=?`, userID)
+		if _, err := db.ExecContext(context.Background(), `DELETE FROM users WHERE id=?`, userID); err != nil {
+			t.Errorf("clean up integration user: %v", err)
+		}
 	})
 	repository := newMySQLManagedProjectRepository(db)
 	input := managedProjectInput{

@@ -443,6 +443,10 @@ func documentCommentRepliesHandler(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	publishCommentEvent("reply.created", document.ID, request.PathValue("commentID"), reply.ID)
+	notifyCommentReply(
+		request.Context(), request.PathValue("slug"), request.PathValue("documentSlug"),
+		document.ID, request.PathValue("commentID"), reply,
+	)
 	writeJSON(writer, http.StatusCreated, commentResponse{
 		Data: reply, RequestID: requestIDFromContext(request.Context()),
 	})

@@ -76,6 +76,10 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/oauth/{provider}/start", oauthStartHandler)
 	mux.HandleFunc("/api/v1/auth/oauth/{provider}/callback", oauthCallbackHandler)
 	mux.HandleFunc("/api/v1/favorites", favoritesHandler)
+	mux.HandleFunc("/api/v1/notifications", notificationsHandler)
+	mux.HandleFunc("/api/v1/notifications/events", notificationEventsHandler)
+	mux.HandleFunc("/api/v1/notifications/read-all", notificationsReadAllHandler)
+	mux.HandleFunc("/api/v1/notifications/{notificationID}/read", notificationReadHandler)
 	mux.HandleFunc("/api/v1/files/presign-upload", objectUploadAuthorizationHandler)
 	mux.HandleFunc("/api/v1/files/author-asset", authorInlineAssetHandler)
 	mux.HandleFunc("/api/v1/author/projects", authorProjectsHandler)
@@ -177,6 +181,7 @@ func main() {
 		favoriteRepositoryStore = newMySQLFavoriteRepository(database)
 		managedProjectRepositoryStore = newMySQLManagedProjectRepository(database)
 		collaborationRepositoryStore = newMySQLCollaborationRepository(database)
+		notificationRepositoryStore = newMySQLNotificationRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
 	}
