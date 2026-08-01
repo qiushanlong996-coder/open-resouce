@@ -62,6 +62,7 @@ import {
   getNotifications,
   getProject,
   getProjectCodeArchiveURL,
+  getProjectCodeFileDownloadURL,
   getProjectCodeFile,
   getProjectCodeTree,
   getProjectCollaborationAccess,
@@ -115,6 +116,7 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
+import { useHighlightedCode } from './codeHighlight'
 import './App.css'
 
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
@@ -1916,6 +1918,10 @@ function CodeView({ project, onCopy, showToast }: {
   }
 
   const lines = activeFile ? activeFile.content.replace(/\n$/, '').split('\n') : []
+  const highlighted = useHighlightedCode(
+    activeFile ? activeFile.content.replace(/\n$/, '') : '',
+    activeFile?.language ?? '',
+  )
 
   return (
     <section className="code-view">
@@ -1958,10 +1964,16 @@ function CodeView({ project, onCopy, showToast }: {
           <span>{activeFile ? `${activeFile.path}　·　${formatFileSize(activeFile.size)}` : '选择左侧文件查看源码'}</span>
           <span className="source-head-actions">
             {activeFile && (
-              <a className="tool-button" href={getProjectCodeArchiveURL(project.slug)}>
-                <Download size={14} /> 下载代码包
+              <a
+                className="tool-button"
+                href={getProjectCodeFileDownloadURL(project.slug, activeFile.path)}
+              >
+                <Download size={14} /> 下载此文件
               </a>
             )}
+            <a className="tool-button" href={getProjectCodeArchiveURL(project.slug)}>
+              <Download size={14} /> 下载代码包
+            </a>
             <button className="tool-button" disabled={!activeFile} onClick={copyContent}>
               <Copy size={14} /> 复制代码
             </button>
@@ -1976,14 +1988,15 @@ function CodeView({ project, onCopy, showToast }: {
               <div className="source-notice">文件较大，仅显示前 512 KB，完整内容请下载代码包。</div>
             )}
             <pre className="source-code">
-              <code>
-                {lines.map((line, index) => (
-                  <span className="source-line" key={index}>
-                    <span className="line-number">{String(index + 1).padStart(2, '0')}</span>
-                    <span className={`line-content language-${activeFile.language}`}>{line || ' '}</span>
-                  </span>
-                ))}
-              </code>
+              {/* 行号独立成列，与高亮内容按行高对齐，无需切分高亮后的 HTML。 */}
+              <span className="source-gutter" aria-hidden="true">
+                {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
+              </span>
+              {/* highlight.js 会转义输入，回退路径也做了转义，此处不会注入 HTML。 */}
+              <code
+                className={`hljs language-${activeFile.language}`}
+                dangerouslySetInnerHTML={{ __html: highlighted }}
+              />
             </pre>
           </>
         )}

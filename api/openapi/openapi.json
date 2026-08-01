@@ -389,6 +389,35 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/code/file/download": {
+      "get": {
+        "summary": "下载代码包内的单个文件",
+        "description": "与预览接口不同：返回完整内容（不截断），也允许二进制文件。统一以 application/octet-stream 强制下载并带 nosniff，避免仓库内的 HTML/SVG 在同源下被浏览器执行。上限 16 MB。",
+        "operationId": "downloadProjectCodeFile",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          {
+            "name": "path", "in": "query", "required": true,
+            "description": "代码包内的相对路径。拒绝 `..`、绝对路径与反斜杠。",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 400 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件内容",
+            "headers": {
+              "Content-Disposition": { "description": "attachment，带 UTF-8 编码的文件名", "schema": { "type": "string" } },
+              "X-Content-Type-Options": { "description": "固定为 nosniff", "schema": { "type": "string" } }
+            },
+            "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "400": { "description": "文件路径无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目、代码包或文件不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "405": { "description": "请求方法不受支持", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "413": { "description": "文件超过 16 MB 上限，请下载完整代码包", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/code/file": {
       "get": {
         "summary": "读取代码包中的单个文本文件",

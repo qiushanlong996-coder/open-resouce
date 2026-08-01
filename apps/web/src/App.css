@@ -181,6 +181,25 @@
 .source-notice { padding: 9px 12px; color: #8a5a12; background: #fdf5e6; font-size: 10px; line-height: 1.5; }
 .source-line { display: block; white-space: pre; }
 .line-content { white-space: pre; }
+
+/* 代码预览：行号独立成列，与高亮内容按相同行高对齐。
+   内容不折行（white-space: pre），所以每行恰好占一个可视行，两列天然对齐。 */
+.source-code { display: flex; gap: 16px; align-items: flex-start; }
+.source-gutter { flex: 0 0 auto; display: flex; flex-direction: column; color: var(--text-tertiary); text-align: right; user-select: none; }
+.source-gutter span { display: block; font-variant-numeric: tabular-nums; }
+.source-code > code { min-width: 0; flex: 1; display: block; white-space: pre; overflow-x: auto; background: transparent; }
+/* highlight.js 配色，与阅读页代码块保持一致，但用亮底。 */
+.source-code .hljs-comment, .source-code .hljs-quote { color: #8d8d95; font-style: italic; }
+.source-code .hljs-keyword, .source-code .hljs-built_in, .source-code .hljs-type { color: #8250df; }
+.source-code .hljs-string, .source-code .hljs-regexp { color: #0a7a3d; }
+.source-code .hljs-number, .source-code .hljs-literal { color: #b35309; }
+.source-code .hljs-title, .source-code .hljs-function, .source-code .hljs-section { color: #0b69b7; }
+.source-code .hljs-attr, .source-code .hljs-attribute, .source-code .hljs-variable { color: #953800; }
+.source-code .hljs-meta, .source-code .hljs-symbol { color: #6e6e76; }
+.source-code .hljs-deletion { color: #b42318; }
+.source-code .hljs-addition { color: #0a7a3d; }
+.source-code .hljs-emphasis { font-style: italic; }
+.source-code .hljs-strong { font-weight: 600; }
 .notification-button { position: relative; }
 .notification-badge { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; display: inline-grid; place-items: center; color: #fff; background: #d92d20; border-radius: 999px; font-size: 8px; font-weight: 600; line-height: 1; }
 .notification-popover { position: absolute; top: 46px; right: 0; z-index: 35; width: 300px; padding: 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 38px rgba(0,0,0,.16); }

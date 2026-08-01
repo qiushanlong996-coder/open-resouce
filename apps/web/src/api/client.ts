@@ -540,6 +540,13 @@ export function getProjectCodeFile(projectSlug: string, filePath: string, signal
   )
 }
 
+// getProjectCodeFileDownloadURL 返回代码包内单个文件的下载地址。
+// 服务端返回完整内容（不受预览截断限制）并强制以附件形式下载。
+export function getProjectCodeFileDownloadURL(projectSlug: string, filePath: string) {
+  return `${apiBaseURL}/api/v1/projects/${encodeURIComponent(projectSlug)}/code/file/download` +
+    `?path=${encodeURIComponent(filePath)}`
+}
+
 export function getProjectCodeArchiveURL(projectSlug: string) {
   return `${apiBaseURL}/api/v1/projects/${encodeURIComponent(projectSlug)}/resources/code`
 }

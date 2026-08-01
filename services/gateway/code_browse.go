@@ -11,8 +11,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,8 @@ const (
 	maxBrowsableArchiveBytes = 64 << 20
 	// 单个文件预览上限，超出部分截断并标记 truncated。
 	maxCodeFilePreviewBytes = 512 << 10
+	// 单文件下载上限。比预览宽松得多，但仍需设限以防解压炸弹。
+	maxDownloadableFileBytes = 16 << 20
 	// 目录树条目上限，防止超大仓库拖垮前端渲染。
 	maxCodeTreeEntries = 2000
 	// 解压后累计读取上限，防止 zip 炸弹。
@@ -337,6 +341,27 @@ func (archive *codeArchive) readFile(target string) (codeFile, error) {
 }
 
 func (archive *codeArchive) extract(target string) ([]byte, bool, error) {
+	return archive.extractWith(target, readLimited)
+}
+
+// extractDownload 取出完整文件内容用于下载。
+func (archive *codeArchive) extractDownload(target string) ([]byte, error) {
+	for _, entry := range archive.entries {
+		if !entry.Dir && entry.Path == target {
+			content, _, err := archive.extractWith(target, func(source io.Reader) ([]byte, bool, error) {
+				data, err := readWhole(source)
+				return data, false, err
+			})
+			return content, err
+		}
+	}
+	return nil, errCodeFileNotFound
+}
+
+// extractWith 定位归档内条目并交由 read 决定读取策略（预览截断或完整读取）。
+func (archive *codeArchive) extractWith(
+	target string, read func(io.Reader) ([]byte, bool, error),
+) ([]byte, bool, error) {
 	switch archive.format {
 	case "zip":
 		reader, err := zip.NewReader(bytes.NewReader(archive.raw), int64(len(archive.raw)))
@@ -353,7 +378,7 @@ func (archive *codeArchive) extract(target string) ([]byte, bool, error) {
 				return nil, false, errArchiveMalformed
 			}
 			defer handle.Close()
-			return readLimited(handle)
+			return read(handle)
 		}
 	case "tar.gz", "tar":
 		stream, err := tarStream(archive.raw, archive.format == "tar.gz")
@@ -373,7 +398,7 @@ func (archive *codeArchive) extract(target string) ([]byte, bool, error) {
 			if !ok || header.Typeflag != tar.TypeReg || cleaned != target {
 				continue
 			}
-			return readLimited(reader)
+			return read(reader)
 		}
 	}
 	return nil, false, errCodeFileNotFound
@@ -388,6 +413,19 @@ func readLimited(source io.Reader) ([]byte, bool, error) {
 		return content[:maxCodeFilePreviewBytes], true, nil
 	}
 	return content, false, nil
+}
+
+// readWhole 读取完整文件用于下载，不受预览截断限制。
+// 仍然设上限，避免单个恶意条目解压后占满内存。
+func readWhole(source io.Reader) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(source, maxDownloadableFileBytes+1))
+	if err != nil {
+		return nil, errArchiveMalformed
+	}
+	if len(content) > maxDownloadableFileBytes {
+		return nil, errObjectTooLarge
+	}
+	return content, nil
 }
 
 func codeLanguage(filePath string) string {
@@ -498,6 +536,46 @@ func projectCodeFileHandler(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, codeFileResponse{
 		Data: file, RequestID: requestIDFromContext(request.Context()),
 	})
+}
+
+// projectCodeFileDownloadHandler 下载代码包内的单个文件。
+// 与预览不同：返回完整内容（不截断），也允许二进制文件。
+func projectCodeFileDownloadHandler(writer http.ResponseWriter, request *http.Request) {
+	archive, ok := resolveProjectCodeArchive(writer, request)
+	if !ok {
+		return
+	}
+	target, valid := safeArchivePath(request.URL.Query().Get("path"))
+	if !valid {
+		writeAPIError(writer, request, http.StatusBadRequest, "invalid_query", "文件路径无效")
+		return
+	}
+	content, err := archive.extractDownload(target)
+	switch {
+	case errors.Is(err, errCodeFileNotFound):
+		writeAPIError(writer, request, http.StatusNotFound, "code_file_not_found", "代码文件不存在")
+		return
+	case errors.Is(err, errObjectTooLarge):
+		writeAPIError(writer, request, http.StatusRequestEntityTooLarge, "code_file_too_large",
+			"文件过大，请下载完整代码包")
+		return
+	case err != nil:
+		writeCodeArchiveError(writer, request, err)
+		return
+	}
+
+	// 统一用 octet-stream 并强制下载，避免仓库里的 HTML/SVG 在同源下被浏览器执行。
+	fileName := path.Base(target)
+	writer.Header().Set("Content-Type", "application/octet-stream")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.Header().Set("Content-Disposition",
+		"attachment; filename*=UTF-8''"+url.PathEscape(fileName))
+	writer.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	writer.WriteHeader(http.StatusOK)
+	if _, err := writer.Write(content); err != nil {
+		slog.WarnContext(request.Context(), "code file download write failed",
+			"request_id", requestIDFromContext(request.Context()), "error", err)
+	}
 }
 
 // resolveProjectCodeArchive 校验请求方法、项目发布状态和代码包存在性，并返回解析后的归档。
