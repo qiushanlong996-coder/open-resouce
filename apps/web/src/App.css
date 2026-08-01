@@ -558,3 +558,62 @@
 .account-summary { display: flex; align-items: center; gap: 11px; }
 .account-summary-text { min-width: 0; }
 .account-summary-text strong { display: inline-block; }
+
+/* ===== 用户等级：高等级动画与 6 级特效（增量 3） ===== */
+/* 用 @property 让 conic 渐变旋转，只转渐变角度、不转圆角方块本身。
+   不支持 @property 的浏览器会退化为静态彩色环，仍然好看。 */
+@property --lv-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+
+/* L4-6：头像框由静态描边升级为渐变环。inner 遮住中心，露出四周形成光环。 */
+.level-avatar.lvl-4 .level-avatar-frame,
+.level-avatar.lvl-5 .level-avatar-frame,
+.level-avatar.lvl-6 .level-avatar-frame { border: none; }
+.level-avatar.lvl-4 .level-avatar-frame {
+  background: conic-gradient(from var(--lv-angle), #6f5bff, #b9a7ff, #6f5bff);
+  animation: level-ring-spin 6s linear infinite;
+}
+.level-avatar.lvl-5 .level-avatar-frame {
+  background: conic-gradient(from var(--lv-angle), #f5a623, #ffe0a3, #f5a623);
+  animation: level-ring-spin 5s linear infinite;
+}
+.level-avatar.lvl-6 .level-avatar-frame {
+  background: conic-gradient(from var(--lv-angle), #ff4d6d, #ff9a5a, #ffd24d, #4dd0ff, #ff4d6d);
+  animation: level-ring-spin 3.6s linear infinite;
+}
+@keyframes level-ring-spin { to { --lv-angle: 360deg; } }
+
+/* 6 级额外的呼吸光晕，突出“最高级”。 */
+.level-avatar.lvl-6 { animation: level-glow 2.4s ease-in-out infinite; }
+@keyframes level-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 109, .0), 0 0 6px 1px rgba(255, 154, 90, .35); }
+  50% { box-shadow: 0 0 0 3px rgba(255, 77, 109, .18), 0 0 12px 3px rgba(255, 154, 90, .55); }
+}
+
+/* 6 级昵称：渐变流光文字。 */
+.nickname-legendary {
+  background: linear-gradient(90deg, #ff4d6d, #ff9a5a, #ffd24d, #ff4d6d);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+  animation: nickname-shimmer 4s linear infinite;
+}
+@keyframes nickname-shimmer { to { background-position: 200% 0; } }
+
+/* 6 级评论卡片：渐变描边 + 淡淡的角标底纹。 */
+.comment-card.legendary {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--surface, #fff), var(--surface, #fff)) padding-box,
+    linear-gradient(120deg, #ff4d6d, #ff9a5a, #ffd24d) border-box;
+}
+
+/* 尊重降低动态偏好：关掉所有等级动画，退化为静态彩色环/渐变。 */
+@media (prefers-reduced-motion: reduce) {
+  .level-avatar.lvl-4 .level-avatar-frame,
+  .level-avatar.lvl-5 .level-avatar-frame,
+  .level-avatar.lvl-6 .level-avatar-frame,
+  .level-avatar.lvl-6,
+  .nickname-legendary { animation: none; }
+}
