@@ -481,6 +481,52 @@
         }
       }
     },
+    "/api/v1/projects/{slug}/assistant": {
+      "post": {
+        "summary": "向项目 AI 助手提问（SSE 流式回答）",
+        "description": "基于当前已发布项目的文档内容回答问题，答案以 Server-Sent Events 逐段流式返回（event: delta/done/error）。需要登录。未配置 ANTHROPIC_API_KEY 时返回 503 assistant_unavailable。",
+        "operationId": "askProjectAssistant",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["question"],
+                "properties": {
+                  "question": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "用户问题" },
+                  "history": {
+                    "type": "array",
+                    "description": "可选的近期对话历史",
+                    "items": {
+                      "type": "object",
+                      "required": ["role", "content"],
+                      "properties": {
+                        "role": { "type": "string", "enum": ["user", "assistant"] },
+                        "content": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Server-Sent Events 回答流（event: delta/done/error）", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "description": "问题不合法", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "请求过于频繁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "上游模型服务错误", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "AI 助手未启用（assistant_unavailable）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/resources/{kind}": {
       "get": {
         "summary": "下载已发布项目的 OSS 资源",

@@ -111,6 +111,7 @@ import {
   type ProjectSummary,
   type ServiceInfo,
 } from './api/client'
+import AiAssistant from './AiAssistant'
 import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
 import {
   BilibiliEmbed,
@@ -1397,6 +1398,12 @@ function App() {
         onClose={() => setAdminConsoleOpen(false)}
         currentUser={currentUser}
       /></ErrorBoundary>}
+      <AiAssistant
+        projectSlug={selectedProject?.slug ?? null}
+        projectName={selectedProject?.name ?? null}
+        currentUser={currentUser}
+        onRequestLogin={() => setLoginOpen(true)}
+      />
     </div>
   )
 }

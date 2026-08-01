@@ -731,6 +731,14 @@ export function getNotificationEventsURL() {
   return `${apiBaseURL}/api/v1/notifications/events`
 }
 
+// AI 项目助手。后端以 SSE 流式返回增量文本，前端用 fetch + ReadableStream 读取，
+// 因此这里只暴露端点地址，具体的流式解析放在组件里（需要携带 cookie 与请求体）。
+export type AssistantChatMessage = { role: 'user' | 'assistant'; content: string }
+
+export function getProjectAssistantURL(projectSlug: string) {
+  return `${apiBaseURL}/api/v1/projects/${encodeURIComponent(projectSlug)}/assistant`
+}
+
 export function setProjectFavorite(projectSlug: string, favorite: boolean) {
   return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/favorite`, {
     method: favorite ? 'POST' : 'DELETE',
