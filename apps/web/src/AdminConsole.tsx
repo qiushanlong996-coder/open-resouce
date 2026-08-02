@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, LayoutDashboard, Users, FolderKanban, KeyRound, ScrollText, Search, RefreshCw, Copy,
-  ClipboardCheck, ExternalLink,
+  ClipboardCheck, ExternalLink, Flag,
 } from 'lucide-react'
 import {
   getAdminStats, getAdminUsers, banUser, unbanUser,
   getAdminProjects, takedownProject, getApiKeys, issueApiKey, revokeApiKey, getAdminAudit,
-  getAdminUserStats, getPendingProjectReviews, reviewProject,
+  getAdminUserStats, getPendingProjectReviews, reviewProject, getAdminReports, resolveReport,
   type AuthUser, type AdminStats, type AdminUser, type ManagedProject, type ApiKey, type AdminAuditEntry,
-  type AdminUserStats,
+  type AdminUserStats, type ContentReport,
 } from './api/client'
 import './admin.css'
 
-type ModuleID = 'overview' | 'reviews' | 'users' | 'projects' | 'apikeys' | 'audit'
+type ModuleID = 'overview' | 'reviews' | 'reports' | 'users' | 'projects' | 'apikeys' | 'audit'
 
 const MODULES: { id: ModuleID; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
   { id: 'reviews', label: '内容审核', icon: ClipboardCheck },
+  { id: 'reports', label: '举报处理', icon: Flag },
   { id: 'users', label: '用户管理', icon: Users },
   { id: 'projects', label: '项目管理', icon: FolderKanban },
   { id: 'apikeys', label: '开放 API', icon: KeyRound },
@@ -64,6 +65,7 @@ export default function AdminConsole({ onClose, currentUser }: { onClose: () => 
           <div className="admin-body">
             {active === 'overview' && <OverviewPanel />}
             {active === 'reviews' && <ReviewsPanel />}
+            {active === 'reports' && <ReportsPanel />}
             {active === 'users' && <UsersPanel currentUser={currentUser} />}
             {active === 'projects' && <ProjectsPanel />}
             {active === 'apikeys' && <ApiKeysPanel />}
@@ -298,6 +300,99 @@ function ReviewsPanel() {
               </article>
             ))}
           </div>}
+    </div>
+  )
+}
+
+const REPORT_STATUS_LABELS: Record<string, string> = {
+  open: '未处理', resolved: '已处理', dismissed: '已驳回',
+}
+
+const REPORT_TARGET_LABELS: Record<string, string> = {
+  project: '项目', comment: '评论',
+}
+
+function reportStatusBadgeClass(status: string) {
+  if (status === 'resolved') return 'ok'
+  if (status === 'dismissed') return 'muted'
+  return 'warn'
+}
+
+// ReportsPanel 内容举报处理：按状态筛选举报，处理（resolve）或驳回（dismiss），
+// 操作后刷新列表。复用 admin.css 的表格与徽章样式。
+function ReportsPanel() {
+  const [reports, setReports] = useState<ContentReport[]>([])
+  const [status, setStatus] = useState('open')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true)
+    setError('')
+    getAdminReports(status || undefined, signal)
+      .then((response) => setReports(response.data))
+      .catch((value) => { if (!signal?.aborted) setError(errorMessage(value, '举报列表加载失败')) })
+      .finally(() => { if (!signal?.aborted) setLoading(false) })
+  }, [status])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
+  const handle = async (report: ContentReport, action: 'resolve' | 'dismiss') => {
+    setBusy(report.id)
+    setError('')
+    try {
+      await resolveReport(report.id, action)
+      load()
+    } catch (value) {
+      setError(errorMessage(value, '举报处理失败'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-toolbar">
+        <select className="admin-btn" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">全部状态</option>
+          {Object.entries(REPORT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <button className="admin-btn" onClick={() => load()} aria-label="刷新"><RefreshCw size={15} /></button>
+        <span className="admin-toolbar-note">处理后举报将从未处理队列移出。</span>
+      </div>
+      {error && <div className="admin-error">{error}</div>}
+      {loading ? <div className="admin-loading">正在加载…</div>
+        : reports.length === 0 ? <div className="admin-empty">没有匹配的举报。</div>
+          : <table className="admin-table">
+            <thead>
+              <tr><th>时间</th><th>举报人</th><th>类型</th><th>目标</th><th>原因</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {reports.map((report) => (
+                <tr key={report.id}>
+                  <td>{formatDate(report.created_at)}</td>
+                  <td className="admin-mono">{report.reporter_email || report.reporter_name || report.reporter_id}</td>
+                  <td>{REPORT_TARGET_LABELS[report.target_type] ?? report.target_type}</td>
+                  <td className="admin-mono" title={report.target_id}>{report.target_id}</td>
+                  <td>{report.reason}{report.detail && <small className="admin-mono" style={{ display: 'block' }}>{report.detail}</small>}</td>
+                  <td><span className={`admin-badge ${reportStatusBadgeClass(report.status)}`}>{REPORT_STATUS_LABELS[report.status] ?? report.status}</span></td>
+                  <td>
+                    {report.status === 'open'
+                      ? <span className="admin-inline-confirm">
+                        <button className="admin-btn primary" disabled={busy === report.id} onClick={() => void handle(report, 'resolve')}>处理</button>
+                        <button className="admin-btn" disabled={busy === report.id} onClick={() => void handle(report, 'dismiss')}>驳回</button>
+                      </span>
+                      : <span className="admin-badge muted">已归档</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
     </div>
   )
 }

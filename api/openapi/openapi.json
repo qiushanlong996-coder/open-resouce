@@ -928,6 +928,51 @@
         }
       }
     },
+    "/api/v1/reports": {
+      "post": {
+        "summary": "提交内容举报",
+        "description": "登录用户举报项目或评论。项目目标可传 slug 或内部 ID，服务端解析为稳定 ID 后存储；评论目标传评论 ID。对同一目标已有未处理举报时幂等返回 200。",
+        "operationId": "submitReport",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateReportRequest" } } } },
+        "responses": {
+          "201": { "description": "举报已创建", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentReportResponse" } } } },
+          "200": { "description": "已存在未处理的相同举报，幂等返回", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentReportResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "description": "举报人已被封禁", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "举报对象类型或字段无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/admin/reports": {
+      "get": {
+        "summary": "列出内容举报",
+        "operationId": "listAdminReports",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "status", "in": "query", "description": "按状态筛选", "schema": { "type": "string", "enum": ["open", "resolved", "dismissed"] } }],
+        "responses": {
+          "200": { "description": "举报列表（含举报人信息），按时间倒序", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentReportListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/admin/reports/{reportID}/{action}": {
+      "post": {
+        "summary": "处理或驳回内容举报",
+        "operationId": "handleAdminReport",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "reportID", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "action", "in": "path", "required": true, "description": "resolve 处理 / dismiss 驳回", "schema": { "type": "string", "enum": ["resolve", "dismiss"] } }
+        ],
+        "responses": {
+          "200": { "description": "举报状态已更新", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportActionResponse" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/open/projects": {
       "get": {
         "summary": "开放 API：已发布项目列表",
@@ -1663,6 +1708,65 @@
         "required": ["data", "request_id"],
         "properties": {
           "data": { "type": "array", "items": { "$ref": "#/components/schemas/AdminAuditEntry" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CreateReportRequest": {
+        "type": "object",
+        "required": ["target_type", "target_id", "reason"],
+        "properties": {
+          "target_type": { "type": "string", "enum": ["project", "comment"] },
+          "target_id": { "type": "string", "description": "项目 slug 或 ID，或评论 ID" },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "detail": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "ContentReport": {
+        "type": "object",
+        "required": ["id", "reporter_id", "target_type", "target_id", "reason", "status", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "reporter_id": { "type": "string" },
+          "reporter_email": { "type": "string" },
+          "reporter_name": { "type": "string" },
+          "target_type": { "type": "string", "enum": ["project", "comment"] },
+          "target_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "detail": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "resolved", "dismissed"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "resolved_at": { "type": "string", "format": "date-time", "nullable": true },
+          "resolver_id": { "type": "string", "nullable": true }
+        }
+      },
+      "ContentReportResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "object" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ContentReportListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ContentReport" } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ReportActionResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["id", "status"],
+            "properties": {
+              "id": { "type": "string" },
+              "status": { "type": "string", "enum": ["resolved", "dismissed"] }
+            }
+          },
           "request_id": { "type": "string" }
         }
       },

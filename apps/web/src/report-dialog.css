@@ -1,0 +1,114 @@
+.report-dialog {
+  width: min(420px, 100%);
+  padding: 28px;
+  position: relative;
+  color: var(--ink);
+  background: var(--surface, #fff);
+  border: 1px solid var(--line);
+  box-shadow: 0 25px 80px rgba(0, 0, 0, .22);
+}
+
+.report-dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.report-dialog .report-target {
+  margin: 0 0 18px;
+  color: var(--text-tertiary, #77777d);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-reasons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.report-reasons legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--text-tertiary, #77777d);
+  font-size: 12px;
+}
+
+.report-reasons label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.report-reasons label.active {
+  border-color: var(--ink);
+  background: var(--surface-strong, rgba(0, 0, 0, .04));
+}
+
+.report-reasons input {
+  accent-color: var(--ink);
+}
+
+.report-detail {
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface, #fff);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.report-error {
+  margin-top: 10px;
+  color: #d64545;
+  font-size: 12px;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.report-actions button {
+  height: 38px;
+  padding: 0 18px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.report-cancel {
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.report-submit {
+  color: #fff;
+  background: var(--ink, #1d1d1f);
+  border: 1px solid var(--ink, #1d1d1f);
+}
+
+.report-actions button:disabled {
+  opacity: .6;
+  cursor: default;
+}

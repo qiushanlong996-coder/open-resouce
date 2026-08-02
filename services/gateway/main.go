@@ -77,6 +77,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/api-keys/{keyID}", userAPIKeyHandler)
 	mux.HandleFunc("/api/v1/auth/oauth/{provider}/start", oauthStartHandler)
 	mux.HandleFunc("/api/v1/auth/oauth/{provider}/callback", oauthCallbackHandler)
+	mux.HandleFunc("/api/v1/reports", reportsHandler)
 	mux.HandleFunc("/api/v1/favorites", favoritesHandler)
 	mux.HandleFunc("/api/v1/notifications", notificationsHandler)
 	mux.HandleFunc("/api/v1/notifications/events", notificationEventsHandler)
@@ -103,6 +104,8 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/api-keys/{keyID}", adminAPIKeyHandler)
 	mux.HandleFunc("/api/v1/admin/audit", adminAuditHandler)
 	mux.HandleFunc("/api/v1/admin/user-stats", adminUserStatsHandler)
+	mux.HandleFunc("/api/v1/admin/reports", adminReportsHandler)
+	mux.HandleFunc("/api/v1/admin/reports/{reportID}/{action}", adminReportActionHandler)
 	mux.HandleFunc("/api/v1/open/projects", openProjectsHandler)
 	mux.HandleFunc("/api/v1/open/projects/{projectID}/submit", openProjectSubmitHandler)
 	mux.HandleFunc("/api/v1/open/projects/{projectID}/documents", openProjectDocumentsHandler)
@@ -216,6 +219,7 @@ func main() {
 		banRepositoryStore = newMySQLBanRepository(database)
 		apiKeyRepositoryStore = newMySQLAPIKeyRepository(database)
 		adminAuditRepositoryStore = newMySQLAdminAuditRepository(database)
+		contentReportRepositoryStore = newMySQLContentReportRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
 	}
