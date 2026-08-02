@@ -1,0 +1,100 @@
+/* 作者文档编辑器工具栏增强：分隔线、字数统计、保存状态徽标。
+   仅新增样式，复用 App.css 中 .markdown-toolbar 的按钮外观与主题变量。 */
+
+/* 工具栏内的分组分隔线，弱化视觉、纯装饰。 */
+.markdown-toolbar .toolbar-divider {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
+/* 上传中提示，恢复原先 :last-child 的弱化样式（现在不再是最后一个子元素）。 */
+.markdown-toolbar .toolbar-upload-hint {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+/* 禁用态的工具栏按钮（如富文本/预览模式下的撤销/重做）。 */
+.markdown-toolbar > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.markdown-toolbar > button:disabled:hover {
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+/* 右侧状态区：字数统计 + 保存徽标，自动靠右，窄屏时换行仍可见。 */
+.editor-toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding-left: 6px;
+}
+
+.editor-word-count {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 保存状态徽标：始终可见（工具栏 sticky），带小圆点 + 相对时间。 */
+.editor-save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.editor-save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.editor-save-badge.is-idle {
+  color: var(--text-tertiary);
+  background: var(--soft);
+}
+.editor-save-badge.is-dirty {
+  color: #a36c18;
+  background: color-mix(in srgb, #d19a3e 16%, transparent);
+  border-color: color-mix(in srgb, #d19a3e 32%, transparent);
+}
+.editor-save-badge.is-saving {
+  color: var(--blue);
+  background: var(--soft-blue);
+}
+.editor-save-badge.is-saving .editor-save-dot {
+  animation: editor-save-pulse 1.1s ease-in-out infinite;
+}
+.editor-save-badge.is-saved {
+  color: #278744;
+  background: color-mix(in srgb, #35a653 14%, transparent);
+}
+
+@keyframes editor-save-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  .editor-toolbar-status {
+    gap: 7px;
+    padding-left: 3px;
+  }
+  /* 窄屏隐藏字符/阅读时间的次要部分，保留核心字数。 */
+  .editor-word-count .editor-word-count-extra {
+    display: none;
+  }
+}

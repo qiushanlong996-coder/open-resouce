@@ -1,4 +1,4 @@
-import { isValidElement, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { isValidElement, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
@@ -146,6 +146,7 @@ import {
 import { useHighlightedCode } from './codeHighlight'
 import { themes, applyTheme, isThemeId, type ThemeId } from './themes'
 import './App.css'
+import './editorEnhancements.css'
 
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
 const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
@@ -2467,6 +2468,27 @@ const emptyManagedProject: ManagedProjectInput = {
   cover_object_key: '', document_object_key: '', code_object_key: '', current_version: '0.1.0',
 }
 
+// 统计正文的字数（中文字符 + 英文/数字词）、字符数与预计阅读时长（约 300 字/分钟）。
+function analyzeEditorContent(text: string) {
+  const cjk = (text.match(/[㐀-䶿一-鿿豈-﫿]/g) ?? []).length
+  const words = (text.match(/[A-Za-z0-9]+/g) ?? []).length
+  const wordCount = cjk + words
+  const charCount = Array.from(text).length
+  const readingMinutes = wordCount === 0 ? 0 : Math.max(1, Math.round(wordCount / 300))
+  return { wordCount, charCount, readingMinutes }
+}
+
+// 把保存时间格式化成中文相对时间，用于“已保存 · …”徽标。
+function formatSavedRelative(timestamp: number, now: number) {
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000))
+  if (seconds < 60) return '刚刚'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
 function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   usePageScrollLock()
   const [projects, setProjects] = useState<ManagedProject[]>([])
@@ -2491,6 +2513,24 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   const richEditorRef = useRef<RichMarkdownEditorHandle | null>(null)
   // 记录已载入草稿的文档 id，用于区分“切换文档”和“保存后回写”。
   const loadedDocumentID = useRef('')
+  // 最近一次保存成功的时间戳，配合 nowTick 刷新相对时间徽标。
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  // Markdown 源码 textarea 的撤销/重做历史（富文本模式沿用编辑器自带撤销）。
+  const undoStack = useRef<string[]>([])
+  const redoStack = useRef<string[]>([])
+  const lastRecordRef = useRef<{ key: string; time: number }>({ key: '', time: 0 })
+  const [undoCount, setUndoCount] = useState(0)
+  const [redoCount, setRedoCount] = useState(0)
+
+  // 当前编辑目标：选中文档时编辑文档正文，否则编辑项目正文。
+  const editingKey = activeDocument?.id ?? activeProject?.id ?? 'new-project'
+  const sourceValue = activeDocument ? documentDraft : input.description
+  const applySourceValue = (value: string) => {
+    if (activeDocument) setDocumentDraft(value.slice(0, 200000))
+    else setInput((current) => ({ ...current, description: value.slice(0, 50000) }))
+  }
+  const contentStats = useMemo(() => analyzeEditorContent(sourceValue), [sourceValue])
 
   const showAuthorToast = (message: string) => {
     setAuthorToast(message)
@@ -2506,6 +2546,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     loadedDocumentID.current = documentID
     setDocumentDraft(activeDocument?.markdown ?? '')
     setDocumentSaveState('idle')
+    setSavedAt(null)
   }, [activeDocument])
 
   // 文档正文自动保存，与项目草稿保存互不影响。
@@ -2523,6 +2564,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
         .then((response) => {
           setActiveDocument(response.data)
           setDocumentSaveState('saved')
+          setSavedAt(Date.now())
           setDocumentTreeToken((current) => current + 1)
         })
         .catch((reason: unknown) => {
@@ -2532,6 +2574,21 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     }, 1200)
     return () => window.clearTimeout(timer)
   }, [activeDocument, activeProject, documentDraft])
+
+  // 每 30s 刷新一次，用于“已保存 · N 分钟前”的相对时间显示。
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 30000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  // 切换编辑目标（文档/项目）时清空撤销历史，避免跨文档撤销。
+  useEffect(() => {
+    undoStack.current = []
+    redoStack.current = []
+    lastRecordRef.current = { key: editingKey, time: 0 }
+    setUndoCount(0)
+    setRedoCount(0)
+  }, [editingKey])
 
   const loadProjects = () => {
     setLoading(true)
@@ -2562,6 +2619,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
           setActiveProject(response.data)
           setProjects((current) => current.map((project) => project.id === response.data.id ? response.data : project))
           setSaveState('saved')
+          setSavedAt(Date.now())
         })
         .catch((reason: unknown) => {
           setSaveState('idle')
@@ -2585,6 +2643,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
         : await createAuthorProject(projectPayload)
       setActiveProject(response.data)
       setSaveState('saved')
+      setSavedAt(Date.now())
       loadProjects()
       onChanged()
     } catch (reason) {
@@ -2622,6 +2681,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     setTagsText(project.tags.join(', '))
     setStackText(project.tech_stack.join(', '))
     setSaveState('idle')
+    setSavedAt(null)
     setError('')
   }
 
@@ -2631,7 +2691,72 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     setTagsText('')
     setStackText('')
     setSaveState('idle')
+    setSavedAt(null)
     setError('')
+  }
+
+  // 记录一次撤销快照。coalesce=true 时把连续输入合并成一步（间隔 <500ms 只记第一次）。
+  const recordHistory = (previous: string, coalesce = true) => {
+    const now = Date.now()
+    const last = lastRecordRef.current
+    if (coalesce && last.key === editingKey && undoStack.current.length > 0 && now - last.time < 500) {
+      lastRecordRef.current = { key: editingKey, time: now }
+      return
+    }
+    undoStack.current.push(previous)
+    if (undoStack.current.length > 200) undoStack.current.shift()
+    redoStack.current = []
+    lastRecordRef.current = { key: editingKey, time: now }
+    setUndoCount(undoStack.current.length)
+    setRedoCount(0)
+  }
+
+  const restoreCaretToEnd = (value: string) => {
+    window.requestAnimationFrame(() => {
+      const textarea = editorRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(value.length, value.length)
+    })
+  }
+
+  const undoSource = () => {
+    if (undoStack.current.length === 0) return
+    const previous = undoStack.current.pop() as string
+    redoStack.current.push(sourceValue)
+    lastRecordRef.current = { key: editingKey, time: 0 }
+    applySourceValue(previous)
+    setUndoCount(undoStack.current.length)
+    setRedoCount(redoStack.current.length)
+    restoreCaretToEnd(previous)
+  }
+
+  const redoSource = () => {
+    if (redoStack.current.length === 0) return
+    const nextValue = redoStack.current.pop() as string
+    undoStack.current.push(sourceValue)
+    lastRecordRef.current = { key: editingKey, time: 0 }
+    applySourceValue(nextValue)
+    setUndoCount(undoStack.current.length)
+    setRedoCount(redoStack.current.length)
+    restoreCaretToEnd(nextValue)
+  }
+
+  const handleSourceChange = (value: string) => {
+    recordHistory(sourceValue)
+    applySourceValue(value)
+  }
+
+  const handleSourceKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(event.metaKey || event.ctrlKey)) return
+    const key = event.key.toLowerCase()
+    if (key === 'z' && !event.shiftKey) {
+      event.preventDefault()
+      undoSource()
+    } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+      event.preventDefault()
+      redoSource()
+    }
   }
 
   const insertMarkdown = (before: string, after = '', placeholder = '') => {
@@ -2642,14 +2767,16 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     }
     const textarea = editorRef.current
     if (!textarea) {
-      update('description', input.description + markdown)
+      recordHistory(sourceValue, false)
+      applySourceValue(sourceValue + markdown)
       return
     }
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
-    const selected = input.description.slice(start, end) || placeholder
-    const next = input.description.slice(0, start) + before + selected + after + input.description.slice(end)
-    update('description', next)
+    const selected = sourceValue.slice(start, end) || placeholder
+    const next = sourceValue.slice(0, start) + before + selected + after + sourceValue.slice(end)
+    recordHistory(sourceValue, false)
+    applySourceValue(next)
     window.requestAnimationFrame(() => {
       textarea.focus()
       textarea.setSelectionRange(start + before.length, start + before.length + selected.length)
@@ -2721,6 +2848,24 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
     rejected: '已驳回', archived: '已下架',
   })[status]
 
+  // 保存状态徽标：未保存改动 / 保存中… / 已保存(相对时间) / 草稿。
+  const currentSaveState = activeDocument ? documentSaveState : saveState
+  const isDirty = activeDocument
+    ? documentDraft !== (activeDocument.markdown ?? '')
+    : activeProject
+      ? input.description !== (activeProject.description ?? '')
+      : input.description.trim().length > 0
+  const saveBadge = currentSaveState === 'saving'
+    ? { key: 'saving', label: '保存中…' }
+    : isDirty
+      ? { key: 'dirty', label: '未保存改动' }
+      : savedAt !== null
+        ? { key: 'saved', label: `已保存 · ${formatSavedRelative(savedAt, nowTick)}` }
+        : currentSaveState === 'saved'
+          ? { key: 'saved', label: '已保存' }
+          : { key: 'idle', label: '草稿' }
+  const historyEnabled = editorMode === 'write' || editorMode === 'split'
+
   return <div className="modal-backdrop" role="presentation">
     <section className="author-center document-author-center" role="dialog" aria-modal="true" aria-label="作者项目中心">
       <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
@@ -2763,21 +2908,40 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
           </div>
           {!activeDocument && <input className="document-summary-input" required minLength={10} maxLength={300} value={input.summary} onChange={(event) => update('summary', event.target.value)} placeholder="用一句话介绍这个项目…" />}
           <div className="markdown-toolbar">
-            <button type="button" onClick={() => insertMarkdown('**', '**', '粗体')}>B</button>
-            <button type="button" onClick={() => insertMarkdown('*', '*', '斜体')}><em>I</em></button>
-            <button type="button" onClick={() => insertMarkdown('\n## ', '\n', '小标题')}>H2</button>
-            <button type="button" onClick={() => insertMarkdown('\n- ', '\n', '列表项')}>• 列表</button>
-            <button type="button" onClick={() => insertMarkdown('\n> ', '\n', '引用内容')}>❝ 引用</button>
-            <button type="button" onClick={() => insertMarkdown('\n```text\n', '\n```\n', '代码')}>{'</>'}</button>
-            <button type="button" onClick={() => insertMarkdown('\n```mermaid\ngraph TD\n  A[开始] --> B[完成]\n```\n')}>图表</button>
+            <button type="button" title="撤销 (Ctrl/⌘+Z)" aria-label="撤销" disabled={!historyEnabled || undoCount === 0} onClick={undoSource}>↶</button>
+            <button type="button" title="重做 (Ctrl/⌘+Shift+Z)" aria-label="重做" disabled={!historyEnabled || redoCount === 0} onClick={redoSource}>↷</button>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <button type="button" title="粗体" aria-label="粗体" onClick={() => insertMarkdown('**', '**', '粗体')}>B</button>
+            <button type="button" title="斜体" aria-label="斜体" onClick={() => insertMarkdown('*', '*', '斜体')}><em>I</em></button>
+            <button type="button" title="行内代码" aria-label="行内代码" onClick={() => insertMarkdown('`', '`', '代码')}>{'`码`'}</button>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <button type="button" title="小标题" aria-label="小标题" onClick={() => insertMarkdown('\n## ', '\n', '小标题')}>H2</button>
+            <button type="button" title="无序列表" aria-label="无序列表" onClick={() => insertMarkdown('\n- ', '\n', '列表项')}>• 列表</button>
+            <button type="button" title="任务列表" aria-label="任务列表" onClick={() => insertMarkdown('\n- [ ] ', '\n', '待办事项')}>☑ 任务</button>
+            <button type="button" title="引用" aria-label="引用" onClick={() => insertMarkdown('\n> ', '\n', '引用内容')}>❝ 引用</button>
+            <button type="button" title="分割线" aria-label="分割线" onClick={() => insertMarkdown('\n\n---\n\n')}>— 分割线</button>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <button type="button" title="链接" aria-label="链接" onClick={() => insertMarkdown('[', '](https://)', '链接文字')}>🔗 链接</button>
+            <button type="button" title="表格" aria-label="表格" onClick={() => insertMarkdown('\n| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |\n')}>▦ 表格</button>
+            <button type="button" title="代码块" aria-label="代码块" onClick={() => insertMarkdown('\n```text\n', '\n```\n', '代码')}>{'</>'}</button>
+            <button type="button" title="图表" aria-label="图表" onClick={() => insertMarkdown('\n```mermaid\ngraph TD\n  A[开始] --> B[完成]\n```\n')}>图表</button>
+            <span className="toolbar-divider" aria-hidden="true" />
             <label className="toolbar-upload">图片<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadInline(file, 'image') }} /></label>
             <label className="toolbar-upload">附件<input type="file" accept=".pdf,.md,.txt,.zip,.tar,.gz,.tgz" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadInline(file, /\.(zip|tar|gz|tgz)$/i.test(file.name) ? 'code' : 'document') }} /></label>
             <EmojiPicker onSelect={(emoji) => insertMarkdown(emoji)} />
-            {uploading?.startsWith('inline-') && <span>上传中…</span>}
+            {uploading?.startsWith('inline-') && <span className="toolbar-upload-hint">上传中…</span>}
+            <div className="editor-toolbar-status">
+              <span className="editor-word-count" aria-label={`字数 ${contentStats.wordCount}，字符 ${contentStats.charCount}`}>
+                {contentStats.wordCount} 字<span className="editor-word-count-extra"> · {contentStats.charCount} 字符{contentStats.readingMinutes > 0 ? ` · 约 ${contentStats.readingMinutes} 分钟` : ''}</span>
+              </span>
+              <span className={`editor-save-badge is-${saveBadge.key}`} role="status" aria-live="polite">
+                <span className="editor-save-dot" aria-hidden="true" />{saveBadge.label}
+              </span>
+            </div>
           </div>
           <div className={`markdown-workspace mode-${editorMode}`}>
             {editorMode === 'rich' && <Suspense fallback={<div className="rich-editor-loading">正在加载富文本编辑器…</div>}><RichMarkdownEditor ref={richEditorRef} documentKey={activeDocument?.id ?? activeProject?.id ?? 'new-project'} value={activeDocument ? documentDraft : input.description} onChange={(markdown) => activeDocument ? setDocumentDraft(markdown.slice(0, 200000)) : update('description', markdown.slice(0, 50000))} onUploadImage={uploadRichImage} onUploadFile={uploadRichFile} onNotify={showAuthorToast} /></Suspense>}
-            {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required={!activeDocument} minLength={activeDocument ? 0 : 20} maxLength={activeDocument ? 200000 : 50000} value={activeDocument ? documentDraft : input.description} onChange={(event) => activeDocument ? setDocumentDraft(event.target.value) : update('description', event.target.value)} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
+            {(editorMode === 'write' || editorMode === 'split') && <textarea ref={editorRef} className="markdown-source" required={!activeDocument} minLength={activeDocument ? 0 : 20} maxLength={activeDocument ? 200000 : 50000} value={activeDocument ? documentDraft : input.description} onChange={(event) => handleSourceChange(event.target.value)} onKeyDown={handleSourceKeyDown} placeholder={'# 项目介绍\n\n从这里开始，用 Markdown 编写你的项目文档…'} />}
             {(editorMode === 'preview' || editorMode === 'split') && <MarkdownCanvas markdown={activeDocument ? documentDraft : input.description} authorPreview />}
           </div>
           <details className="project-metadata">
