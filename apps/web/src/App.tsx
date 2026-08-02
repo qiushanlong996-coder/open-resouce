@@ -132,6 +132,7 @@ import OpenApiDocs from './OpenApiDocs'
 import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { UserProfile } from './UserProfile'
+import { AvatarFramePicker } from './AvatarFramePicker'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import {
   BackToTopButton,
@@ -191,6 +192,7 @@ type CommentItem = {
   blockId: string
   authorId: string
   authorLevel: number
+  authorFrame: string
   user: string
   initials: string
   time: string
@@ -352,6 +354,7 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
     blockId: comment.block_id,
     authorId: comment.author_id ?? '',
     authorLevel: comment.author_level ?? 1,
+    authorFrame: comment.author_frame ?? '',
     user: comment.author,
     initials: comment.author.slice(0, 1),
     time: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(comment.created_at)),
@@ -417,6 +420,7 @@ function App() {
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [accessKeyOpen, setAccessKeyOpen] = useState(false)
+  const [avatarFramePickerOpen, setAvatarFramePickerOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
@@ -1296,7 +1300,7 @@ function App() {
             {currentUser && accountPanelOpen && (
               <div className="account-popover">
                 <div className="account-summary">
-                  <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} />
+                  <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} frame={currentUser.avatar_frame} />
                   <div className="account-summary-text">
                     <strong className={currentUser.level >= 6 ? 'nickname-legendary' : ''}>{currentUser.display_name}</strong>
                     <LevelBadge level={currentUser.level} />
@@ -1369,6 +1373,9 @@ function App() {
                 ) : (
                   <small className="oauth-account-note">GitHub 登录账号无需站内密码</small>
                 )}
+                <button onClick={() => { setAvatarFramePickerOpen(true); setAccountPanelOpen(false) }}>
+                  头像框
+                </button>
                 <button onClick={() => { setActiveTab('我的收藏'); closeProject(); setAccountPanelOpen(false) }}>
                   查看我的收藏
                 </button>
@@ -1490,6 +1497,11 @@ function App() {
       /></ErrorBoundary>}
       {accessKeyOpen && currentUser && <ErrorBoundary label="AccessKey 管理"><AccessKeyManager
         onClose={() => setAccessKeyOpen(false)}
+      /></ErrorBoundary>}
+      {avatarFramePickerOpen && currentUser && <ErrorBoundary label="头像框"><AvatarFramePicker
+        currentUser={currentUser}
+        onClose={() => setAvatarFramePickerOpen(false)}
+        onChanged={(user) => setCurrentUser(user)}
       /></ErrorBoundary>}
       {reportTarget && <ReportDialog
         target={reportTarget}
@@ -2127,8 +2139,8 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
     <article id={`comment-${comment.id}`} className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''} ${comment.authorLevel >= 6 ? 'legendary' : ''}`}>
       <div className="comment-card-head">
         {comment.authorId
-          ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(comment.authorId)} title={`查看 ${comment.user} 的主页`} aria-label={`查看 ${comment.user} 的主页`}><LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} /></button>
-          : <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} />}
+          ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(comment.authorId)} title={`查看 ${comment.user} 的主页`} aria-label={`查看 ${comment.user} 的主页`}><LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} frame={comment.authorFrame} /></button>
+          : <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} frame={comment.authorFrame} />}
         <div>
           <span className="name-row">{comment.authorId ? <button type="button" className={`author-profile-link ${comment.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(comment.authorId)}><strong>{comment.user}</strong></button> : <strong className={comment.authorLevel >= 6 ? 'nickname-legendary' : ''}>{comment.user}</strong>}<LevelBadge level={comment.authorLevel} /></span>
           <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small>
@@ -2144,7 +2156,7 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
         <div className="comment-replies">
           {comment.replies.map((reply) => (
             <div className={`comment-reply ${reply.authorLevel >= 6 ? 'legendary' : ''}`} key={reply.id}>
-              <div className="reply-head">{reply.authorId ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(reply.authorId)} title={`查看 ${reply.user} 的主页`} aria-label={`查看 ${reply.user} 的主页`}><LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} /></button> : <LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} />}{reply.authorId ? <button type="button" className={`author-profile-link ${reply.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(reply.authorId)}><strong>{reply.user}</strong></button> : <strong className={reply.authorLevel >= 6 ? 'nickname-legendary' : ''}>{reply.user}</strong>}<LevelBadge level={reply.authorLevel} /><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
+              <div className="reply-head">{reply.authorId ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(reply.authorId)} title={`查看 ${reply.user} 的主页`} aria-label={`查看 ${reply.user} 的主页`}><LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} frame={reply.authorFrame} /></button> : <LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} frame={reply.authorFrame} />}{reply.authorId ? <button type="button" className={`author-profile-link ${reply.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(reply.authorId)}><strong>{reply.user}</strong></button> : <strong className={reply.authorLevel >= 6 ? 'nickname-legendary' : ''}>{reply.user}</strong>}<LevelBadge level={reply.authorLevel} /><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
               {editingReplyID === reply.id
                 ? <div className="inline-edit"><textarea autoFocus value={replyEditDraft} disabled={replyEditSubmitting} onChange={(event) => setReplyEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setReplyEditDraft((value) => value + emoji)} /><button disabled={replyEditSubmitting} onClick={() => setEditingReplyID(null)}>取消</button><button disabled={replyEditSubmitting || !replyEditDraft.trim()} onClick={() => submitReplyEdit(reply.id)}>{replyEditSubmitting ? '保存中…' : '保存'}</button></div></div>
                 : <p>{reply.text}</p>}

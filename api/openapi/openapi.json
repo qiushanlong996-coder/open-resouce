@@ -454,6 +454,34 @@
         }
       }
     },
+    "/api/v1/files/frame-asset": {
+      "get": {
+        "summary": "公开预览自定义头像框图片",
+        "operationId": "previewFrameAsset",
+        "parameters": [{ "name": "key", "in": "query", "required": true, "description": "Base64URL 编码的 OSS object key（须为 uploads/ 下的图片对象）", "schema": { "type": "string" } }],
+        "responses": {
+          "307": { "description": "重定向到短时 OSS URL" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/auth/avatar-frame": {
+      "put": {
+        "summary": "设置当前用户头像框",
+        "operationId": "setAvatarFrame",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AvatarFrameUpdateRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "更新后的当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "头像框取值不合法", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/code": {
       "get": {
         "summary": "获取已发布项目代码包的目录树",
@@ -2128,6 +2156,7 @@
           "id": { "type": "string" },
           "display_name": { "type": "string" },
           "level": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "avatar_frame": { "type": "string", "description": "作者头像框（可选）" },
           "joined_at": { "type": "string", "format": "date-time" },
           "projects": {
             "type": "array",
@@ -2309,6 +2338,7 @@
           "author_id": { "type": "string" },
           "author": { "type": "string" },
           "author_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "评论作者等级（1-6），管理员恒为 6" },
+          "author_frame": { "type": "string", "description": "评论作者的头像框（可选）" },
           "like_count": { "type": "integer", "minimum": 0, "description": "点赞数" },
           "liked": { "type": "boolean", "description": "当前登录用户是否已点赞" },
           "quote": { "type": "string" },
@@ -2360,7 +2390,7 @@
       },
       "AuthUser": {
         "type": "object",
-        "required": ["id", "email", "display_name", "has_password", "is_admin", "experience", "level"],
+        "required": ["id", "email", "display_name", "has_password", "is_admin", "experience", "level", "avatar_frame"],
         "properties": {
           "id": { "type": "string" },
           "email": { "type": "string", "format": "email" },
@@ -2368,7 +2398,15 @@
           "has_password": { "type": "boolean" },
           "is_admin": { "type": "boolean" },
           "experience": { "type": "integer", "minimum": 0, "description": "累计经验值" },
-          "level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "用户等级（1-6），管理员恒为 6" }
+          "level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "用户等级（1-6），管理员恒为 6" },
+          "avatar_frame": { "type": "string", "maxLength": 191, "description": "用户所选头像框：空｜预设星座 id｜custom:<objectKey>" }
+        }
+      },
+      "AvatarFrameUpdateRequest": {
+        "type": "object",
+        "required": ["frame"],
+        "properties": {
+          "frame": { "type": "string", "maxLength": 191, "description": "空｜预设星座 id｜custom:<objectKey>" }
         }
       },
       "AuthResponse": {

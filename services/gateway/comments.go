@@ -20,6 +20,7 @@ type documentComment struct {
 	AuthorID    string            `json:"author_id,omitempty"`
 	Author      string            `json:"author"`
 	AuthorLevel int               `json:"author_level,omitempty"`
+	AuthorFrame string            `json:"author_frame,omitempty"`
 	Quote       string            `json:"quote"`
 	Body        string            `json:"body"`
 	Status      string            `json:"status"`

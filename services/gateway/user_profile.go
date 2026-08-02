@@ -22,6 +22,7 @@ type publicUserProfile struct {
 	ID          string           `json:"id"`
 	DisplayName string           `json:"display_name"`
 	Level       int              `json:"level"`
+	AvatarFrame string           `json:"avatar_frame,omitempty"`
 	JoinedAt    string           `json:"joined_at"`
 	Projects    []projectSummary `json:"projects"`
 	Stats       publicUserStats  `json:"stats"`
@@ -86,6 +87,7 @@ func userProfileHandler(writer http.ResponseWriter, request *http.Request) {
 		ID:          record.ID,
 		DisplayName: record.DisplayName,
 		Level:       levelForUser(record.Email, record.Experience),
+		AvatarFrame: record.AvatarFrame,
 		JoinedAt:    record.CreatedAt.UTC().Format(time.RFC3339),
 		Projects:    published,
 		Stats:       stats,
