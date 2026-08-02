@@ -671,6 +671,51 @@ export function getAdminUserStats(days: number, signal?: AbortSignal) {
   return apiRequest<AdminUserStatsResponse>(`/api/v1/admin/user-stats?days=${days}`, { signal })
 }
 
+// 内容举报。登录用户举报项目或评论，管理员在控制台处理。
+export type ReportTargetType = 'project' | 'comment'
+
+export type ReportInput = {
+  target_type: ReportTargetType
+  target_id: string
+  reason: string
+  detail?: string
+}
+
+export type ContentReport = {
+  id: string
+  reporter_id: string
+  reporter_email?: string
+  reporter_name?: string
+  target_type: string
+  target_id: string
+  reason: string
+  detail: string
+  status: string
+  created_at: string
+  resolved_at?: string | null
+  resolver_id?: string | null
+}
+
+export type ContentReportListResponse = { data: ContentReport[]; request_id: string }
+
+export function submitReport(input: ReportInput) {
+  return apiRequest<{ request_id: string }>('/api/v1/reports', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export function getAdminReports(status?: string, signal?: AbortSignal) {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+  return apiRequest<ContentReportListResponse>(`/api/v1/admin/reports${suffix}`, { signal })
+}
+
+export function resolveReport(id: string, action: 'resolve' | 'dismiss') {
+  return apiRequest<{ data: { id: string; status: string }; request_id: string }>(
+    `/api/v1/admin/reports/${encodeURIComponent(id)}/${action}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
 // 作者端文档树管理。权限为项目所有者或 editor 协作者。
 function authorDocumentsPath(projectID: string) {
   return `/api/v1/author/projects/${encodeURIComponent(projectID)}/documents`

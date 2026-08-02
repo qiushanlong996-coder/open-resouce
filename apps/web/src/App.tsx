@@ -17,6 +17,7 @@ import {
   Eye,
   FileCode2,
   FileText,
+  Flag,
   GitBranch,
   Heart,
   ThumbsUp,
@@ -122,6 +123,7 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
+import ReportDialog, { type ReportTarget } from './ReportDialog'
 import AdminConsole from './AdminConsole'
 import AccessKeyManager from './AccessKeyManager'
 import OpenApiDocs from './OpenApiDocs'
@@ -399,6 +401,7 @@ function App() {
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [accessKeyOpen, setAccessKeyOpen] = useState(false)
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -665,6 +668,16 @@ function App() {
   const showToast = (message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2400)
+  }
+
+  // openReport 打开举报弹窗，未登录时先引导登录（登录门禁在入口处统一处理）。
+  const openReport = (target: ReportTarget) => {
+    if (!currentUser) {
+      showToast('登录后才能举报')
+      setLoginOpen(true)
+      return
+    }
+    setReportTarget(target)
   }
 
   const markAllRead = async () => {
@@ -1378,6 +1391,8 @@ function App() {
             // 分享加经验，best-effort：失败不影响复制链接。仅登录用户计入。
             if (currentUser) void shareProject(selectedProject.slug).catch(() => {})
           }}
+          onReport={() => openReport({ type: 'project', id: selectedProject.slug, label: selectedProject.name })}
+          onReportComment={(commentId) => openReport({ type: 'comment', id: commentId, label: '文档评论' })}
           onDownload={() => showToast('演示下载已开始')}
           comments={comments}
           selectedQuote={selectedQuote}
@@ -1460,6 +1475,11 @@ function App() {
       {accessKeyOpen && currentUser && <ErrorBoundary label="AccessKey 管理"><AccessKeyManager
         onClose={() => setAccessKeyOpen(false)}
       /></ErrorBoundary>}
+      {reportTarget && <ReportDialog
+        target={reportTarget}
+        onClose={() => setReportTarget(null)}
+        onSubmitted={(message) => { setReportTarget(null); showToast(message) }}
+      />}
       <AiAssistant
         projectSlug={selectedProject?.slug ?? null}
         projectName={selectedProject?.name ?? null}
@@ -1622,6 +1642,8 @@ function ProjectDetail({
   onToggleSaved,
   onToggleFollowed,
   onShare,
+  onReport,
+  onReportComment,
   onDownload,
   comments,
   selectedQuote,
@@ -1663,6 +1685,8 @@ function ProjectDetail({
   onToggleSaved: () => void
   onToggleFollowed: () => void
   onShare: () => void
+  onReport: () => void
+  onReportComment: (commentId: string) => void
   onDownload: () => void
   comments: CommentItem[]
   selectedQuote: string
@@ -1735,6 +1759,7 @@ function ProjectDetail({
           <button className={`outline-button ${isSaved ? 'is-saved' : ''}`} onClick={onToggleSaved}><Heart size={15} fill={isSaved ? 'currentColor' : 'none'} /> {isSaved ? '已收藏' : '收藏'}</button>
           <button className={`outline-button ${isFollowed ? 'is-saved' : ''}`} onClick={onToggleFollowed}><Bell size={15} fill={isFollowed ? 'currentColor' : 'none'} /> {isFollowed ? '已关注' : '关注'}</button>
           <button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button>
+          <button className="icon-button" title="举报项目" aria-label="举报项目" onClick={onReport}><Flag size={16} /></button>
           <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
         </div>
       </section>
@@ -1766,7 +1791,7 @@ function ProjectDetail({
       ) : (
         <>
           {/* 每个标签各自设边界：某个标签内容异常不应连带项目头部与导航一起白屏。 */}
-          {detailTab === '文档阅读' && <ErrorBoundary label="文档阅读" onReset={() => activeDocument && onOpenDocument(activeDocument.slug)}><DocumentView project={project} onOpenProfile={onOpenProfile} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onLikeComment={onLikeComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} showToast={showToast} /></ErrorBoundary>}
+          {detailTab === '文档阅读' && <ErrorBoundary label="文档阅读" onReset={() => activeDocument && onOpenDocument(activeDocument.slug)}><DocumentView project={project} onOpenProfile={onOpenProfile} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onLikeComment={onLikeComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} onReportComment={onReportComment} showToast={showToast} /></ErrorBoundary>}
           {detailTab === '代码预览' && <ErrorBoundary label="代码预览"><CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} /></ErrorBoundary>}
           {detailTab === '下载资源' && <ErrorBoundary label="下载资源"><DownloadView project={project} onDownload={onDownload} /></ErrorBoundary>}
           {detailTab === '项目概览' && <ErrorBoundary label="项目概览"><OverviewView project={project} onRead={() => setDetailTab('文档阅读')} /></ErrorBoundary>}
@@ -1879,7 +1904,7 @@ function ProjectCollaborationPermissions({
   )
 }
 
-function DocumentView({ project, onOpenProfile, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, composerAnchor, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onLikeComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, showToast }: { project: Project; onOpenProfile: (userId: string) => void; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; composerAnchor: { top: number } | null; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onLikeComment: (commentId: string, liked: boolean) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; showToast: (message: string) => void }) {
+function DocumentView({ project, onOpenProfile, documentState, documentTree, activeDocument, onOpenDocument, comments, commentsState, commentSubmitting, resolvingCommentID, deletingCommentID, currentUserID, selectedQuote, composerAnchor, commentComposerOpen, setCommentComposerOpen, draftComment, setDraftComment, onSelection, onSubmitComment, onResolveComment, onLikeComment, onReplyComment, onDeleteReply, onDeleteComment, onEditComment, onEditReply, onReportComment, showToast }: { project: Project; onOpenProfile: (userId: string) => void; documentState: CatalogState; documentTree: DocumentNode[]; activeDocument: DocumentDetail | null; onOpenDocument: (documentSlug: string) => void; comments: CommentItem[]; commentsState: CatalogState; commentSubmitting: boolean; resolvingCommentID: string | null; deletingCommentID: string | null; currentUserID: string; selectedQuote: string; composerAnchor: { top: number } | null; commentComposerOpen: boolean; setCommentComposerOpen: (open: boolean) => void; draftComment: string; setDraftComment: (value: string) => void; onSelection: () => void; onSubmitComment: () => void; onResolveComment: (commentId: string) => void; onLikeComment: (commentId: string, liked: boolean) => void; onReplyComment: (commentId: string, body: string) => Promise<boolean>; onDeleteReply: (commentId: string, replyId: string) => Promise<boolean>; onDeleteComment: (commentId: string) => Promise<boolean>; onEditComment: (commentId: string, body: string) => Promise<boolean>; onEditReply: (commentId: string, replyId: string, body: string) => Promise<boolean>; onReportComment: (commentId: string) => void; showToast: (message: string) => void }) {
   const articleContentRef = useRef<HTMLDivElement | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -2027,13 +2052,13 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
           style={composerAnchor ? { top: `${composerAnchor.top}px` } : undefined}
         ><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
-      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} onOpenProfile={onOpenProfile} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onLocate={locateBlock} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
+      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} onOpenProfile={onOpenProfile} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onReport={() => onReportComment(comment.id)} onLocate={locateBlock} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </section>
   )
 }
 
-function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deleting, onResolve, onLike, onReply, onDeleteReply, onDelete, onEdit, onEditReply, onLocate }: { comment: CommentItem; onOpenProfile: (userId: string) => void; currentUserID: string; resolving: boolean; deleting: boolean; onResolve: () => void; onLike: (commentId: string, liked: boolean) => void; onReply: (body: string) => Promise<boolean>; onDeleteReply: (replyId: string) => Promise<boolean>; onDelete: () => Promise<boolean>; onEdit: (body: string) => Promise<boolean>; onEditReply: (replyId: string, body: string) => Promise<boolean>; onLocate: (blockId: string) => void }) {
+function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deleting, onResolve, onLike, onReply, onDeleteReply, onDelete, onEdit, onEditReply, onReport, onLocate }: { comment: CommentItem; onOpenProfile: (userId: string) => void; currentUserID: string; resolving: boolean; deleting: boolean; onResolve: () => void; onLike: (commentId: string, liked: boolean) => void; onReply: (body: string) => Promise<boolean>; onDeleteReply: (replyId: string) => Promise<boolean>; onDelete: () => Promise<boolean>; onEdit: (body: string) => Promise<boolean>; onEditReply: (replyId: string, body: string) => Promise<boolean>; onReport: () => void; onLocate: (blockId: string) => void }) {
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [replySubmitting, setReplySubmitting] = useState(false)
@@ -2106,7 +2131,7 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
       )}
       {replyOpen && <div className="reply-composer"><textarea autoFocus value={replyDraft} disabled={replySubmitting} onChange={(event) => setReplyDraft(event.target.value)} placeholder="写下回复…" /><div><EmojiPicker onSelect={(emoji) => setReplyDraft((value) => value + emoji)} /><button disabled={replySubmitting} onClick={() => setReplyOpen(false)}>取消</button><button disabled={replySubmitting || !replyDraft.trim()} onClick={submitReply}>{replySubmitting ? '发布中…' : '发布回复'}</button></div></div>}
       {comment.status === 'open'
-        ? <div className="comment-actions">{currentUserID !== '' && comment.authorId === currentUserID && <button disabled={resolving || deleting || replySubmitting} onClick={onResolve}>{resolving ? '解决中…' : '解决'}</button>}<button disabled={resolving || deleting || replySubmitting} onClick={() => setReplyOpen((open) => !open)}>回复</button>{currentUserID !== '' && comment.authorId === currentUserID && <><button disabled={editSubmitting || deleting} onClick={() => { setEditDraft(comment.text); setEditing(true) }}>编辑</button><button disabled={deleting} onClick={onDelete}>{deleting ? '删除中…' : '删除'}</button></>}</div>
+        ? <div className="comment-actions">{currentUserID !== '' && comment.authorId === currentUserID && <button disabled={resolving || deleting || replySubmitting} onClick={onResolve}>{resolving ? '解决中…' : '解决'}</button>}<button disabled={resolving || deleting || replySubmitting} onClick={() => setReplyOpen((open) => !open)}>回复</button>{comment.authorId !== currentUserID && <button className="comment-report" title="举报评论" onClick={onReport}><Flag size={12} /> 举报</button>}{currentUserID !== '' && comment.authorId === currentUserID && <><button disabled={editSubmitting || deleting} onClick={() => { setEditDraft(comment.text); setEditing(true) }}>编辑</button><button disabled={deleting} onClick={onDelete}>{deleting ? '删除中…' : '删除'}</button></>}</div>
         : <span className="resolved-label">已解决</span>}
     </article>
   )

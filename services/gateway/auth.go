@@ -121,6 +121,8 @@ type authRepository interface {
 	LevelsByUserIDs(ctx context.Context, ids []string) (map[string]int, error)
 	// FindPublicUserByID 按用户 ID 返回公开资料（含用于算等级的邮箱，不外泄）。未找到时 bool 为 false。
 	FindPublicUserByID(ctx context.Context, id string) (publicUserRecord, bool, error)
+	// UsersByIDs 批量返回用户资料，用于举报列表等场景补全举报人信息。
+	UsersByIDs(ctx context.Context, ids []string) (map[string]authUser, error)
 	// CountUsers 返回注册用户总数，供管理概览统计。
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers 分页返回用户摘要，search 非空时按邮箱/昵称模糊匹配，同时返回匹配总数。
@@ -393,6 +395,24 @@ func (repository *memoryAuthRepository) FindPublicUserByID(
 		}
 	}
 	return publicUserRecord{}, false, nil
+}
+
+func (repository *memoryAuthRepository) UsersByIDs(
+	_ context.Context, ids []string,
+) (map[string]authUser, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	users := make(map[string]authUser)
+	for _, user := range repository.usersByEmail {
+		if _, ok := wanted[user.ID]; ok {
+			users[user.ID] = user
+		}
+	}
+	return users, nil
 }
 
 func (repository *memoryAuthRepository) CreatePasswordResetToken(
@@ -729,6 +749,34 @@ func (repository *mysqlAuthRepository) FindPublicUserByID(
 		return publicUserRecord{}, false, fmt.Errorf("find public user by id: %w", err)
 	}
 	return record, true, nil
+}
+
+func (repository *mysqlAuthRepository) UsersByIDs(
+	ctx context.Context, ids []string,
+) (map[string]authUser, error) {
+	users := make(map[string]authUser)
+	if len(ids) == 0 {
+		return users, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	arguments := make([]any, len(ids))
+	for index, id := range ids {
+		arguments[index] = id
+	}
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT id, email, display_name FROM users WHERE id IN (`+placeholders+`)`, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("load users by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var user authUser
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName); err != nil {
+			return nil, fmt.Errorf("scan user by id: %w", err)
+		}
+		users[user.ID] = user
+	}
+	return users, rows.Err()
 }
 
 func (repository *mysqlAuthRepository) CountUsers(ctx context.Context) (int, error) {

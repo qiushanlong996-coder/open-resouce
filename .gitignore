@@ -10,3 +10,6 @@ password.md
 
 # 浏览器验证遗留的截图
 /current_state_*.png
+
+# Agent worktrees and local Claude state
+.claude/
