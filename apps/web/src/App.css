@@ -536,6 +536,10 @@
 .level-avatar.size-md .level-avatar-inner { font-size: 14px; }
 .level-avatar.size-lg .level-avatar-inner { font-size: 18px; }
 .level-avatar-frame { position: absolute; inset: 0; border-radius: inherit; border: 2px solid transparent; }
+/* 用户自选头像框（预设 SVG 或自定义图片）覆盖并替换默认等级框，随头像 size 自动缩放。 */
+.avatar-frame-preset, .avatar-frame-custom { position: absolute; inset: -14%; z-index: 0; display: block; pointer-events: none; }
+.avatar-frame-preset svg, .avatar-frame-custom img { width: 100%; height: 100%; display: block; }
+.avatar-frame-custom img { object-fit: contain; border-radius: inherit; }
 .level-avatar.lvl-1 .level-avatar-frame { border-color: #d2d2d7; }
 .level-avatar.lvl-2 .level-avatar-frame { border-color: #5aa469; }
 .level-avatar.lvl-3 .level-avatar-frame { border-color: #2f80ed; }

@@ -102,10 +102,18 @@ func enrichCommentLevels(ctx context.Context, comments []documentComment) []docu
 		slog.WarnContext(ctx, "load comment author levels failed", "error", err)
 		return comments
 	}
+	// 头像框在同一次补全里批量加载；失败只记日志，不阻塞评论展示（保持等级与内容可见）。
+	frames, err := authRepositoryStore.FramesByUserIDs(ctx, ids)
+	if err != nil {
+		slog.WarnContext(ctx, "load comment author frames failed", "error", err)
+		frames = map[string]string{}
+	}
 	for index := range comments {
 		comments[index].AuthorLevel = levels[comments[index].AuthorID]
+		comments[index].AuthorFrame = frames[comments[index].AuthorID]
 		for replyIndex := range comments[index].Replies {
 			comments[index].Replies[replyIndex].AuthorLevel = levels[comments[index].Replies[replyIndex].AuthorID]
+			comments[index].Replies[replyIndex].AuthorFrame = frames[comments[index].Replies[replyIndex].AuthorID]
 		}
 	}
 	return comments

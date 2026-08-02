@@ -73,6 +73,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/password-reset/request", authPasswordResetRequestHandler)
 	mux.HandleFunc("/api/v1/auth/password-reset/confirm", authPasswordResetConfirmHandler)
 	mux.HandleFunc("/api/v1/auth/me", authMeHandler)
+	mux.HandleFunc("/api/v1/auth/avatar-frame", authAvatarFrameHandler)
 	mux.HandleFunc("/api/v1/auth/api-keys", userAPIKeysHandler)
 	mux.HandleFunc("/api/v1/auth/api-keys/{keyID}", userAPIKeyHandler)
 	mux.HandleFunc("/api/v1/users/{id}/profile", userProfileHandler)
@@ -87,6 +88,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/notifications/{notificationID}/read", notificationReadHandler)
 	mux.HandleFunc("/api/v1/files/presign-upload", objectUploadAuthorizationHandler)
 	mux.HandleFunc("/api/v1/files/author-asset", authorInlineAssetHandler)
+	mux.HandleFunc("/api/v1/files/frame-asset", frameAssetHandler)
 	mux.HandleFunc("/api/v1/author/projects", authorProjectsHandler)
 	// 文档路由必须注册在 /api/v1/author/projects/ 之前，否则会被项目前缀路由抢先匹配。
 	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents", authorProjectDocumentsHandler)

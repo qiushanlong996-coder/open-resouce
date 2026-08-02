@@ -259,6 +259,24 @@ func authorInlineAssetHandler(writer http.ResponseWriter, request *http.Request)
 	redirectToSignedObject(writer, request, key)
 }
 
+// frameAssetHandler 公开地服务自定义头像框图片：任何人（含未登录）都能查看，
+// 以便他人在评论、主页看到作者的头像框。仅接受位于 uploads/ 下的图片对象键，
+// 校验通过后 307 重定向到短时 OSS 下载 URL。
+func frameAssetHandler(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
+		return
+	}
+	key, err := decodeObjectKey(request.URL.Query().Get("key"))
+	if err != nil || !strings.HasPrefix(key, "uploads/") ||
+		!validObjectExtension("image", strings.ToLower(filepath.Ext(key))) {
+		writeAPIError(writer, request, http.StatusNotFound, "resource_not_found", "文件不存在")
+		return
+	}
+	redirectToSignedObject(writer, request, key)
+}
+
 func projectInlineAssetHandler(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		writer.Header().Set("Allow", http.MethodGet)

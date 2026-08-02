@@ -12,6 +12,7 @@ export type AuthUser = {
   is_admin: boolean
   experience: number
   level: number
+  avatar_frame: string
 }
 
 export type AuthResponse = {
@@ -183,6 +184,7 @@ export type PublicUserProfile = {
   id: string
   display_name: string
   level: number
+  avatar_frame?: string
   joined_at: string
   projects: ProjectSummary[]
   stats: {
@@ -247,6 +249,7 @@ export type DocumentComment = {
   author_id?: string
   author: string
   author_level?: number
+  author_frame?: string
   quote: string
   body: string
   status: 'open' | 'resolved'
@@ -403,6 +406,23 @@ export function updateCurrentUser(input: { display_name: string }) {
   return apiRequest<AuthResponse>('/api/v1/auth/me', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
+}
+
+// setAvatarFrame 持久化当前用户所选头像框（''｜预设 id｜custom:<objectKey>），返回更新后的用户。
+export function setAvatarFrame(frame: string) {
+  return apiRequest<AuthResponse>('/api/v1/auth/avatar-frame', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ frame }),
+  })
+}
+
+// avatarFrameImageURL 把自定义头像框的 OSS object key 转成公开可访问的代理 URL。
+// 采用与正文图片代理一致的 base64url 编码（见 App.tsx encodedObjectKey）。
+export function avatarFrameImageURL(objectKey: string) {
+  const bytes = new TextEncoder().encode(objectKey)
+  let binary = ''
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte) })
+  const key = window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${apiBaseURL}/api/v1/files/frame-asset?key=${encodeURIComponent(key)}`
 }
 
 export function register(input: { email: string; display_name: string; password: string }) {
