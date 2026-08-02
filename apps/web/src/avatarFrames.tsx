@@ -5,6 +5,7 @@
 // 'custom:<key>' 解析成图片 URL 后再传入。
 
 import { findAvatarFrame, type AvatarFramePreset } from './avatarFrameData'
+import './avatar-frames.css'
 
 // 每个星座框的装饰点位（角度，0=顶部，顺时针）。不同星座点位/数量不同以增加辨识度。
 const FRAME_DOTS: Record<string, number[]> = {

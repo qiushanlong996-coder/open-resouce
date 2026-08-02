@@ -23,6 +23,12 @@
   object-fit: contain;
 }
 
+/* 套用头像框时，把方形头像内芯改为圆形，与环形框贴合。 */
+.level-avatar:has(.avatar-frame-preset) .level-avatar-inner,
+.level-avatar:has(.avatar-frame-custom) .level-avatar-inner {
+  border-radius: 50%;
+}
+
 /* 每个预设默认配色（会被各星座覆盖）。--af-c1/2/3 流光三色，--af-star 星点色 */
 .avatar-frame-preset {
   --af-c1: #6aa8ff;
