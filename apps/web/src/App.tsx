@@ -59,6 +59,7 @@ import {
   getCurrentUser,
   getDocuments,
   getFavorites,
+  getFollows,
   getNotificationEventsURL,
   getNotifications,
   getProject,
@@ -82,6 +83,7 @@ import {
   revokeAuthSession,
   setCommentLike,
   setProjectFavorite,
+  setProjectFollow,
   shareProject,
   setProjectCollaborator,
   submitAuthorProject,
@@ -366,6 +368,7 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [detailTab, setDetailTab] = useState('文档阅读')
   const [saved, setSaved] = useState<string[]>([])
+  const [followed, setFollowed] = useState<string[]>([])
   const [comments, setComments] = useState<CommentItem[]>([])
   const [commentsState, setCommentsState] = useState<CatalogState>('online')
   const [commentSubmitting, setCommentSubmitting] = useState(false)
@@ -466,6 +469,21 @@ function App() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         showToast('收藏状态加载失败，请稍后重试')
+      })
+    return () => controller.abort()
+  }, [currentUser])
+
+  useEffect(() => {
+    if (!currentUser) {
+      setFollowed([])
+      return
+    }
+    const controller = new AbortController()
+    getFollows(controller.signal)
+      .then((response) => setFollowed(response.data))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        showToast('关注状态加载失败，请稍后重试')
       })
     return () => controller.abort()
   }, [currentUser])
@@ -810,6 +828,25 @@ function App() {
     }
   }
 
+  const toggleFollowed = async (projectId: string) => {
+    if (!currentUser) {
+      setLoginOpen(true)
+      showToast('登录后才能关注项目')
+      return
+    }
+    const project = catalogProjects.find((item) => item.id === projectId)
+    if (!project) return
+    const wasFollowed = followed.includes(projectId)
+    setFollowed((current) => wasFollowed ? current.filter((id) => id !== projectId) : [...current, projectId])
+    try {
+      await setProjectFollow(project.slug, !wasFollowed)
+      showToast(wasFollowed ? '已取消关注' : '已关注，有更新时会通知你')
+    } catch {
+      setFollowed((current) => wasFollowed ? [...current, projectId] : current.filter((id) => id !== projectId))
+      showToast('关注状态更新失败，请稍后重试')
+    }
+  }
+
   const handleSelection = () => {
     const browserSelection = window.getSelection()
     const selection = browserSelection?.toString().trim()
@@ -1050,6 +1087,7 @@ function App() {
       setCurrentUser(null)
       setAuthSessions([])
       setSaved([])
+      setFollowed([])
       setAccountPanelOpen(false)
       showToast(allDevices ? '所有设备已退出登录' : '已退出当前设备')
     } catch {
@@ -1317,8 +1355,10 @@ function App() {
           detailTab={detailTab}
           setDetailTab={setDetailTab}
           isSaved={saved.includes(selectedProject.id)}
+          isFollowed={followed.includes(selectedProject.id)}
           onBack={closeProject}
           onToggleSaved={() => toggleSaved(selectedProject.id)}
+          onToggleFollowed={() => toggleFollowed(selectedProject.id)}
           onShare={() => {
             navigator.clipboard?.writeText(window.location.href)
             showToast('项目链接已复制')
@@ -1557,8 +1597,10 @@ function ProjectDetail({
   detailTab,
   setDetailTab,
   isSaved,
+  isFollowed,
   onBack,
   onToggleSaved,
+  onToggleFollowed,
   onShare,
   onDownload,
   comments,
@@ -1595,8 +1637,10 @@ function ProjectDetail({
   detailTab: string
   setDetailTab: (tab: string) => void
   isSaved: boolean
+  isFollowed: boolean
   onBack: () => void
   onToggleSaved: () => void
+  onToggleFollowed: () => void
   onShare: () => void
   onDownload: () => void
   comments: CommentItem[]
@@ -1668,6 +1712,7 @@ function ProjectDetail({
           {collaborationAccess?.can_edit && <button className="primary-button" onClick={startCollaboration}><Pencil size={15} /> 协作编辑</button>}
           {collaborationAccess?.can_manage && <button className="icon-button" title="管理协作权限" aria-label="管理协作权限" onClick={() => setPermissionsOpen(true)}><ShieldCheck size={17} /></button>}
           <button className={`outline-button ${isSaved ? 'is-saved' : ''}`} onClick={onToggleSaved}><Heart size={15} fill={isSaved ? 'currentColor' : 'none'} /> {isSaved ? '已收藏' : '收藏'}</button>
+          <button className={`outline-button ${isFollowed ? 'is-saved' : ''}`} onClick={onToggleFollowed}><Bell size={15} fill={isFollowed ? 'currentColor' : 'none'} /> {isFollowed ? '已关注' : '关注'}</button>
           <button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button>
           <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
         </div>

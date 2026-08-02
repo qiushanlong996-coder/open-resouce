@@ -867,6 +867,10 @@ func adminReviewActionHandler(writer http.ResponseWriter, request *http.Request)
 		awardExperienceBestEffort(project.OwnerID, xpActionPost, project.ID, xpPost)
 	}
 	notifyProjectReview(request.Context(), project, user, parts[1], input.Reason)
+	if parts[1] == "approve" {
+		// 项目（重新）发布后通知关注者，跳过发起审核的管理员本人。
+		notifyProjectFollowers(request.Context(), project, user)
+	}
 	// 项目只有发布后才应进入搜索；驳回则从索引中清除。
 	syncProjectSearchIndex(project, parts[1])
 	writeJSON(writer, http.StatusOK, map[string]any{"data": project, "request_id": requestIDFromContext(request.Context())})
