@@ -15,13 +15,15 @@ import {
   Copy,
   Download,
   Eye,
-  FileCode2,
   FileText,
   Flag,
   GitBranch,
   Heart,
+  Home as HomeIcon,
+  Link2,
   ThumbsUp,
   Menu,
+  WrapText,
   MessageSquare,
   MonitorCog,
   Moon,
@@ -143,10 +145,11 @@ import {
   useScrollMetrics,
   useScrollSpy,
 } from './readerExperienceUtils'
-import { useHighlightedCode } from './codeHighlight'
+import { useHighlightedLines } from './codeHighlight'
 import { themes, applyTheme, isThemeId, type ThemeId } from './themes'
 import './App.css'
 import './editorEnhancements.css'
+import './codeView.css'
 
 const EmojiMartPicker = lazy(() => import('./EmojiMartPicker'))
 const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
@@ -2170,6 +2173,67 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// 代码阅读偏好持久化：自动换行开关记在 localStorage，跨会话保留。
+const CODE_WRAP_STORAGE_KEY = 'nyym:code-view:wrap'
+
+function readCodeWrapPref() {
+  try {
+    return window.localStorage.getItem(CODE_WRAP_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+// 行锚点写进 URL hash：`#L{n}` 满足永久链接语义，附带 file= 让同一项目页内可重新定位到对应文件。
+function buildCodeLineHash(filePath: string, line: number) {
+  return `#L${line}&file=${encodeURIComponent(filePath)}`
+}
+
+function parseCodeLineHash(hash: string): { line: number | null; file: string | null } {
+  const raw = hash.replace(/^#/, '')
+  let line: number | null = null
+  let file: string | null = null
+  for (const part of raw.split('&')) {
+    const matched = /^L(\d+)$/.exec(part)
+    if (matched) {
+      line = Number(matched[1])
+      continue
+    }
+    if (part.startsWith('file=')) {
+      try {
+        file = decodeURIComponent(part.slice(5))
+      } catch {
+        file = null
+      }
+    }
+  }
+  return { line, file }
+}
+
+// 扩展名 → 展示标签与色调，供树内色点与顶栏语言标识共用。
+const CODE_FILE_TYPES: Record<string, { label: string; tone: string }> = {
+  ts: { label: 'TS', tone: 'ts' }, tsx: { label: 'TSX', tone: 'ts' }, mts: { label: 'TS', tone: 'ts' }, cts: { label: 'TS', tone: 'ts' }, d: { label: 'DTS', tone: 'ts' },
+  js: { label: 'JS', tone: 'js' }, jsx: { label: 'JSX', tone: 'js' }, mjs: { label: 'JS', tone: 'js' }, cjs: { label: 'JS', tone: 'js' },
+  json: { label: 'JSON', tone: 'data' }, sql: { label: 'SQL', tone: 'data' },
+  css: { label: 'CSS', tone: 'style' }, scss: { label: 'SCSS', tone: 'style' }, sass: { label: 'SASS', tone: 'style' }, less: { label: 'LESS', tone: 'style' },
+  html: { label: 'HTML', tone: 'markup' }, htm: { label: 'HTML', tone: 'markup' }, xml: { label: 'XML', tone: 'markup' }, vue: { label: 'VUE', tone: 'markup' }, svg: { label: 'SVG', tone: 'markup' },
+  md: { label: 'MD', tone: 'doc' }, markdown: { label: 'MD', tone: 'doc' }, mdx: { label: 'MDX', tone: 'doc' }, rst: { label: 'RST', tone: 'doc' }, txt: { label: 'TXT', tone: 'doc' },
+  yml: { label: 'YAML', tone: 'config' }, yaml: { label: 'YAML', tone: 'config' }, toml: { label: 'TOML', tone: 'config' }, ini: { label: 'INI', tone: 'config' }, env: { label: 'ENV', tone: 'config' }, conf: { label: 'CONF', tone: 'config' },
+  go: { label: 'GO', tone: 'sys' }, rs: { label: 'RUST', tone: 'sys' }, c: { label: 'C', tone: 'sys' }, h: { label: 'C', tone: 'sys' }, cpp: { label: 'C++', tone: 'sys' }, cc: { label: 'C++', tone: 'sys' }, hpp: { label: 'C++', tone: 'sys' }, java: { label: 'JAVA', tone: 'sys' }, kt: { label: 'KT', tone: 'sys' }, swift: { label: 'SWIFT', tone: 'sys' },
+  py: { label: 'PY', tone: 'script' }, rb: { label: 'RB', tone: 'script' }, php: { label: 'PHP', tone: 'script' }, sh: { label: 'SH', tone: 'script' }, bash: { label: 'SH', tone: 'script' }, zsh: { label: 'SH', tone: 'script' },
+  png: { label: 'IMG', tone: 'media' }, jpg: { label: 'IMG', tone: 'media' }, jpeg: { label: 'IMG', tone: 'media' }, gif: { label: 'IMG', tone: 'media' }, webp: { label: 'IMG', tone: 'media' }, ico: { label: 'IMG', tone: 'media' },
+}
+
+function codeFileMeta(name: string) {
+  const lower = name.toLowerCase()
+  const readme = /^readme(\.|$)/.test(lower)
+  const dot = lower.lastIndexOf('.')
+  const ext = dot > 0 ? lower.slice(dot + 1) : ''
+  const known = CODE_FILE_TYPES[ext]
+  if (known) return { label: known.label, tone: known.tone, readme }
+  return { label: (ext || 'FILE').toUpperCase().slice(0, 4), tone: 'other', readme }
+}
+
 function CodeView({ project, onCopy, showToast }: {
   project: Project
   onCopy: () => void
@@ -2186,6 +2250,14 @@ function CodeView({ project, onCopy, showToast }: {
   const [fileError, setFileError] = useState('')
   // README 只在首次加载目录时自动打开，避免用户切换文件后被重置。
   const autoOpenedRef = useRef('')
+  // 阅读增强：自动换行开关、行锚点、深链接滚动与键盘导航所需的状态与引用。
+  const [wrap, setWrap] = useState(readCodeWrapPref)
+  const [selectedLine, setSelectedLine] = useState<number | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  const treeRef = useRef<HTMLDivElement | null>(null)
+  const codeRef = useRef<HTMLDivElement | null>(null)
+  const pendingScrollRef = useRef(false)
+  const keyboardNavRef = useRef(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -2237,6 +2309,11 @@ function CodeView({ project, onCopy, showToast }: {
     return () => controller.abort()
   }, [activePath, project.slug])
 
+  const openFile = (path: string) => {
+    setSelectedLine(null)
+    setActivePath(path)
+  }
+
   const copyContent = () => {
     if (!activeFile) return
     navigator.clipboard?.writeText(activeFile.content).then(onCopy).catch(() => {
@@ -2244,15 +2321,102 @@ function CodeView({ project, onCopy, showToast }: {
     })
   }
 
-  const lines = activeFile ? activeFile.content.replace(/\n$/, '').split('\n') : []
-  const highlighted = useHighlightedCode(
-    activeFile ? activeFile.content.replace(/\n$/, '') : '',
-    activeFile?.language ?? '',
-  )
+  const toggleWrap = () => setWrap((previous) => {
+    const next = !previous
+    try {
+      window.localStorage.setItem(CODE_WRAP_STORAGE_KEY, next ? '1' : '0')
+    } catch {
+      /* 隐私模式下写入失败可忽略，仅本次会话不持久化。 */
+    }
+    return next
+  })
+
+  // 锚定某一行：高亮 + 写入 `#L{n}` hash（replaceState 不新增历史记录）。
+  const anchorLine = (line: number) => {
+    setSelectedLine(line)
+    if (!activeFile) return
+    const url = new URL(window.location.href)
+    url.hash = buildCodeLineHash(activeFile.path, line)
+    window.history.replaceState(window.history.state, '', url.toString())
+  }
+
+  const copyLineLink = (line: number) => {
+    if (!activeFile) return
+    anchorLine(line)
+    const url = new URL(window.location.href)
+    url.hash = buildCodeLineHash(activeFile.path, line)
+    navigator.clipboard?.writeText(url.toString())
+      .then(() => showToast('行链接已复制'))
+      .catch(() => showToast('浏览器未允许复制，请手动复制地址栏链接'))
+  }
+
+  const sourceText = activeFile ? activeFile.content.replace(/\n$/, '') : ''
+  const highlightedLines = useHighlightedLines(sourceText, activeFile?.language ?? '')
+  const pathSegments = activeFile ? activeFile.path.split('/') : []
+  const activeMeta = activeFile ? codeFileMeta(pathSegments[pathSegments.length - 1] ?? '') : null
+
+  // 深链接：进入代码预览时若地址带 #L{n}，打开对应文件并标记待滚动。
+  useEffect(() => {
+    const { line, file } = parseCodeLineHash(window.location.hash)
+    if (line == null) return
+    if (file) {
+      // 抢占 README 自动打开，避免目录加载完成后被覆盖。
+      autoOpenedRef.current = project.slug
+      setActivePath(file)
+    }
+    setSelectedLine(line)
+    pendingScrollRef.current = true
+    // 仅在挂载时读取一次初始 hash。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 文件就绪后，把待滚动的锚定行滚到视图中央。
+  useEffect(() => {
+    if (fileState !== 'ready' || !pendingScrollRef.current || selectedLine == null) return
+    pendingScrollRef.current = false
+    const target = codeRef.current?.querySelector<HTMLElement>(`[data-line="${selectedLine}"]`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [fileState, selectedLine, highlightedLines])
+
+  // 键盘上下键在（已筛选的）文件列表间移动，仅当焦点位于代码预览区内时生效。
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+      if (!sectionRef.current?.contains(document.activeElement)) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      const files = entries.filter((entry) => !entry.dir)
+      if (files.length === 0) return
+      event.preventDefault()
+      const current = files.findIndex((entry) => entry.path === activePath)
+      const nextIndex = event.key === 'ArrowDown'
+        ? (current < 0 ? 0 : Math.min(current + 1, files.length - 1))
+        : (current < 0 ? 0 : Math.max(current - 1, 0))
+      const next = files[nextIndex]
+      if (next && next.path !== activePath) {
+        keyboardNavRef.current = true
+        openFile(next.path)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [entries, activePath])
+
+  // 选中文件时把树内条目滚入视野；键盘导航时同时移交焦点，方便连续按键。
+  useEffect(() => {
+    if (!activePath) return
+    const active = treeRef.current?.querySelector<HTMLElement>('.file-item.active')
+    if (!active) return
+    active.scrollIntoView({ block: 'nearest' })
+    if (keyboardNavRef.current) {
+      keyboardNavRef.current = false
+      active.focus()
+    }
+  }, [activePath, entries])
 
   return (
-    <section className="code-view">
-      <div className="file-tree">
+    <section className="code-view" ref={sectionRef}>
+      <div className="file-tree" ref={treeRef}>
         <div className="sidebar-heading">
           <span>代码目录</span>
           {truncated && <span className="meta-label">已截断</span>}
@@ -2270,26 +2434,66 @@ function CodeView({ project, onCopy, showToast }: {
         {treeState === 'ready' && entries.length === 0 && (
           <div className="file-tree-empty">{fileSearch.trim() ? '没有匹配的文件' : '代码包为空'}</div>
         )}
-        {treeState === 'ready' && entries.map((entry) => (
-          <button
-            key={entry.path}
-            className={`file-item ${entry.path === activePath ? 'active' : ''} ${entry.dir ? 'is-dir' : ''}`}
-            style={{ paddingLeft: `${10 + entry.path.split('/').length * 8}px` }}
-            disabled={entry.dir}
-            title={entry.path}
-            onClick={() => { if (!entry.dir) setActivePath(entry.path) }}
-          >
-            <span>{entry.dir ? <ChevronRight size={14} /> : <FileCode2 size={15} />}</span>
-            <span>{entry.name}</span>
-            {!entry.dir && <small>{formatFileSize(entry.size)}</small>}
-          </button>
-        ))}
+        {treeState === 'ready' && entries.map((entry) => {
+          const meta = entry.dir ? null : codeFileMeta(entry.name)
+          return (
+            <button
+              key={entry.path}
+              className={`file-item ${entry.path === activePath ? 'active' : ''} ${entry.dir ? 'is-dir' : ''}`}
+              style={{ paddingLeft: `${10 + entry.path.split('/').length * 8}px` }}
+              disabled={entry.dir}
+              title={meta ? `${entry.path} · ${meta.label}` : entry.path}
+              onClick={() => { if (!entry.dir) openFile(entry.path) }}
+            >
+              <span>{entry.dir ? <ChevronRight size={14} /> : <span className={`ft-dot ft-${meta?.tone ?? 'other'}`} aria-hidden="true" />}</span>
+              <span>{entry.name}{meta?.readme && <span className="file-readme-tag">README</span>}</span>
+              {!entry.dir && <small>{formatFileSize(entry.size)}</small>}
+            </button>
+          )
+        })}
         {project.repo && <div className="file-tree-note"><GitBranch size={16} /><span>{project.repo}</span></div>}
       </div>
       <div className="source-panel">
         <div className="source-head">
-          <span>{activeFile ? `${activeFile.path}　·　${formatFileSize(activeFile.size)}` : '选择左侧文件查看源码'}</span>
+          <span className="code-toolbar-left">
+            {activeFile ? (
+              <nav className="code-breadcrumb" aria-label="文件路径">
+                <button type="button" className="code-crumb-home" title="显示全部文件" aria-label="显示全部文件" onClick={() => setFileSearch('')}>
+                  <HomeIcon size={13} />
+                </button>
+                {pathSegments.map((segment, index) => {
+                  const isLast = index === pathSegments.length - 1
+                  const dirPath = pathSegments.slice(0, index + 1).join('/')
+                  return (
+                    <span className="code-crumb-item" key={dirPath}>
+                      <ChevronRight size={12} className="code-crumb-sep" aria-hidden="true" />
+                      {isLast ? (
+                        <span className="code-crumb is-leaf" title={activeFile.path}>{segment}</span>
+                      ) : (
+                        <button type="button" className="code-crumb is-link" title={`筛选 ${dirPath}/ 下的文件`} onClick={() => setFileSearch(dirPath)}>{segment}</button>
+                      )}
+                    </span>
+                  )
+                })}
+              </nav>
+            ) : '选择左侧文件查看源码'}
+          </span>
           <span className="source-head-actions">
+            {activeFile && activeMeta && (
+              <span className="code-lang-chip" title={`文件类型 · ${activeMeta.label}`}>
+                <span className={`ft-dot ft-${activeMeta.tone}`} aria-hidden="true" />{activeMeta.label}
+              </span>
+            )}
+            {activeFile && <span className="code-file-size">{formatFileSize(activeFile.size)}</span>}
+            <button
+              type="button"
+              className="tool-button code-wrap-toggle"
+              aria-pressed={wrap}
+              title={wrap ? '切换为横向滚动' : '切换为自动换行'}
+              onClick={toggleWrap}
+            >
+              <WrapText size={14} /> {wrap ? '换行' : '不换行'}
+            </button>
             {activeFile && (
               <a
                 className="tool-button"
@@ -2314,17 +2518,47 @@ function CodeView({ project, onCopy, showToast }: {
             {activeFile.truncated && (
               <div className="source-notice">文件较大，仅显示前 512 KB，完整内容请下载代码包。</div>
             )}
-            <pre className="source-code">
-              {/* 行号独立成列，与高亮内容按行高对齐，无需切分高亮后的 HTML。 */}
-              <span className="source-gutter" aria-hidden="true">
-                {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
-              </span>
-              {/* highlight.js 会转义输入，回退路径也做了转义，此处不会注入 HTML。 */}
-              <code
-                className={`hljs language-${activeFile.language}`}
-                dangerouslySetInnerHTML={{ __html: highlighted }}
-              />
-            </pre>
+            <div className={`code-reader ${wrap ? 'is-wrap' : ''}`} ref={codeRef}>
+              {/* 行号独立成列，逐行渲染让锚点高亮铺满整行、换行时行号仍与首行对齐。 */}
+              <ol className="code-reader-lines">
+                {highlightedLines.map((lineHTML, index) => {
+                  const lineNo = index + 1
+                  return (
+                    <li
+                      key={index}
+                      data-line={lineNo}
+                      className={`code-reader-line ${selectedLine === lineNo ? 'is-active' : ''}`}
+                    >
+                      <span className="code-reader-gutter">
+                        <button
+                          type="button"
+                          className="code-reader-no"
+                          onClick={() => anchorLine(lineNo)}
+                          title={`锚定第 ${lineNo} 行`}
+                          aria-label={`锚定第 ${lineNo} 行`}
+                        >
+                          {lineNo}
+                        </button>
+                        <button
+                          type="button"
+                          className="code-reader-link"
+                          onClick={() => copyLineLink(lineNo)}
+                          title={`复制第 ${lineNo} 行链接`}
+                          aria-label={`复制第 ${lineNo} 行链接`}
+                        >
+                          <Link2 size={12} />
+                        </button>
+                      </span>
+                      {/* highlight.js 会转义输入，回退路径也做了转义，逐行注入不会产生可执行 HTML。 */}
+                      <code
+                        className="code-reader-code"
+                        dangerouslySetInnerHTML={{ __html: lineHTML || '\u200b' }}
+                      />
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
           </>
         )}
       </div>
