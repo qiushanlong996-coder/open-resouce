@@ -6,6 +6,7 @@ require (
 	github.com/aliyun/alibabacloud-oss-go-sdk-v2 v1.5.3
 	github.com/coder/websocket v1.8.15
 	github.com/go-sql-driver/mysql v1.9.3
+	github.com/lionsoul2014/ip2region/binding/golang v0.0.0-20260801005304-2955431edb26
 	github.com/redis/go-redis/v9 v9.19.0
 )
 

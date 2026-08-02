@@ -63,14 +63,14 @@ func awardExperienceBestEffort(userID, action, sourceKey string, points int) {
 	if userID == "" || authRepositoryStore == nil {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if _, err := authRepositoryStore.AddExperience(ctx, userID, action, sourceKey, points); err != nil {
 			slog.Warn("award experience failed",
 				"user_id", userID, "action", action, "error", err)
 		}
-	}()
+	})
 }
 
 // enrichCommentLevels 为评论及其回复批量补作者等级，避免逐条查询（N+1）。

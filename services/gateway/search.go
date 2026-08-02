@@ -336,13 +336,13 @@ func indexDocumentBestEffort(document searchDocument) {
 	if !searchIndexStore.Available() {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := searchIndexStore.Index(ctx, document); err != nil {
 			slog.Warn("index document failed", "document_id", document.ID, "error", err)
 		}
-	}()
+	})
 }
 
 // removeFromIndexBestEffort 与 indexDocumentBestEffort 对称。
@@ -350,13 +350,13 @@ func removeFromIndexBestEffort(id string) {
 	if !searchIndexStore.Available() {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := searchIndexStore.Delete(ctx, id); err != nil {
 			slog.Warn("remove indexed document failed", "document_id", id, "error", err)
 		}
-	}()
+	})
 }
 
 var _ searchIndex = noopSearchIndex{}

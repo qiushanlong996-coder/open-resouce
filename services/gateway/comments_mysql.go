@@ -21,7 +21,7 @@ func newMySQLCommentRepository(db *sql.DB) *mysqlCommentRepository {
 
 func (repository *mysqlCommentRepository) List(ctx context.Context, documentID string) ([]documentComment, error) {
 	const query = `
-		SELECT id, document_id, parent_id, block_id, author_id, author_name, quote_text, body_text,
+		SELECT id, document_id, parent_id, block_id, author_id, author_name, author_region, quote_text, body_text,
 		       status, created_at, updated_at, resolved_at
 		FROM document_comments
 		WHERE document_id = ? AND deleted_at IS NULL
@@ -55,12 +55,12 @@ func (repository *mysqlCommentRepository) Create(ctx context.Context, comment do
 
 	const query = `
 		INSERT INTO document_comments (
-			id, document_id, parent_id, block_id, author_id, author_name, quote_text, body_text,
+			id, document_id, parent_id, block_id, author_id, author_name, author_region, quote_text, body_text,
 			status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if _, err := repository.db.ExecContext(ctx, query,
 		comment.ID, comment.DocumentID, comment.ParentID, comment.BlockID, nullableString(comment.AuthorID), comment.Author,
-		comment.Quote, comment.Body, comment.Status, createdAt, createdAt,
+		comment.AuthorRegion, comment.Quote, comment.Body, comment.Status, createdAt, createdAt,
 	); err != nil {
 		return documentComment{}, fmt.Errorf("create comment: %w", err)
 	}
@@ -99,12 +99,12 @@ func (repository *mysqlCommentRepository) CreateReply(
 	reply.BlockID = blockID
 	const insertQuery = `
 		INSERT INTO document_comments (
-			id, document_id, parent_id, block_id, author_id, author_name, quote_text, body_text,
+			id, document_id, parent_id, block_id, author_id, author_name, author_region, quote_text, body_text,
 			status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if _, err := transaction.ExecContext(ctx, insertQuery,
 		reply.ID, reply.DocumentID, reply.ParentID, reply.BlockID, nullableString(reply.AuthorID), reply.Author,
-		reply.Quote, reply.Body, reply.Status, createdAt, createdAt,
+		reply.AuthorRegion, reply.Quote, reply.Body, reply.Status, createdAt, createdAt,
 	); err != nil {
 		return documentComment{}, false, fmt.Errorf("create reply: %w", err)
 	}
@@ -240,7 +240,7 @@ func (repository *mysqlCommentRepository) updateBody(
 	}
 
 	const selectQuery = `
-		SELECT id, document_id, parent_id, block_id, author_id, author_name, quote_text, body_text,
+		SELECT id, document_id, parent_id, block_id, author_id, author_name, author_region, quote_text, body_text,
 		       status, created_at, updated_at, resolved_at
 		FROM document_comments
 		WHERE id = ? AND document_id = ? AND deleted_at IS NULL`
@@ -270,7 +270,7 @@ func (repository *mysqlCommentRepository) Resolve(
 	defer transaction.Rollback()
 
 	const selectQuery = `
-		SELECT id, document_id, parent_id, block_id, author_id, author_name, quote_text, body_text,
+		SELECT id, document_id, parent_id, block_id, author_id, author_name, author_region, quote_text, body_text,
 		       status, created_at, updated_at, resolved_at
 		FROM document_comments
 		WHERE id = ? AND document_id = ? AND parent_id IS NULL
@@ -315,7 +315,7 @@ func scanDocumentComment(scanner commentScanner) (documentComment, error) {
 	var resolvedAt sql.NullTime
 	err := scanner.Scan(
 		&comment.ID, &comment.DocumentID, &parentID, &comment.BlockID, &authorID, &comment.Author,
-		&comment.Quote, &comment.Body, &comment.Status, &createdAt, &updatedAt, &resolvedAt,
+		&comment.AuthorRegion, &comment.Quote, &comment.Body, &comment.Status, &createdAt, &updatedAt, &resolvedAt,
 	)
 	if err != nil {
 		return documentComment{}, err

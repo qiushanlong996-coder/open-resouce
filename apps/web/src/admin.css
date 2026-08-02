@@ -171,6 +171,8 @@
 }
 .admin-table tbody tr:hover { background: var(--surface-muted, #f5f5f7); }
 .admin-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+/* 缺失信息的弱化表达（如尚无登录记录的存量用户）。 */
+.admin-muted { color: var(--text-tertiary); }
 
 .admin-badge {
   display: inline-block;

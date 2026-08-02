@@ -250,6 +250,9 @@ export type DocumentComment = {
   author: string
   author_level?: number
   author_frame?: string
+  // author_region 是发表时的 IP 归属地（省级，境外为国家）。
+  // 服务端只存归属地不存 IP；历史评论与内网来源时字段缺失。
+  author_region?: string
   quote: string
   body: string
   status: 'open' | 'resolved'
@@ -555,6 +558,10 @@ export type AdminUser = {
   is_admin: boolean
   created_at: string
   banned: boolean
+  // 最近一次登录的 IP 归属地与时间，仅管理后台可见。
+  // 从未登录过（本功能上线前的存量用户）时两者均缺失。
+  last_login_region?: string
+  last_login_at?: string
 }
 
 export type AdminUserListResponse = {

@@ -326,6 +326,23 @@ func main() {
 		slog.Info("Anthropic AI assistant enabled", "model", model)
 	}
 
+	// IP 归属地。只配 v4 也能工作（IPv6 来源的归属地为空）；
+	// 两个都不配时整个功能静默降级，不影响评论与登录。
+	v4DBPath := strings.TrimSpace(os.Getenv("IP_REGION_V4_DB_PATH"))
+	v6DBPath := strings.TrimSpace(os.Getenv("IP_REGION_V6_DB_PATH"))
+	if v4DBPath != "" || v6DBPath != "" {
+		resolver, err := newIP2RegionResolver(v4DBPath, v6DBPath)
+		if err != nil {
+			// 不退出：归属地只是一个展示字段，数据文件缺失或损坏
+			// 不应让整个网关启动失败。
+			slog.Warn("IP region database unavailable, region display disabled", "error", err)
+		} else {
+			ipRegionResolverStore = resolver
+			slog.Info("IP region resolution enabled",
+				"ipv4", v4DBPath != "", "ipv6", v6DBPath != "")
+		}
+	}
+
 	server := &http.Server{
 		Addr:              listenAddress(),
 		Handler:           newHandler(),
@@ -344,6 +361,9 @@ func main() {
 		if err := server.Shutdown(shutdownContext); err != nil {
 			slog.Error("gateway shutdown failed", "error", err)
 		}
+		// 连接排完后再等待在途的 best-effort 写入（加经验、写索引、
+		// 累计指标），否则重启刚好撞上时这些已经发生的动作会默默丢失。
+		waitForBackgroundTasks()
 	}()
 
 	slog.Info("gateway listening", "address", server.Addr)

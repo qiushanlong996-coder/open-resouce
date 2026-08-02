@@ -1699,7 +1699,9 @@
           "level": { "type": "integer" },
           "is_admin": { "type": "boolean" },
           "created_at": { "type": "string", "format": "date-time" },
-          "banned": { "type": "boolean" }
+          "banned": { "type": "boolean" },
+          "last_login_region": { "type": "string", "description": "最近一次登录的 IP 归属地（省级/国家级）。仅管理员可见，不含原始 IP" },
+          "last_login_at": { "type": "string", "format": "date-time", "description": "最近一次登录时间。从未登录过的存量用户该字段缺失" }
         }
       },
       "AdminUserListResponse": {
@@ -2339,6 +2341,7 @@
           "author": { "type": "string" },
           "author_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "评论作者等级（1-6），管理员恒为 6" },
           "author_frame": { "type": "string", "description": "评论作者的头像框（可选）" },
+          "author_region": { "type": "string", "description": "发表时的 IP 归属地（境内为省级简称，境外为国家名）。服务端只存归属地、不存原始 IP；历史评论、内网来源或未配置 IP 库时该字段缺失" },
           "like_count": { "type": "integer", "minimum": 0, "description": "点赞数" },
           "liked": { "type": "boolean", "description": "当前登录用户是否已点赞" },
           "quote": { "type": "string" },

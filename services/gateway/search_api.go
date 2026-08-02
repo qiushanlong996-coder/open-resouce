@@ -235,7 +235,7 @@ func syncProjectSearchIndex(project managedProject, action string) {
 	if !searchIndexStore.Available() {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		// 无论通过还是驳回，先清旧记录，避免残留。
@@ -253,7 +253,7 @@ func syncProjectSearchIndex(project managedProject, action string) {
 					"document_id", document.ID, "error", err)
 			}
 		}
-	}()
+	})
 }
 
 // warmSearchIndex 在启动时确保索引存在。失败只告警，不阻断服务启动。
@@ -261,7 +261,7 @@ func warmSearchIndex() {
 	if !searchIndexStore.Available() {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := searchIndexStore.Ensure(ctx); err != nil {
@@ -269,5 +269,5 @@ func warmSearchIndex() {
 			return
 		}
 		slog.Info("search index ready")
-	}()
+	})
 }

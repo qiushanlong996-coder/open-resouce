@@ -145,6 +145,9 @@ type authRepository interface {
 	UpdateAvatarFrame(ctx context.Context, userID, frame string) (authUser, bool, error)
 	// FramesByUserIDs 批量返回用户头像框，用于评论作者头像框展示。
 	FramesByUserIDs(ctx context.Context, ids []string) (map[string]string, error)
+	// RecordLogin 记录最近一次登录的 IP 归属地与时间，供管理后台识别异常登录来源。
+	// 只存归属地，不存原始 IP。
+	RecordLogin(ctx context.Context, userID, region string, at time.Time) error
 	// AddExperience 幂等地给用户加经验，返回是否实际记入（重复动作返回 false）。
 	AddExperience(ctx context.Context, userID, action, sourceKey string, points int) (bool, error)
 	// LevelsByUserIDs 批量返回用户等级，用于评论作者等级展示。
@@ -170,6 +173,15 @@ type memoryAuthRepository struct {
 	sessions         map[string]authSession
 	resetTokens      map[string]passwordResetToken
 	experienceLedger map[string]struct{}
+	// lastLogin 按用户 ID 记录最近一次登录的归属地与时间。
+	lastLogin map[string]userLastLogin
+}
+
+// userLastLogin 是最近一次登录的归属地与时间。Region 可以为空
+// （内网登录、未配置 IP 库、或库里查不到），此时仍应记下登录时间。
+type userLastLogin struct {
+	Region string
+	At     time.Time
 }
 
 func newMemoryAuthRepository() *memoryAuthRepository {
@@ -179,7 +191,21 @@ func newMemoryAuthRepository() *memoryAuthRepository {
 		sessions:         make(map[string]authSession),
 		resetTokens:      make(map[string]passwordResetToken),
 		experienceLedger: make(map[string]struct{}),
+		lastLogin:        make(map[string]userLastLogin),
 	}
+}
+
+// RecordLogin 记下最近一次登录的归属地与时间（覆盖式）。
+func (repository *memoryAuthRepository) RecordLogin(
+	_ context.Context, userID, region string, at time.Time,
+) error {
+	if userID == "" {
+		return nil
+	}
+	repository.Lock()
+	defer repository.Unlock()
+	repository.lastLogin[userID] = userLastLogin{Region: region, At: at.UTC()}
+	return nil
 }
 
 func (repository *memoryAuthRepository) CreateUser(_ context.Context, user authUser) error {
@@ -212,11 +238,18 @@ func (repository *memoryAuthRepository) ListUsers(
 			!strings.Contains(strings.ToLower(user.DisplayName), needle) {
 			continue
 		}
-		matched = append(matched, adminUserSummary{
+		summary := adminUserSummary{
 			ID: user.ID, Email: user.Email, DisplayName: user.DisplayName,
 			Experience: user.Experience, Level: levelForUser(user.Email, user.Experience),
 			IsAdmin: isAdminEmail(user.Email), CreatedAt: repository.userCreatedAt[user.ID],
-		})
+		}
+		// 与 MySQL 实现保持一致：从未登录过的用户两个字段都留空。
+		if login, recorded := repository.lastLogin[user.ID]; recorded {
+			summary.LastLoginRegion = login.Region
+			at := login.At
+			summary.LastLoginAt = &at
+		}
+		matched = append(matched, summary)
 	}
 	// 稳定排序：注册时间倒序，时间相同按 ID 兜底。
 	sort.Slice(matched, func(i, j int) bool {
@@ -761,6 +794,21 @@ func (repository *mysqlAuthRepository) UpdateAvatarFrame(
 	return user, true, nil
 }
 
+func (repository *mysqlAuthRepository) RecordLogin(
+	ctx context.Context, userID, region string, at time.Time,
+) error {
+	if userID == "" {
+		return nil
+	}
+	_, err := repository.db.ExecContext(ctx,
+		`UPDATE users SET last_login_region = ?, last_login_at = ? WHERE id = ?`,
+		region, at.UTC(), userID)
+	if err != nil {
+		return fmt.Errorf("record login region: %w", err)
+	}
+	return nil
+}
+
 func (repository *mysqlAuthRepository) FramesByUserIDs(
 	ctx context.Context, ids []string,
 ) (map[string]string, error) {
@@ -929,7 +977,7 @@ func (repository *mysqlAuthRepository) ListUsers(
 	}
 	pageArguments := append(append([]any{}, arguments...), limit, offset)
 	rows, err := repository.db.QueryContext(ctx,
-		`SELECT id, email, display_name, experience, created_at FROM users`+where+
+		`SELECT id, email, display_name, experience, created_at, last_login_region, last_login_at FROM users`+where+
 			` ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`, pageArguments...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
@@ -938,12 +986,18 @@ func (repository *mysqlAuthRepository) ListUsers(
 	result := make([]adminUserSummary, 0)
 	for rows.Next() {
 		var summary adminUserSummary
+		// last_login_at 对从未登录过的存量用户是 NULL，必须用 NullTime 接。
+		var lastLoginAt sql.NullTime
 		if err := rows.Scan(&summary.ID, &summary.Email, &summary.DisplayName,
-			&summary.Experience, &summary.CreatedAt); err != nil {
+			&summary.Experience, &summary.CreatedAt, &summary.LastLoginRegion, &lastLoginAt); err != nil {
 			return nil, 0, fmt.Errorf("scan user summary: %w", err)
 		}
 		summary.Level = levelForUser(summary.Email, summary.Experience)
 		summary.IsAdmin = isAdminEmail(summary.Email)
+		if lastLoginAt.Valid {
+			value := lastLoginAt.Time.UTC()
+			summary.LastLoginAt = &value
+		}
 		result = append(result, summary)
 	}
 	return result, total, rows.Err()
@@ -1614,6 +1668,14 @@ func createLoginSession(writer http.ResponseWriter, request *http.Request, user 
 	}
 	if err := authRepositoryStore.CreateSession(request.Context(), session); err != nil {
 		return err
+	}
+	// 记录登录归属地。失败只告警：这是审计辅助信息，
+	// 写不进去不应让用户登不了录。
+	if err := authRepositoryStore.RecordLogin(
+		request.Context(), user.ID, resolveIPRegion(requestClientIP(request)), createdAt,
+	); err != nil {
+		slog.WarnContext(request.Context(), "record login region failed",
+			"user_id", user.ID, "error", err)
 	}
 	http.SetCookie(writer, &http.Cookie{
 		Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt,

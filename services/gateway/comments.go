@@ -13,24 +13,27 @@ import (
 )
 
 type documentComment struct {
-	ID          string            `json:"id"`
-	DocumentID  string            `json:"document_id"`
-	ParentID    *string           `json:"parent_id"`
-	BlockID     string            `json:"block_id"`
-	AuthorID    string            `json:"author_id,omitempty"`
-	Author      string            `json:"author"`
-	AuthorLevel int               `json:"author_level,omitempty"`
-	AuthorFrame string            `json:"author_frame,omitempty"`
-	Quote       string            `json:"quote"`
-	Body        string            `json:"body"`
-	Status      string            `json:"status"`
-	CreatedAt   string            `json:"created_at"`
-	UpdatedAt   string            `json:"updated_at"`
-	ResolvedAt  *string           `json:"resolved_at"`
-	Replies     []documentComment `json:"replies"`
-	ReplyCount  int               `json:"reply_count"`
-	LikeCount   int               `json:"like_count"`
-	Liked       bool              `json:"liked"`
+	ID          string  `json:"id"`
+	DocumentID  string  `json:"document_id"`
+	ParentID    *string `json:"parent_id"`
+	BlockID     string  `json:"block_id"`
+	AuthorID    string  `json:"author_id,omitempty"`
+	Author      string  `json:"author"`
+	AuthorLevel int     `json:"author_level,omitempty"`
+	AuthorFrame string  `json:"author_frame,omitempty"`
+	// AuthorRegion 是发表时的 IP 归属地（省级，境外为国家）。
+	// 只存归属地不存 IP；历史评论与无法判定时为空，前端不展示。
+	AuthorRegion string            `json:"author_region,omitempty"`
+	Quote        string            `json:"quote"`
+	Body         string            `json:"body"`
+	Status       string            `json:"status"`
+	CreatedAt    string            `json:"created_at"`
+	UpdatedAt    string            `json:"updated_at"`
+	ResolvedAt   *string           `json:"resolved_at"`
+	Replies      []documentComment `json:"replies"`
+	ReplyCount   int               `json:"reply_count"`
+	LikeCount    int               `json:"like_count"`
+	Liked        bool              `json:"liked"`
 }
 
 type commentListResponse struct {
@@ -334,7 +337,9 @@ func documentCommentsHandler(writer http.ResponseWriter, request *http.Request) 
 		comment := documentComment{
 			ID: "comment-" + newRequestID(), DocumentID: document.ID, BlockID: input.BlockID,
 			AuthorID: actor.ID, Author: input.Author, Quote: input.Quote, Body: input.Body, Status: "open",
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			// 归属地在写入时算完就丢掉 IP，不落库、也不传给仓库之外的任何层。
+			AuthorRegion: resolveIPRegion(requestClientIP(request)),
+			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		}
 		comment, err := commentRepositoryStore.Create(request.Context(), comment)
 		if err != nil {
@@ -468,7 +473,8 @@ func documentCommentRepliesHandler(writer http.ResponseWriter, request *http.Req
 	reply := documentComment{
 		ID: "comment-" + newRequestID(), DocumentID: document.ID,
 		AuthorID: actor.ID, Author: input.Author, Body: input.Body, Status: "open",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339), Replies: []documentComment{},
+		AuthorRegion: resolveIPRegion(requestClientIP(request)),
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339), Replies: []documentComment{},
 	}
 	reply, found, err := commentRepositoryStore.CreateReply(
 		request.Context(), request.PathValue("commentID"), reply,

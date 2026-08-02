@@ -159,13 +159,13 @@ func recordDownloadBestEffort(projectID string) {
 	if projectMetricsRepositoryStore == nil || projectID == "" {
 		return
 	}
-	go func() {
+	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := projectMetricsRepositoryStore.IncrementDownload(ctx, projectID); err != nil {
 			slog.Warn("record project download failed", "project_id", projectID, "error", err)
 		}
-	}()
+	})
 }
 
 // projectViewHandler 记录一次项目浏览（beacon）。公开、无需登录。

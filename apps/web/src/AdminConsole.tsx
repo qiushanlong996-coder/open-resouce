@@ -33,6 +33,23 @@ function formatDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
 }
 
+// renderLastLogin 展示最近一次登录的 IP 归属地与时间。
+//
+// 三种情况要分开表达，不能混成一个「—」：
+//   - 从未登录过（本功能上线前的存量用户）→「暂无记录」；
+//   - 登录过但归属地判定不出来（内网来源、IP 库无此段）→ 只显示时间；
+//   - 两者都有 → 归属地为主、时间为辅。
+// 服务端只存归属地不存 IP，所以这里也拿不到、也不该显示原始 IP。
+function renderLastLogin(user: AdminUser) {
+  if (!user.last_login_at) return <span className="admin-muted">暂无记录</span>
+  return (
+    <>
+      {user.last_login_region || <span className="admin-muted">归属地未知</span>}
+      <small className="admin-mono" style={{ display: 'block' }}>{formatDate(user.last_login_at)}</small>
+    </>
+  )
+}
+
 export default function AdminConsole({ onClose, currentUser }: { onClose: () => void; currentUser: AuthUser }) {
   const [active, setActive] = useState<ModuleID>('overview')
 
@@ -474,7 +491,7 @@ function UsersPanel({ currentUser }: { currentUser: AuthUser }) {
         : users.length === 0 ? <div className="admin-empty">没有匹配的用户。</div>
           : <table className="admin-table">
             <thead>
-              <tr><th>邮箱</th><th>昵称</th><th>等级</th><th>经验</th><th>注册时间</th><th>状态</th><th>操作</th></tr>
+              <tr><th>邮箱</th><th>昵称</th><th>等级</th><th>经验</th><th>注册时间</th><th>上次登录</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
               {users.map((user) => (
@@ -484,6 +501,9 @@ function UsersPanel({ currentUser }: { currentUser: AuthUser }) {
                   <td>Lv.{user.level}</td>
                   <td>{user.experience}</td>
                   <td>{formatDate(user.created_at)}</td>
+                  {/* 上次登录：归属地 + 时间。本功能上线前的存量用户尚无记录，
+                      显示「暂无记录」而不是编造一个位置。 */}
+                  <td>{renderLastLogin(user)}</td>
                   <td>{user.banned ? <span className="admin-badge danger">已封禁</span> : <span className="admin-badge ok">正常</span>}</td>
                   <td>
                     {user.id === currentUser.id ? <span className="admin-badge muted">本人</span>

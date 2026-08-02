@@ -193,6 +193,8 @@ type CommentItem = {
   authorId: string
   authorLevel: number
   authorFrame: string
+  // authorRegion 为空时不渲染（历史评论、内网来源、未配置 IP 库）。
+  authorRegion: string
   user: string
   initials: string
   time: string
@@ -355,6 +357,7 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
     authorId: comment.author_id ?? '',
     authorLevel: comment.author_level ?? 1,
     authorFrame: comment.author_frame ?? '',
+    authorRegion: comment.author_region ?? '',
     user: comment.author,
     initials: comment.author.slice(0, 1),
     time: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(comment.created_at)),
@@ -2143,7 +2146,7 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
           : <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} frame={comment.authorFrame} />}
         <div>
           <span className="name-row">{comment.authorId ? <button type="button" className={`author-profile-link ${comment.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(comment.authorId)}><strong>{comment.user}</strong></button> : <strong className={comment.authorLevel >= 6 ? 'nickname-legendary' : ''}>{comment.user}</strong>}<LevelBadge level={comment.authorLevel} /></span>
-          <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}</small>
+          <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}{comment.authorRegion ? ` · IP 属地：${comment.authorRegion}` : ''}</small>
         </div>
         {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
       </div>

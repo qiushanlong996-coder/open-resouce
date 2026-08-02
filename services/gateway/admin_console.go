@@ -25,6 +25,11 @@ type adminUserSummary struct {
 	IsAdmin     bool      `json:"is_admin"`
 	CreatedAt   time.Time `json:"created_at"`
 	Banned      bool      `json:"banned"`
+	// LastLoginRegion / LastLoginAt 是最近一次登录的 IP 归属地与时间。
+	// 仅管理后台可见，用于识别异常登录来源。只存归属地不存 IP；
+	// 从未登录过的存量用户两者均为空。
+	LastLoginRegion string     `json:"last_login_region,omitempty"`
+	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
 }
 
 // commentCounter 是评论仓库的可选能力：并非所有实现（如测试替身）都提供。
