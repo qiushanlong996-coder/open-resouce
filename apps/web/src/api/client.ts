@@ -164,6 +164,9 @@ export type ProjectDetail = ProjectSummary & {
   use_cases: string[]
   repository: string
   current_version: string
+  // owner_id / author_name 让前端把项目链接到作者公开主页；种子项目为空。
+  owner_id?: string
+  author_name?: string
   resources: {
     cover: boolean
     document: boolean
@@ -173,6 +176,24 @@ export type ProjectDetail = ProjectSummary & {
 
 export type ProjectDetailResponse = {
   data: ProjectDetail
+  request_id: string
+}
+
+export type PublicUserProfile = {
+  id: string
+  display_name: string
+  level: number
+  joined_at: string
+  projects: ProjectSummary[]
+  stats: {
+    projects_count: number
+    total_views: number
+    total_downloads: number
+  }
+}
+
+export type PublicUserProfileResponse = {
+  data: PublicUserProfile
   request_id: string
 }
 
@@ -830,6 +851,14 @@ export function getProjects(
 
 export function getProject(slug: string, signal?: AbortSignal) {
   return apiRequest<ProjectDetailResponse>(`/api/v1/projects/${encodeURIComponent(slug)}`, { signal })
+}
+
+// getUserProfile 获取用户公开主页（昵称、等级、注册时间、已发布项目与统计）。公开、无需登录。
+export function getUserProfile(userID: string, signal?: AbortSignal) {
+  return apiRequest<PublicUserProfileResponse>(
+    `/api/v1/users/${encodeURIComponent(userID)}/profile`,
+    { signal },
+  )
 }
 
 export function getProjectCollaborationAccess(slug: string, signal?: AbortSignal) {

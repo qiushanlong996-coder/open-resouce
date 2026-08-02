@@ -359,6 +359,23 @@
         }
       }
     },
+    "/api/v1/users/{id}/profile": {
+      "get": {
+        "summary": "获取用户公开主页",
+        "description": "公开、无需登录。返回用户昵称、等级、注册时间、其已发布项目摘要与浏览/下载汇总。绝不返回邮箱或任何 PII。",
+        "operationId": "getUserProfile",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "用户公开资料",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicUserProfileResponse" } } }
+          },
+          "404": { "description": "用户不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "summary": "获取当前用户站内通知",
@@ -1955,6 +1972,14 @@
               "current_version": {
                 "type": "string"
               },
+              "owner_id": {
+                "type": "string",
+                "description": "已发布项目的作者用户 ID；种子项目为空。用于链接到作者公开主页。"
+              },
+              "author_name": {
+                "type": "string",
+                "description": "已发布项目的作者昵称；种子项目为空。"
+              },
               "resources": {
                 "type": "object",
                 "required": ["cover", "document", "code"],
@@ -1981,6 +2006,38 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "PublicUserStats": {
+        "type": "object",
+        "required": ["projects_count", "total_views", "total_downloads"],
+        "properties": {
+          "projects_count": { "type": "integer", "minimum": 0 },
+          "total_views": { "type": "integer", "minimum": 0 },
+          "total_downloads": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "PublicUserProfile": {
+        "type": "object",
+        "required": ["id", "display_name", "level", "joined_at", "projects", "stats"],
+        "properties": {
+          "id": { "type": "string" },
+          "display_name": { "type": "string" },
+          "level": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "joined_at": { "type": "string", "format": "date-time" },
+          "projects": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProjectSummary" }
+          },
+          "stats": { "$ref": "#/components/schemas/PublicUserStats" }
+        }
+      },
+      "PublicUserProfileResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/PublicUserProfile" },
+          "request_id": { "type": "string" }
         }
       },
       "DocumentNode": {
