@@ -292,6 +292,43 @@
         }
       }
     },
+    "/api/v1/follows": {
+      "get": {
+        "summary": "获取当前用户关注的项目 ID",
+        "operationId": "listFollows",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "关注项目 ID 列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FollowListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/projects/{slug}/follow": {
+      "parameters": [
+        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "post": {
+        "summary": "关注项目",
+        "description": "关注后项目（重新）发布时会收到 project.updated 站内通知。重复调用同样成功（幂等）。",
+        "operationId": "createFollow",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已关注；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "取消关注项目",
+        "operationId": "deleteFollow",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "204": { "description": "已取消关注；重复调用同样成功" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/v1/projects/{slug}/share": {
       "parameters": [
         { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
@@ -336,7 +373,7 @@
     "/api/v1/notifications/events": {
       "get": {
         "summary": "订阅当前用户通知实时事件",
-        "description": "Server-Sent Events 通知流。事件名为 notification，数据为 Notification 对象；通知类型包括 comment.replied、project.approved、project.rejected。",
+        "description": "Server-Sent Events 通知流。事件名为 notification，数据为 Notification 对象；通知类型包括 comment.replied、project.approved、project.rejected、project.updated。",
         "operationId": "streamNotificationEvents",
         "security": [{ "cookieAuth": [] }],
         "responses": {
@@ -2361,6 +2398,14 @@
           "request_id": { "type": "string" }
         }
       },
+      "FollowListResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "type": "string" } },
+          "request_id": { "type": "string" }
+        }
+      },
       "ProjectDocument": {
         "type": "object",
         "required": ["id", "project_id", "parent_id", "slug", "title", "markdown", "sort_order", "created_at", "updated_at"],
@@ -2514,7 +2559,7 @@
           "id": { "type": "string" },
           "actor_id": { "type": "string" },
           "actor_name": { "type": "string" },
-          "type": { "type": "string", "enum": ["comment.replied", "project.approved", "project.rejected"] },
+          "type": { "type": "string", "enum": ["comment.replied", "project.approved", "project.rejected", "project.updated"] },
           "title": { "type": "string" },
           "body": { "type": "string" },
           "project_slug": { "type": "string" },

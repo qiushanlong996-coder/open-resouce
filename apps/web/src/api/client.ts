@@ -36,6 +36,11 @@ export type FavoriteListResponse = {
   request_id: string
 }
 
+export type FollowListResponse = {
+  data: string[]
+  request_id: string
+}
+
 export type AcceptedResponse = {
   request_id: string
 }
@@ -305,7 +310,7 @@ export type AppNotification = {
   id: string
   actor_id?: string
   actor_name?: string
-  type: 'comment.replied' | 'project.approved' | 'project.rejected'
+  type: 'comment.replied' | 'project.approved' | 'project.rejected' | 'project.updated'
   title: string
   body?: string
   project_slug?: string
@@ -719,6 +724,10 @@ export function getFavorites(signal?: AbortSignal) {
   return apiRequest<FavoriteListResponse>('/api/v1/favorites', { signal })
 }
 
+export function getFollows(signal?: AbortSignal) {
+  return apiRequest<FollowListResponse>('/api/v1/follows', { signal })
+}
+
 export function getNotifications(signal?: AbortSignal) {
   return apiRequest<NotificationListResponse>('/api/v1/notifications', { signal })
 }
@@ -776,6 +785,12 @@ export function getProjectAssistantURL(projectSlug: string) {
 export function setProjectFavorite(projectSlug: string, favorite: boolean) {
   return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/favorite`, {
     method: favorite ? 'POST' : 'DELETE',
+  })
+}
+
+export function setProjectFollow(projectSlug: string, follow: boolean) {
+  return apiRequest<void>(`/api/v1/projects/${encodeURIComponent(projectSlug)}/follow`, {
+    method: follow ? 'POST' : 'DELETE',
   })
 }
 

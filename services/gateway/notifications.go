@@ -421,6 +421,29 @@ func notifyCommentReply(ctx context.Context, projectSlug, documentSlug, document
 	}
 }
 
+// notifyProjectFollowers 在项目（重新）发布后通知每位关注者。
+// 尽力而为：查询关注者失败只记录日志，不阻塞主流程；跳过操作者本人
+// （通常是审核管理员），关注者列表为空时静默返回。
+func notifyProjectFollowers(ctx context.Context, project managedProject, actor authUser) {
+	followerIDs, err := followRepositoryStore.FollowerIDs(ctx, project.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "notify followers lookup failed",
+			"request_id", requestIDFromContext(ctx), "project_id", project.ID, "error", err)
+		return
+	}
+	for _, followerID := range followerIDs {
+		if followerID == actor.ID {
+			continue
+		}
+		dispatchNotification(ctx, notification{
+			RecipientID: followerID, ActorID: actor.ID, ActorName: actor.DisplayName,
+			Type:        "project.updated",
+			Title:       "关注的项目「" + project.Name + "」有更新",
+			ProjectSlug: project.Slug,
+		})
+	}
+}
+
 // notifyProjectReview 在管理员审核后通知项目作者。
 func notifyProjectReview(ctx context.Context, project managedProject, actor authUser, action, reason string) {
 	entry := notification{
