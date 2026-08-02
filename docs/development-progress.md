@@ -2401,3 +2401,14 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 
 - **均未部署、未做真人浏览器验证**。含 **2 个新迁移**（000017 关注、000018 举报），上线需按序上测试库→集成测试→生产库→交叉编译 Gateway→发前端。
 - 修复：合并时 `git add -A` 误把 `.claude/worktrees/*` 作为嵌入仓库加入提交，已 `git rm --cached` 移除并把 `.claude/` 加入 `.gitignore`（amend 掉），main 干净无 worktree gitlink。
+
+## 2026-08-02：用户公开主页 / 项目关注 / 内容举报 上线部署
+
+- 迁移 `000017`(关注)、`000018`(举报) 已应用到生产库（先测试库跑集成测试通过再上生产）。
+- 集成测试在应用服务器通过；Gateway 原子替换重启（保留 `gateway.previous`）；前端发布目录 `20260802054214`，主资源 `index-DXuHbD2B.js`；内网 `/healthz` ok、`/readyz` 200。
+- 公网回归（8443）全过：
+  - 公开主页 `GET /users/{id}/profile` 200（返回昵称/等级/加入时间/已发布项目，不含邮箱）。
+  - 关注 `POST /projects/atlas-agent/follow` 204 → `/follows` 返回 `["atlas"]` → 取消 204。
+  - 举报 `POST /reports` 201；匿名举报 401；管理员 `/admin/reports?status=open` 含该举报 → `resolve` 200。
+  - 首页服务新资源。
+- 回归临时用户已删（关注/举报随外键级联清零），users 回到 3；审计测试行与应用服务器临时目录已清理。
