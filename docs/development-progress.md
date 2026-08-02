@@ -2412,3 +2412,9 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
   - 举报 `POST /reports` 201；匿名举报 401；管理员 `/admin/reports?status=open` 含该举报 → `resolve` 200。
   - 首页服务新资源。
 - 回归临时用户已删（关注/举报随外键级联清零），users 回到 3；审计测试行与应用服务器临时目录已清理。
+
+## 2026-08-02：作者编辑器工具栏滚动固定
+
+- 问题：作者中心编辑文档向下滚动时，含「B/I/H2/列表/引用/代码/图表/图片/附件/emoji」的 `.markdown-toolbar` 会随内容滚走。
+- 修复：给 `.markdown-toolbar` 加 `position: sticky; top: 0; z-index: 6;`。它本就是滚动容器 `.document-project-editor`（`overflow-y:auto`）的直接子元素、背景不透明，滚动时会固定在编辑区顶部。
+- 验证：oxlint 零警告 + Vite 构建通过；本环境无浏览器自动化，粘性行为由 DOM/CSS 结构推断，建议上线后浏览器确认。
