@@ -1,24 +1,144 @@
-/* 头像框装饰层。占位样式，后续按 12 星座各自主题与动画细化。 */
+/* 头像框装饰层：12 星座原创动态框（纯 CSS/SVG，无外部素材）。
+   结构：流光渐变环（conic + mask）+ 顶部符号徽标 + 环上闪烁星点 + 柔光。 */
+
+@property --af-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
 .avatar-frame-preset,
 .avatar-frame-custom {
   position: absolute;
-  inset: -14%;
+  inset: -16%;
   pointer-events: none;
   display: block;
+  border-radius: 50%;
 }
 
-.avatar-frame-preset .avatar-frame-svg,
 .avatar-frame-custom img {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;
 }
 
-.avatar-frame-ring {
-  stroke: var(--blue);
+/* 每个预设默认配色（会被各星座覆盖）。--af-c1/2/3 流光三色，--af-star 星点色 */
+.avatar-frame-preset {
+  --af-c1: #6aa8ff;
+  --af-c2: #a98bff;
+  --af-c3: #7ff0ff;
+  --af-star: #ffffff;
+  --af-glyph: #ffffff;
+  --af-ring-width: 8%;
 }
 
-.avatar-frame-glyph {
-  font-size: 11px;
-  fill: var(--blue);
+/* 流光渐变环：conic 渐变 + 径向 mask 掏空中心成环，旋转 --af-angle */
+.af-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from var(--af-angle), var(--af-c1), var(--af-c2), var(--af-c3), var(--af-c2), var(--af-c1));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--af-ring-width)), #000 calc(100% - var(--af-ring-width) + 0.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--af-ring-width)), #000 calc(100% - var(--af-ring-width) + 0.5px));
+  animation: af-spin 9s linear infinite;
+}
+
+/* 柔光：外圈随呼吸 */
+.af-halo {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--af-c2) 55%, transparent);
+  animation: af-halo 3.4s ease-in-out infinite;
+}
+
+/* 环上星点：每个 i 铺满并按角度旋转，::before 在顶部画点 */
+.af-stars {
+  position: absolute;
+  inset: 0;
+  animation: af-spin 16s linear infinite reverse;
+}
+
+.af-stars i {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.af-stars i::before {
+  content: '';
+  position: absolute;
+  top: -2%;
+  left: 50%;
+  width: 12%;
+  height: 12%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--af-star);
+  box-shadow: 0 0 4px 1px color-mix(in srgb, var(--af-star) 70%, transparent);
+  animation: af-twinkle 2.2s ease-in-out infinite;
+}
+
+.af-stars i:nth-child(2)::before { animation-delay: .5s; }
+.af-stars i:nth-child(3)::before { animation-delay: 1s; }
+.af-stars i:nth-child(4)::before { animation-delay: 1.5s; }
+.af-stars i:nth-child(5)::before { animation-delay: .8s; }
+.af-stars i:nth-child(6)::before { animation-delay: 1.3s; }
+
+/* 顶部星座符号徽标 */
+.af-badge {
+  position: absolute;
+  top: -9%;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 34%;
+  height: 30%;
+  display: grid;
+  place-items: center;
+  padding: 0 2%;
+  border-radius: 999px;
+  color: var(--af-glyph);
+  background: color-mix(in srgb, var(--af-c1) 78%, #1a1030 22%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35), inset 0 0 4px color-mix(in srgb, var(--af-c3) 60%, transparent);
+  font-size: 62%;
+  line-height: 1;
+}
+
+@keyframes af-spin { to { --af-angle: 360deg; } }
+@keyframes af-halo {
+  0%, 100% { box-shadow: 0 0 6px 0 color-mix(in srgb, var(--af-c2) 40%, transparent); }
+  50% { box-shadow: 0 0 12px 3px color-mix(in srgb, var(--af-c2) 70%, transparent); }
+}
+@keyframes af-twinkle {
+  0%, 100% { opacity: .35; transform: translateX(-50%) scale(.7); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.15); }
+}
+
+/* 尺寸：徽标/星点字号随头像大小微调 */
+.af-sm .af-badge { font-size: 52%; }
+.af-lg .af-badge { font-size: 66%; }
+
+/* ===== 12 星座配色（按四元素分组，同族相近但各有区分） ===== */
+/* 火象：白羊/狮子/射手 —— 暖橙红金 */
+.af-zodiac-aries { --af-c1: #ff7a4d; --af-c2: #ff4d6d; --af-c3: #ffd24d; --af-star: #ffe6b0; --af-glyph: #fff; }
+.af-zodiac-leo { --af-c1: #ffb03a; --af-c2: #ff6a3d; --af-c3: #ffe98a; --af-star: #fff2c4; --af-glyph: #fff; }
+.af-zodiac-sagittarius { --af-c1: #ff6a5b; --af-c2: #c04dff; --af-c3: #ffcf6a; --af-star: #ffd9c2; --af-glyph: #fff; }
+/* 土象：金牛/处女/摩羯 —— 绿金褐 */
+.af-zodiac-taurus { --af-c1: #6ac48a; --af-c2: #b9a15a; --af-c3: #d8f0b0; --af-star: #eafbd0; --af-glyph: #143a24; }
+.af-zodiac-virgo { --af-c1: #8fd6a6; --af-c2: #4fae86; --af-c3: #e3f3c8; --af-star: #f0ffe0; --af-glyph: #123a2c; }
+.af-zodiac-capricorn { --af-c1: #b7a06a; --af-c2: #6f7d55; --af-c3: #e6d59a; --af-star: #f4ecc8; --af-glyph: #241a06; }
+/* 风象：双子/天秤/水瓶 —— 青紫粉 */
+.af-zodiac-gemini { --af-c1: #7ad0ff; --af-c2: #a98bff; --af-c3: #d6f2ff; --af-star: #eaf6ff; --af-glyph: #10233a; }
+.af-zodiac-libra { --af-c1: #ff9ec7; --af-c2: #9db4ff; --af-c3: #ffe1ef; --af-star: #fff0f6; --af-glyph: #2a1030; }
+.af-zodiac-aquarius { --af-c1: #5bd0e6; --af-c2: #6a7dff; --af-c3: #c2f4ff; --af-star: #e6fbff; --af-glyph: #0d2340; }
+/* 水象：巨蟹/天蝎/双鱼 —— 蓝青银 */
+.af-zodiac-cancer { --af-c1: #8fb8ff; --af-c2: #b6c6e0; --af-c3: #e2ecff; --af-star: #f2f7ff; --af-glyph: #14243f; }
+.af-zodiac-scorpio { --af-c1: #6a5bff; --af-c2: #c04dff; --af-c3: #8fd0ff; --af-star: #e0d6ff; --af-glyph: #fff; }
+.af-zodiac-pisces { --af-c1: #4fd6c4; --af-c2: #6a9bff; --af-c3: #bff5ea; --af-star: #e6fff9; --af-glyph: #0d3340; }
+
+@media (prefers-reduced-motion: reduce) {
+  .af-ring, .af-stars, .af-halo, .af-stars i::before { animation: none; }
+  /* 无动画时给环一个静态角度，仍是漂亮的渐变 */
+  .af-ring { --af-angle: 45deg; }
 }
