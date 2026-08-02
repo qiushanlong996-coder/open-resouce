@@ -2452,3 +2452,28 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 纯前端部署（无迁移、Gateway 未动）。发布目录 `20260802061321`，主资源 `index-BzZCrXwP.js`、样式 `index-suC9iqJ9.css`。
 - 验证：公网 8443 首页 200 且已引用新资源；`/api/v1` 200；Gateway `active`。临时目录已清理。
 - 真人浏览器观感（阅读设置/scroll-spy/行锚点/换行/字数统计等）待后续手动确认。
+
+## 2026-08-02：用户可选头像框（12 星座动态框 + 自定义上传）
+
+需求：把头像框换成星座动态框，支持用户切换任意一款，也支持自己上传。因图中 12 个是游戏版权素材、且本环境无图像生成 MCP，预设框采用**原创动画 SVG/CSS**（用户可用自定义上传功能传入自己有授权的图）。用"先定契约、再并行"实现：先提交契约桩 `92c930b`（`avatarFrameData.ts` 12 星座数据 + `avatarFrames.tsx` `AvatarFrameLayer` 签名 + `avatar-frames.css`），两个 worktree agent 基于它并行。
+
+### 12 星座动态框（frames）
+
+- 每个星座：流光 conic 渐变环（mask 掏空成环）+ 呼吸柔光 + 环上闪烁星点 + 顶部星座符号徽标。
+- 12 套配色按四元素（火/土/风/水）分组，同族相近、各有区分；`@property --af-angle` 驱动环旋转，`@media (prefers-reduced-motion)` 降级为静态渐变。纯 CSS/SVG、无外部/版权素材。
+- 说明：Agent A 反复因 API 流式中断卡在大文件写入，最终由我直接实现（`47e684c`）。
+- 集成修复（`ec4b533`）：契约桩的 `avatar-frames.css` 未被导入（框会没样式），改为在 `avatarFrames.tsx` 导入；移除集成分支在 App.css 里重复/失配的定位；套框时头像内芯改圆形（`:has()`）。
+
+### 全链路接入（backend + 前端，Agent B `801eb17`）
+
+- 迁移 `000019`：`users.avatar_frame VARCHAR(191)`。
+- `PUT /api/v1/auth/avatar-frame`（登录）：校验 空 / 星座预设 id（Go 侧白名单，与前端 12 id 同步）/ `custom:<key>`（key 须在 `uploads/<用户ID>/` 下），否则 422。
+- `GET /api/v1/files/frame-asset?key=`（公开）：校验为 uploads 下图片后 307 到预签名下载，供他人查看自定义框。
+- `avatar_frame` 贯通 /auth/me、公开主页、评论作者（`author_frame`，与等级同批 `FramesByUserIDs` 补全）。
+- 前端：`LevelAvatar` 加 `frame` prop（预设→SVG，`custom:<key>`→图片 URL），有框时替换等级环、Lv.N 徽标保留；账号菜单「头像框」→ `AvatarFramePicker`（12 预设 + 默认(等级框) + 上传自定义），选择即持久化并即时生效；框展示于账号菜单/评论/回复/公开主页。
+
+### 验证
+
+- `gofmt`、`go vet`、`go test`（5 项新头像框测试：预设持久化、非法 422、越权 custom key 422、匿名 401、评论带 author_frame）通过；OpenAPI 79 路径 87 schema。
+- 前端 oxlint 零警告、Vite 构建通过。
+- **未部署、未做真人浏览器验证**（动画/选择器观感待浏览器确认）。含迁移 `000019`，上线走完整流程。
