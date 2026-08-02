@@ -2375,3 +2375,29 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - Gateway 原子替换重启（保留 `gateway.previous`）；前端发布目录 `20260801163957`，主资源 `index-aDn20z3i.js`；内网 `/healthz` ok、`/readyz` 200。
 - 公网回归（8443）全过：注册用户 → 自助创建 AccessKey 201 → 列表 200（不泄露明文）→ 用该 key 调开放 API `/open/projects` 200 → 吊销 204 → 吊销后 401 → 未登录列表 401；首页服务新资源。
 - 回归临时用户已用 root 删除（api_keys 随外键级联清理），users 回到 3；应用服务器临时目录已删。
+
+## 2026-08-02：用户公开主页 + 项目关注 + 内容举报（三 agent 并行）
+
+三个自选的互动/治理功能，三 worktree agent 并行实现。过程中三个 agent 都遭遇 API 流式中断，用 SendMessage 从各自 transcript 恢复后完成。依次合并回 main（B/A 零冲突；C 与 A 在 auth.go 接口和 App.tsx 的 DocumentView/CommentCard 签名处冲突，均"两者都保留"手工解决）。整体验证：go test 通过、OpenAPI 77 路径 86 schema、oxlint 零警告、Vite 构建通过。
+
+### 功能一：用户公开主页（无迁移）
+
+- `GET /api/v1/users/{id}/profile`（公开）：昵称、等级、加入时间、已发布项目、统计（项目数/总浏览/总下载）；不返回邮箱。项目详情响应新增 `owner_id`/`author_name` 以便链接作者。
+- 前端 `UserProfile.tsx`：点评论作者、回复作者、项目作者 → 打开公开主页；页内点项目卡片打开该项目。
+
+### 功能二：项目关注 + 更新通知（迁移 000017）
+
+- `project_follows` 表 + `GET /api/v1/follows`、`POST|DELETE /api/v1/projects/{slug}/follow`（登录 + 未封禁，幂等）。
+- 管理员审核通过（项目发布/更新）后 `notifyProjectFollowers` 向关注者推 `project.updated` 通知（排除操作者），复用既有通知与点击跳转。
+- 前端详情页「关注」按钮（乐观更新+登录引导）；登录后加载关注状态。「我的关注」列表视图作为后续项。
+
+### 功能三：内容举报 + 管理端处理（迁移 000018）
+
+- `content_reports` 表 + `POST /api/v1/reports`（登录+未封禁；target_type project|comment；同用户对同目标重复举报返回 200 duplicate）。
+- 管理端 `GET /api/v1/admin/reports?status=`、`POST /admin/reports/{id}/resolve|dismiss`（写审计 `report_resolved`/`report_dismissed`）。
+- 前端项目详情与评论卡片「举报」入口 → `ReportDialog`（选原因+可选说明）；管理控制台新增「举报处理」模块（状态过滤 + 处理/驳回）。
+
+### 注意事项 · 部署
+
+- **均未部署、未做真人浏览器验证**。含 **2 个新迁移**（000017 关注、000018 举报），上线需按序上测试库→集成测试→生产库→交叉编译 Gateway→发前端。
+- 修复：合并时 `git add -A` 误把 `.claude/worktrees/*` 作为嵌入仓库加入提交，已 `git rm --cached` 移除并把 `.claude/` 加入 `.gitignore`（amend 掉），main 干净无 worktree gitlink。
