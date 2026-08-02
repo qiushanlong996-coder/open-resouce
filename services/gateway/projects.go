@@ -50,12 +50,15 @@ type projectListResponse struct {
 
 type projectDetail struct {
 	projectSummary
-	Description    string           `json:"description"`
-	Highlights     []string         `json:"highlights"`
-	UseCases       []string         `json:"use_cases"`
-	Repository     string           `json:"repository"`
-	CurrentVersion string           `json:"current_version"`
-	Resources      projectResources `json:"resources"`
+	Description    string   `json:"description"`
+	Highlights     []string `json:"highlights"`
+	UseCases       []string `json:"use_cases"`
+	Repository     string   `json:"repository"`
+	CurrentVersion string   `json:"current_version"`
+	// OwnerID / AuthorName 让前端把项目链接到作者公开主页；种子项目留空。
+	OwnerID    string           `json:"owner_id"`
+	AuthorName string           `json:"author_name"`
+	Resources  projectResources `json:"resources"`
 }
 
 type projectResources struct {
@@ -246,11 +249,19 @@ func projectDetailHandler(writer http.ResponseWriter, request *http.Request) {
 		project = projectDetail{
 			projectSummary: managedProjectSummary(managed),
 			Description:    managed.Description, Repository: managed.RepositoryURL,
-			CurrentVersion: managed.CurrentVersion,
+			CurrentVersion: managed.CurrentVersion, OwnerID: managed.OwnerID,
 			Resources: projectResources{
 				Cover: managed.CoverObjectKey != "", Document: managed.DocumentObjectKey != "",
 				Code: managed.CodeObjectKey != "",
 			},
+		}
+		// 解析作者昵称，供前端链接到其公开主页；失败不阻塞详情展示。
+		if authRepositoryStore != nil && managed.OwnerID != "" {
+			if owner, ownerFound, ownerErr := authRepositoryStore.FindPublicUserByID(
+				request.Context(), managed.OwnerID,
+			); ownerErr == nil && ownerFound {
+				project.AuthorName = owner.DisplayName
+			}
 		}
 	}
 

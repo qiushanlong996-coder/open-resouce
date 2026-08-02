@@ -79,6 +79,15 @@ type authUser struct {
 	PasswordHash string `json:"-"`
 }
 
+// publicUserRecord 是公开用户资料的最小载体：email 只用于计算展示等级，绝不外泄。
+type publicUserRecord struct {
+	ID          string
+	DisplayName string
+	Email       string
+	Experience  int
+	CreatedAt   time.Time
+}
+
 type authSession struct {
 	ID        string
 	UserID    string
@@ -110,6 +119,8 @@ type authRepository interface {
 	AddExperience(ctx context.Context, userID, action, sourceKey string, points int) (bool, error)
 	// LevelsByUserIDs 批量返回用户等级，用于评论作者等级展示。
 	LevelsByUserIDs(ctx context.Context, ids []string) (map[string]int, error)
+	// FindPublicUserByID 按用户 ID 返回公开资料（含用于算等级的邮箱，不外泄）。未找到时 bool 为 false。
+	FindPublicUserByID(ctx context.Context, id string) (publicUserRecord, bool, error)
 	// CountUsers 返回注册用户总数，供管理概览统计。
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers 分页返回用户摘要，search 非空时按邮箱/昵称模糊匹配，同时返回匹配总数。
@@ -366,6 +377,22 @@ func (repository *memoryAuthRepository) LevelsByUserIDs(
 		}
 	}
 	return levels, nil
+}
+
+func (repository *memoryAuthRepository) FindPublicUserByID(
+	_ context.Context, id string,
+) (publicUserRecord, bool, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	for _, user := range repository.usersByEmail {
+		if user.ID == id {
+			return publicUserRecord{
+				ID: user.ID, DisplayName: user.DisplayName, Email: user.Email,
+				Experience: user.Experience, CreatedAt: repository.userCreatedAt[user.ID],
+			}, true, nil
+		}
+	}
+	return publicUserRecord{}, false, nil
 }
 
 func (repository *memoryAuthRepository) CreatePasswordResetToken(
@@ -685,6 +712,23 @@ func (repository *mysqlAuthRepository) LevelsByUserIDs(
 		levels[id] = levelForUser(email, experience)
 	}
 	return levels, rows.Err()
+}
+
+func (repository *mysqlAuthRepository) FindPublicUserByID(
+	ctx context.Context, id string,
+) (publicUserRecord, bool, error) {
+	const query = `SELECT id, email, display_name, experience, created_at FROM users WHERE id = ?`
+	var record publicUserRecord
+	err := repository.db.QueryRowContext(ctx, query, id).Scan(
+		&record.ID, &record.Email, &record.DisplayName, &record.Experience, &record.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return publicUserRecord{}, false, nil
+	}
+	if err != nil {
+		return publicUserRecord{}, false, fmt.Errorf("find public user by id: %w", err)
+	}
+	return record, true, nil
 }
 
 func (repository *mysqlAuthRepository) CountUsers(ctx context.Context) (int, error) {
