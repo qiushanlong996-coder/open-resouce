@@ -131,6 +131,18 @@ import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
 import { UserProfile } from './UserProfile'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
+import {
+  BackToTopButton,
+  DocumentPager,
+  ReaderSettingsControl,
+  ReadingProgressBar,
+} from './ReaderExperience'
+import {
+  flattenDocumentTree,
+  useReaderPreferences,
+  useScrollMetrics,
+  useScrollSpy,
+} from './readerExperienceUtils'
 import { useHighlightedCode } from './codeHighlight'
 import { themes, applyTheme, isThemeId, type ThemeId } from './themes'
 import './App.css'
@@ -1909,6 +1921,11 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [searchKeyword, setSearchKeyword] = useState('')
   const documentSearch = useDocumentSearch(articleContentRef, searchKeyword, activeDocument?.id ?? '')
+  // 阅读增强：正文排版偏好、目录滚动高亮、阅读进度/回到顶部、上下篇导航。
+  const readerPrefs = useReaderPreferences()
+  const activeHeadingId = useScrollSpy(activeDocument?.outline, activeDocument?.id ?? '')
+  const scrollMetrics = useScrollMetrics(articleContentRef)
+  const flatDocuments = useMemo(() => flattenDocumentTree(documentTree), [documentTree])
 
   // 切换文档时重置阅读态，避免上一篇的搜索词和图片预览沿用到新文档。
   useEffect(() => {
@@ -1981,11 +1998,12 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
 
   return (
     <section className="doc-workspace">
-      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={item.level > 1 ? 'indent' : ''} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
+      {activeDocument && <ReadingProgressBar progress={scrollMetrics.progress} />}
+      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={`${item.level > 1 ? 'indent' : ''} ${item.id === activeHeadingId ? 'is-current' : ''}`.trim()} aria-current={item.id === activeHeadingId ? 'location' : undefined} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}{activeDocument && <ReaderSettingsControl controller={readerPrefs} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
         {documentState === 'offline' && <div className="document-sync-state offline"><span className="gateway-state-dot" />文档服务暂时不可用，请稍后重试。</div>}
-        <div className="article-content" ref={articleContentRef}>
+        <div className="article-content reader-surface" ref={articleContentRef} style={readerPrefs.style}>
           {activeDocument ? (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -2047,6 +2065,7 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
             </div>
           )}
         </div>
+        {activeDocument && <DocumentPager items={flatDocuments} currentSlug={activeDocument.slug} onOpen={onOpenDocument} />}
         {commentComposerOpen && <div
           className={`selection-composer ${composerAnchor ? 'is-anchored' : ''}`}
           style={composerAnchor ? { top: `${composerAnchor.top}px` } : undefined}
@@ -2054,6 +2073,7 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
       </article>
       <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} onOpenProfile={onOpenProfile} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onReport={() => onReportComment(comment.id)} onLocate={locateBlock} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
+      {activeDocument && <BackToTopButton visible={scrollMetrics.scrolled} />}
     </section>
   )
 }

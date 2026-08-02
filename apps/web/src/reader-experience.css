@@ -1,0 +1,279 @@
+/*
+ * 阅读体验增强样式（阅读设置 / 目录高亮 / 进度条 / 回到顶部 / 上下篇）。
+ *
+ * 独立于 App.css，全部取色自主题 CSS 变量（--blue / --surface / --line / --ink ...），
+ * 因此浅色、深色与所有皮肤都能自动适配。选择器刻意带上 .article-content 前缀并叠加
+ * .reader-surface 类以提升优先级，确保无论 CSS 引入顺序如何，都能覆盖 App.css 的默认排版，
+ * 且不改动 App.css 里的任何主题变量。
+ */
+
+/* —— 阅读设置：作用于正文容器的排版变量 —— */
+.article-content.reader-surface {
+  max-width: var(--reader-max-width, 650px);
+  font-family: var(--reader-font-family, inherit);
+}
+.article-content.reader-surface p,
+.article-content.reader-surface li {
+  font-size: var(--reader-font-size, 14px);
+  line-height: var(--reader-line-height, 1.8);
+}
+.article-content.reader-surface ul,
+.article-content.reader-surface ol {
+  line-height: var(--reader-line-height, 1.8);
+}
+/* 代码块与行内代码始终等宽，不随正文字体（衬线/无衬线）变化。 */
+.article-content.reader-surface pre,
+.article-content.reader-surface pre code,
+.article-content.reader-surface :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.article-content.reader-surface pre,
+.article-content.reader-surface pre code,
+.article-content.reader-surface :not(pre) > code {
+  font-size: 12px;
+}
+.article-content.reader-surface :not(pre) > code {
+  font-size: 0.9em;
+}
+
+/* —— 阅读设置：工具栏按钮与弹层 —— */
+.reader-settings {
+  position: relative;
+  display: inline-flex;
+}
+.reader-settings .tool-button.is-active {
+  color: var(--blue);
+}
+.reader-settings-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(272px, calc(100vw - 32px));
+  padding: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.16);
+}
+.reader-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.reader-settings-close {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.reader-settings-close:hover {
+  color: var(--blue);
+}
+.reader-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+.reader-setting-label {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.reader-segment {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.reader-segment button {
+  min-width: 34px;
+  padding: 4px 9px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.reader-segment button:hover {
+  color: var(--ink);
+}
+.reader-segment button.active {
+  color: #fff;
+  background: var(--blue);
+}
+.reader-settings-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  padding: 5px 0;
+  color: var(--blue);
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+.reader-settings-reset:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* —— 目录 scroll-spy 高亮 —— */
+.doc-outline button.is-current {
+  color: var(--blue);
+  font-weight: 600;
+}
+.doc-outline button.is-current::before {
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: var(--blue);
+  border-radius: 2px;
+}
+.doc-outline button {
+  position: relative;
+}
+
+/* —— 阅读进度条 —— */
+.reader-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  height: 3px;
+  background: transparent;
+  pointer-events: none;
+}
+.reader-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--blue) 55%, transparent);
+  transition: width 0.12s linear;
+}
+
+/* —— 回到顶部 —— */
+.reader-back-to-top {
+  position: fixed;
+  right: clamp(16px, 4vw, 40px);
+  bottom: clamp(20px, 5vw, 44px);
+  z-index: 30;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.reader-back-to-top.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.reader-back-to-top:hover {
+  color: var(--blue);
+  border-color: var(--focus-line);
+}
+
+/* —— 上一篇 / 下一篇 —— */
+.reader-pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: var(--reader-max-width, 650px);
+  margin: 40px auto 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.reader-pager-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.reader-pager-link.next {
+  justify-content: flex-end;
+  text-align: right;
+}
+.reader-pager-link:hover {
+  color: var(--blue);
+  border-color: var(--focus-line);
+  background: color-mix(in srgb, var(--blue) 6%, var(--surface));
+}
+.reader-pager-link span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.reader-pager-link small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.reader-pager-link strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-pager-link:hover strong {
+  color: var(--blue);
+}
+.reader-pager-spacer {
+  display: block;
+}
+
+@media (max-width: 560px) {
+  .reader-pager {
+    grid-template-columns: 1fr;
+  }
+  .reader-pager-spacer {
+    display: none;
+  }
+}
+
+/* 尊重“减少动态效果”：关闭进度条/按钮/导航的过渡动画。 */
+@media (prefers-reduced-motion: reduce) {
+  .reader-progress-fill,
+  .reader-back-to-top,
+  .reader-pager-link,
+  .reader-segment button {
+    transition: none;
+  }
+}
