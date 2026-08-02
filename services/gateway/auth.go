@@ -76,6 +76,7 @@ type authUser struct {
 	IsAdmin      bool   `json:"is_admin"`
 	Experience   int    `json:"experience"`
 	Level        int    `json:"level"`
+	Avatar       string `json:"avatar"`
 	AvatarFrame  string `json:"avatar_frame"`
 	PasswordHash string `json:"-"`
 }
@@ -86,6 +87,7 @@ type publicUserRecord struct {
 	DisplayName string
 	Email       string
 	Experience  int
+	Avatar      string
 	AvatarFrame string
 	CreatedAt   time.Time
 }
@@ -110,6 +112,24 @@ func validAvatarFrame(frame, userID string) bool {
 	if key, found := strings.CutPrefix(frame, "custom:"); found {
 		prefix := "uploads/" + userID + "/"
 		return strings.HasPrefix(key, prefix) && len(key) <= 180 && !strings.Contains(key, "..")
+	}
+	return false
+}
+
+// validAvatar 只接受当前用户上传目录下的图片对象；空值表示恢复为昵称首字母头像。
+func validAvatar(avatar, userID string) bool {
+	if avatar == "" {
+		return true
+	}
+	prefix := "uploads/" + userID + "/"
+	if !strings.HasPrefix(avatar, prefix) || len(avatar) > 180 || strings.Contains(avatar, "..") {
+		return false
+	}
+	lower := strings.ToLower(avatar)
+	for _, extension := range []string{".jpg", ".jpeg", ".png", ".webp", ".gif"} {
+		if strings.HasSuffix(lower, extension) {
+			return true
+		}
 	}
 	return false
 }
@@ -141,10 +161,14 @@ type authRepository interface {
 	DeleteUserSession(context.Context, string, string) (authSession, bool, error)
 	UpdatePasswordAndDeleteOtherSessions(context.Context, string, string, string) error
 	UpdateDisplayName(context.Context, string, string) (authUser, bool, error)
+	// UpdateAvatar 持久化头像对象键，空值表示恢复默认头像。
+	UpdateAvatar(ctx context.Context, userID, avatar string) (authUser, bool, error)
 	// UpdateAvatarFrame 持久化用户所选头像框，返回更新后的用户。未找到时 bool 为 false。
 	UpdateAvatarFrame(ctx context.Context, userID, frame string) (authUser, bool, error)
 	// FramesByUserIDs 批量返回用户头像框，用于评论作者头像框展示。
 	FramesByUserIDs(ctx context.Context, ids []string) (map[string]string, error)
+	// AvatarsByUserIDs 批量返回用户头像，用于评论作者头像展示。
+	AvatarsByUserIDs(ctx context.Context, ids []string) (map[string]string, error)
 	// RecordLogin 记录最近一次登录的 IP 归属地与时间，供管理后台识别异常登录来源。
 	// 只存归属地，不存原始 IP。
 	RecordLogin(ctx context.Context, userID, region string, at time.Time) error
@@ -420,6 +444,21 @@ func (repository *memoryAuthRepository) UpdateAvatarFrame(
 	return authUser{}, false, nil
 }
 
+func (repository *memoryAuthRepository) UpdateAvatar(
+	_ context.Context, userID string, avatar string,
+) (authUser, bool, error) {
+	repository.Lock()
+	defer repository.Unlock()
+	for email, user := range repository.usersByEmail {
+		if user.ID == userID {
+			user.Avatar = avatar
+			repository.usersByEmail[email] = user
+			return user, true, nil
+		}
+	}
+	return authUser{}, false, nil
+}
+
 func (repository *memoryAuthRepository) FramesByUserIDs(
 	_ context.Context, ids []string,
 ) (map[string]string, error) {
@@ -436,6 +475,24 @@ func (repository *memoryAuthRepository) FramesByUserIDs(
 		}
 	}
 	return frames, nil
+}
+
+func (repository *memoryAuthRepository) AvatarsByUserIDs(
+	_ context.Context, ids []string,
+) (map[string]string, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	avatars := make(map[string]string)
+	for _, user := range repository.usersByEmail {
+		if _, ok := wanted[user.ID]; ok && user.Avatar != "" {
+			avatars[user.ID] = user.Avatar
+		}
+	}
+	return avatars, nil
 }
 
 func (repository *memoryAuthRepository) AddExperience(
@@ -486,7 +543,7 @@ func (repository *memoryAuthRepository) FindPublicUserByID(
 		if user.ID == id {
 			return publicUserRecord{
 				ID: user.ID, DisplayName: user.DisplayName, Email: user.Email,
-				Experience: user.Experience, AvatarFrame: user.AvatarFrame,
+				Experience: user.Experience, Avatar: user.Avatar, AvatarFrame: user.AvatarFrame,
 				CreatedAt: repository.userCreatedAt[user.ID],
 			}, true, nil
 		}
@@ -589,10 +646,10 @@ func (repository *mysqlAuthRepository) CreateUser(ctx context.Context, user auth
 }
 
 func (repository *mysqlAuthRepository) FindUserByEmail(ctx context.Context, email string) (authUser, bool, error) {
-	const query = `SELECT id, email, display_name, password_hash, experience, avatar_frame FROM users WHERE email = ?`
+	const query = `SELECT id, email, display_name, password_hash, experience, avatar, avatar_frame FROM users WHERE email = ?`
 	var user authUser
 	err := repository.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.AvatarFrame,
+		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
@@ -619,13 +676,13 @@ func (repository *mysqlAuthRepository) FindUserByTokenHash(
 	ctx context.Context, tokenHash string, now time.Time,
 ) (authUser, bool, error) {
 	const query = `
-		SELECT users.id, users.email, users.display_name, users.password_hash, users.experience, users.avatar_frame
+		SELECT users.id, users.email, users.display_name, users.password_hash, users.experience, users.avatar, users.avatar_frame
 		FROM auth_sessions
 		JOIN users ON users.id = auth_sessions.user_id
 		WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?`
 	var user authUser
 	err := repository.db.QueryRowContext(ctx, query, tokenHash, now.UTC()).Scan(
-		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.AvatarFrame,
+		&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
@@ -760,8 +817,8 @@ func (repository *mysqlAuthRepository) UpdateDisplayName(
 	}
 	var user authUser
 	err = repository.db.QueryRowContext(
-		ctx, `SELECT id, email, display_name, password_hash, experience, avatar_frame FROM users WHERE id = ?`, userID,
-	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.AvatarFrame)
+		ctx, `SELECT id, email, display_name, password_hash, experience, avatar, avatar_frame FROM users WHERE id = ?`, userID,
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame)
 	if err != nil {
 		return authUser{}, false, fmt.Errorf("read user after display name update: %w", err)
 	}
@@ -786,10 +843,34 @@ func (repository *mysqlAuthRepository) UpdateAvatarFrame(
 	}
 	var user authUser
 	err = repository.db.QueryRowContext(
-		ctx, `SELECT id, email, display_name, password_hash, experience, avatar_frame FROM users WHERE id = ?`, userID,
-	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.AvatarFrame)
+		ctx, `SELECT id, email, display_name, password_hash, experience, avatar, avatar_frame FROM users WHERE id = ?`, userID,
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame)
 	if err != nil {
 		return authUser{}, false, fmt.Errorf("read user after avatar frame update: %w", err)
+	}
+	return user, true, nil
+}
+
+func (repository *mysqlAuthRepository) UpdateAvatar(
+	ctx context.Context, userID string, avatar string,
+) (authUser, bool, error) {
+	result, err := repository.db.ExecContext(ctx, `UPDATE users SET avatar = ? WHERE id = ?`, avatar, userID)
+	if err != nil {
+		return authUser{}, false, fmt.Errorf("update avatar: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return authUser{}, false, fmt.Errorf("read avatar update result: %w", err)
+	}
+	if affected != 1 {
+		return authUser{}, false, nil
+	}
+	var user authUser
+	err = repository.db.QueryRowContext(
+		ctx, `SELECT id, email, display_name, password_hash, experience, avatar, avatar_frame FROM users WHERE id = ?`, userID,
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame)
+	if err != nil {
+		return authUser{}, false, fmt.Errorf("read user after avatar update: %w", err)
 	}
 	return user, true, nil
 }
@@ -837,6 +918,36 @@ func (repository *mysqlAuthRepository) FramesByUserIDs(
 		}
 	}
 	return frames, rows.Err()
+}
+
+func (repository *mysqlAuthRepository) AvatarsByUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]string, error) {
+	avatars := make(map[string]string)
+	if len(ids) == 0 {
+		return avatars, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	arguments := make([]any, len(ids))
+	for index, id := range ids {
+		arguments[index] = id
+	}
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT id, avatar FROM users WHERE id IN (`+placeholders+`)`, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("load user avatars: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, avatar string
+		if err := rows.Scan(&id, &avatar); err != nil {
+			return nil, fmt.Errorf("scan user avatar: %w", err)
+		}
+		if avatar != "" {
+			avatars[id] = avatar
+		}
+	}
+	return avatars, rows.Err()
 }
 
 func (repository *mysqlAuthRepository) AddExperience(
@@ -905,10 +1016,10 @@ func (repository *mysqlAuthRepository) LevelsByUserIDs(
 func (repository *mysqlAuthRepository) FindPublicUserByID(
 	ctx context.Context, id string,
 ) (publicUserRecord, bool, error) {
-	const query = `SELECT id, email, display_name, experience, avatar_frame, created_at FROM users WHERE id = ?`
+	const query = `SELECT id, email, display_name, experience, avatar, avatar_frame, created_at FROM users WHERE id = ?`
 	var record publicUserRecord
 	err := repository.db.QueryRowContext(ctx, query, id).Scan(
-		&record.ID, &record.Email, &record.DisplayName, &record.Experience, &record.AvatarFrame, &record.CreatedAt,
+		&record.ID, &record.Email, &record.DisplayName, &record.Experience, &record.Avatar, &record.AvatarFrame, &record.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return publicUserRecord{}, false, nil
@@ -1071,9 +1182,9 @@ func (repository *mysqlAuthRepository) CreatePasswordResetToken(
 	var user authUser
 	err = transaction.QueryRowContext(
 		ctx,
-		`SELECT id, email, display_name, password_hash, experience, avatar_frame FROM users WHERE email = ? FOR UPDATE`,
+		`SELECT id, email, display_name, password_hash, experience, avatar, avatar_frame FROM users WHERE email = ? FOR UPDATE`,
 		email,
-	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.AvatarFrame)
+	).Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Experience, &user.Avatar, &user.AvatarFrame)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authUser{}, false, nil
 	}
@@ -1163,6 +1274,10 @@ type profileUpdateRequest struct {
 
 type avatarFrameUpdateRequest struct {
 	Frame string `json:"frame"`
+}
+
+type avatarUpdateRequest struct {
+	Avatar string `json:"avatar"`
 }
 
 type passwordResetRequest struct {
@@ -1351,6 +1466,39 @@ func authAvatarFrameHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	auditAuth(request, "avatar_frame_updated", updated.Email, updated.ID)
+	writeJSON(writer, http.StatusOK, authResponse{Data: publicAuthUser(updated), RequestID: requestIDFromContext(request.Context())})
+}
+
+func authAvatarHandler(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPut {
+		writer.Header().Set("Allow", http.MethodPut)
+		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
+		return
+	}
+	user, ok := requireCurrentUser(writer, request)
+	if !ok {
+		return
+	}
+	var input avatarUpdateRequest
+	if err := decodeJSONBody(request, &input); err != nil {
+		writeAPIError(writer, request, http.StatusBadRequest, "invalid_body", "请求正文不是有效的头像数据")
+		return
+	}
+	input.Avatar = strings.TrimSpace(input.Avatar)
+	if !validAvatar(input.Avatar, user.ID) {
+		writeAPIError(writer, request, http.StatusUnprocessableEntity, "invalid_avatar", "头像文件不合法")
+		return
+	}
+	updated, found, err := authRepositoryStore.UpdateAvatar(request.Context(), user.ID, input.Avatar)
+	if err != nil {
+		writeAuthInternalError(writer, request, err)
+		return
+	}
+	if !found {
+		writeAPIError(writer, request, http.StatusUnauthorized, "authentication_required", "请先登录")
+		return
+	}
+	auditAuth(request, "avatar_updated", updated.Email, updated.ID)
 	writeJSON(writer, http.StatusOK, authResponse{Data: publicAuthUser(updated), RequestID: requestIDFromContext(request.Context())})
 }
 

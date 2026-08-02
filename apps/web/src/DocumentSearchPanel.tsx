@@ -117,7 +117,7 @@ export default function DocumentSearchPanel({
             maxLength={100}
           />
           {state === 'searching' && <Loader2 size={15} className="search-spinner" />}
-          <button type="button" aria-label="关闭搜索" onClick={onClose}><X size={16} /></button>
+          <button className="document-search-close" type="button" aria-label="关闭搜索" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div className="search-panel-body">

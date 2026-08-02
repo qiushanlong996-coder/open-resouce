@@ -13,14 +13,15 @@ import (
 )
 
 type documentComment struct {
-	ID          string  `json:"id"`
-	DocumentID  string  `json:"document_id"`
-	ParentID    *string `json:"parent_id"`
-	BlockID     string  `json:"block_id"`
-	AuthorID    string  `json:"author_id,omitempty"`
-	Author      string  `json:"author"`
-	AuthorLevel int     `json:"author_level,omitempty"`
-	AuthorFrame string  `json:"author_frame,omitempty"`
+	ID           string  `json:"id"`
+	DocumentID   string  `json:"document_id"`
+	ParentID     *string `json:"parent_id"`
+	BlockID      string  `json:"block_id"`
+	AuthorID     string  `json:"author_id,omitempty"`
+	Author       string  `json:"author"`
+	AuthorLevel  int     `json:"author_level,omitempty"`
+	AuthorAvatar string  `json:"author_avatar,omitempty"`
+	AuthorFrame  string  `json:"author_frame,omitempty"`
 	// AuthorRegion 是发表时的 IP 归属地（省级，境外为国家）。
 	// 只存归属地不存 IP；历史评论与无法判定时为空，前端不展示。
 	AuthorRegion string            `json:"author_region,omitempty"`

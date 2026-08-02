@@ -60,13 +60,16 @@ func levelForUser(email string, experience int) int {
 
 // awardExperienceBestEffort 异步给用户加经验。匿名（userID 为空）或未接仓库时跳过。
 func awardExperienceBestEffort(userID, action, sourceKey string, points int) {
-	if userID == "" || authRepositoryStore == nil {
+	repository := authRepositoryStore
+	if userID == "" || repository == nil {
 		return
 	}
 	runBestEffort(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, err := authRepositoryStore.AddExperience(ctx, userID, action, sourceKey, points); err != nil {
+		// 捕获调用时的仓库实例。测试清理或运行时切换实现时，全局变量可能
+		// 已被置空；异步任务仍应安全完成，而不是再次读取可变的全局指针。
+		if _, err := repository.AddExperience(ctx, userID, action, sourceKey, points); err != nil {
 			slog.Warn("award experience failed",
 				"user_id", userID, "action", action, "error", err)
 		}
@@ -108,11 +111,18 @@ func enrichCommentLevels(ctx context.Context, comments []documentComment) []docu
 		slog.WarnContext(ctx, "load comment author frames failed", "error", err)
 		frames = map[string]string{}
 	}
+	avatars, err := authRepositoryStore.AvatarsByUserIDs(ctx, ids)
+	if err != nil {
+		slog.WarnContext(ctx, "load comment author avatars failed", "error", err)
+		avatars = map[string]string{}
+	}
 	for index := range comments {
 		comments[index].AuthorLevel = levels[comments[index].AuthorID]
+		comments[index].AuthorAvatar = avatars[comments[index].AuthorID]
 		comments[index].AuthorFrame = frames[comments[index].AuthorID]
 		for replyIndex := range comments[index].Replies {
 			comments[index].Replies[replyIndex].AuthorLevel = levels[comments[index].Replies[replyIndex].AuthorID]
+			comments[index].Replies[replyIndex].AuthorAvatar = avatars[comments[index].Replies[replyIndex].AuthorID]
 			comments[index].Replies[replyIndex].AuthorFrame = frames[comments[index].Replies[replyIndex].AuthorID]
 		}
 	}

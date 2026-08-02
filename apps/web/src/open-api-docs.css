@@ -19,6 +19,8 @@
   border: 1px solid var(--line);
   box-shadow: 0 28px 80px rgba(0, 0, 0, .28);
   outline: none;
+  border-radius: 18px;
+  overflow: hidden;
 }
 
 .oad-header {
@@ -31,7 +33,7 @@
 }
 
 .oad-eyebrow {
-  display: inline-block;
+  display: none;
   color: var(--blue);
   font-size: 10px;
   letter-spacing: 1.2px;
@@ -39,7 +41,7 @@
 }
 
 .oad-header h2 {
-  margin: 10px 0 8px;
+  margin: 0 0 8px;
   font-size: 26px;
   font-weight: 600;
   color: var(--ink);
@@ -76,7 +78,7 @@
 
 .oad-highlights {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1.15fr 1fr;
   gap: 14px;
   margin: 24px 0 12px;
 }
@@ -85,7 +87,10 @@
   padding: 16px;
   background: var(--surface-muted);
   border: 1px solid var(--line);
+  border-radius: 12px;
 }
+
+.oad-highlight:first-child { grid-row: span 2; }
 
 .oad-highlight svg {
   color: var(--blue);
@@ -148,7 +153,8 @@
   margin: 16px 0;
   padding: 14px 16px;
   background: color-mix(in srgb, var(--blue) 8%, transparent);
-  border-left: 3px solid var(--blue);
+  border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--line));
+  border-radius: 10px;
 }
 
 .oad-callout strong {
@@ -184,6 +190,7 @@
   padding: 12px;
   background: var(--surface-muted);
   border: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 .oad-flow li > span {
@@ -357,6 +364,8 @@
   .oad-highlights {
     grid-template-columns: 1fr;
   }
+
+  .oad-highlight:first-child { grid-row: auto; }
 
   .oad-flow {
     grid-template-columns: 1fr;

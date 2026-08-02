@@ -21,16 +21,16 @@ export function BrandMark({
       aria-hidden={title ? undefined : true}
       aria-label={title}
     >
-      <rect width="32" height="32" rx="8" style={{ fill: 'var(--blue)' }} />
+      <rect width="32" height="32" rx="9" style={{ fill: 'color-mix(in srgb, var(--blue) 16%, var(--surface))' }} />
       <path
-        fill="#fff"
-        d="M14.5 8 Q15.94 15.56 23.5 17 Q15.94 18.44 14.5 26 Q13.06 18.44 5.5 17 Q13.06 15.56 14.5 8 Z"
+        d="M13 9.5 7.5 16l5.5 6.5M19 9.5l5.5 6.5-5.5 6.5"
+        fill="none"
+        stroke="var(--blue)"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <path
-        fill="#fff"
-        fillOpacity="0.9"
-        d="M24.5 3.5 Q25.22 7.28 29 8 Q25.22 8.72 24.5 12.5 Q23.78 8.72 20 8 Q23.78 7.28 24.5 3.5 Z"
-      />
+      <circle cx="16" cy="16" r="2" fill="var(--blue)" />
     </svg>
   )
 }

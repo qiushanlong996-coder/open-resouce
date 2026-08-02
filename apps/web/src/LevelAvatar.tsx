@@ -5,7 +5,7 @@
 
 import { isPresetFrameId } from './avatarFrameData'
 import { AvatarFrameLayer } from './avatarFrames'
-import { avatarFrameImageURL } from './api/client'
+import { avatarFrameImageURL, userImageURL } from './api/client'
 
 const MAX_LEVEL = 6
 
@@ -40,12 +40,14 @@ export function LevelAvatar({
   initials,
   size = 'md',
   name,
+  avatar = '',
   frame = '',
 }: {
   level?: number
   initials: string
   size?: 'sm' | 'md' | 'lg'
   name?: string
+  avatar?: string
   frame?: string
 }) {
   const lvl = normalizeLevel(level)
@@ -54,7 +56,9 @@ export function LevelAvatar({
   return (
     <span className={`level-avatar size-${size} lvl-${lvl}`} data-level={lvl} title={title}>
       {frameLayer ?? <span className="level-avatar-frame" aria-hidden="true" />}
-      <span className="level-avatar-inner">{initials}</span>
+      <span className="level-avatar-inner">
+        {avatar ? <img className="level-avatar-image" src={userImageURL(avatar)} alt="" /> : initials}
+      </span>
     </span>
   )
 }

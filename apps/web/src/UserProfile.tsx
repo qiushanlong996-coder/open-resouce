@@ -77,6 +77,7 @@ export function UserProfile({
                 initials={profile.display_name.slice(0, 1)}
                 size="lg"
                 name={profile.display_name}
+                avatar={profile.avatar ?? ''}
                 frame={profile.avatar_frame ?? ''}
               />
               <div className="user-profile-identity">

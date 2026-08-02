@@ -12,6 +12,7 @@ export type AuthUser = {
   is_admin: boolean
   experience: number
   level: number
+  avatar: string
   avatar_frame: string
 }
 
@@ -184,6 +185,7 @@ export type PublicUserProfile = {
   id: string
   display_name: string
   level: number
+  avatar?: string
   avatar_frame?: string
   joined_at: string
   projects: ProjectSummary[]
@@ -249,6 +251,7 @@ export type DocumentComment = {
   author_id?: string
   author: string
   author_level?: number
+  author_avatar?: string
   author_frame?: string
   // author_region 是发表时的 IP 归属地（省级，境外为国家）。
   // 服务端只存归属地不存 IP；历史评论与内网来源时字段缺失。
@@ -418,6 +421,13 @@ export function setAvatarFrame(frame: string) {
   })
 }
 
+// setAvatar 持久化当前用户的头像对象键；空值表示恢复为昵称首字母头像。
+export function setAvatar(avatar: string) {
+  return apiRequest<AuthResponse>('/api/v1/auth/avatar', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar }),
+  })
+}
+
 // avatarFrameImageURL 把自定义头像框的 OSS object key 转成公开可访问的代理 URL。
 // 采用与正文图片代理一致的 base64url 编码（见 App.tsx encodedObjectKey）。
 export function avatarFrameImageURL(objectKey: string) {
@@ -427,6 +437,9 @@ export function avatarFrameImageURL(objectKey: string) {
   const key = window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   return `${apiBaseURL}/api/v1/files/frame-asset?key=${encodeURIComponent(key)}`
 }
+
+// 用户头像和自定义头像框都来自用户自己的 OSS 上传目录，共用只读图片代理。
+export const userImageURL = avatarFrameImageURL
 
 export function register(input: { email: string; display_name: string; password: string }) {
   return apiRequest<AuthResponse>('/api/v1/auth/register', {

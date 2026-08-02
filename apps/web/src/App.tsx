@@ -35,7 +35,6 @@ import {
   Send,
   Share2,
   ShieldCheck,
-  Sparkles,
   Star,
   Sun,
   Tag,
@@ -192,6 +191,7 @@ type CommentItem = {
   blockId: string
   authorId: string
   authorLevel: number
+  authorAvatar: string
   authorFrame: string
   // authorRegion 为空时不渲染（历史评论、内网来源、未配置 IP 库）。
   authorRegion: string
@@ -356,6 +356,7 @@ function mapDocumentComment(comment: APIDocumentComment): CommentItem {
     blockId: comment.block_id,
     authorId: comment.author_id ?? '',
     authorLevel: comment.author_level ?? 1,
+    authorAvatar: comment.author_avatar ?? '',
     authorFrame: comment.author_frame ?? '',
     authorRegion: comment.author_region ?? '',
     user: comment.author,
@@ -414,6 +415,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [loginOpen, setLoginOpen] = useState(() => new URLSearchParams(window.location.search).has('reset_token'))
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
   const [accountPanelOpen, setAccountPanelOpen] = useState(false)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
@@ -421,7 +423,9 @@ function App() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
-  const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
+  const [adminConsoleOpen, setAdminConsoleOpen] = useState(
+    () => new URLSearchParams(window.location.search).get('admin') === '1',
+  )
   const [accessKeyOpen, setAccessKeyOpen] = useState(false)
   const [avatarFramePickerOpen, setAvatarFramePickerOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
@@ -526,8 +530,24 @@ function App() {
     getCurrentUser(controller.signal)
       .then((response) => setCurrentUser(response.data))
       .catch(() => setCurrentUser(null))
+      .finally(() => setAuthChecked(true))
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (!authChecked || !adminConsoleOpen) return
+    if (!currentUser) {
+      setLoginOpen(true)
+      return
+    }
+    if (!currentUser.is_admin) {
+      setAdminConsoleOpen(false)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('admin')
+      window.history.replaceState(window.history.state, '', url.toString())
+      showToast('当前账号没有管理权限')
+    }
+  }, [adminConsoleOpen, authChecked, currentUser])
 
   useEffect(() => {
     if (!currentUser) {
@@ -691,6 +711,25 @@ function App() {
   const showToast = (message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2400)
+  }
+
+  const setAdminConsoleLocation = (open: boolean) => {
+    const url = new URL(window.location.href)
+    if (open) url.searchParams.set('admin', '1')
+    else url.searchParams.delete('admin')
+    window.history.replaceState(window.history.state, '', url.toString())
+  }
+
+  const openAdminConsole = () => {
+    setAdminConsoleOpen(true)
+    setAccountPanelOpen(false)
+    setMobileMenuOpen(false)
+    setAdminConsoleLocation(true)
+  }
+
+  const closeAdminConsole = () => {
+    setAdminConsoleOpen(false)
+    setAdminConsoleLocation(false)
   }
 
   // openReport 打开举报弹窗，未登录时先引导登录（登录门禁在入口处统一处理）。
@@ -1291,6 +1330,16 @@ function App() {
               </div>
             )}
           </div>
+          {currentUser?.is_admin && (
+            <button
+              className="admin-entry-button"
+              title="打开管理控制台"
+              aria-label="打开管理控制台"
+              onClick={openAdminConsole}
+            >
+              <ShieldCheck size={16} /> <span>管理台</span>
+            </button>
+          )}
           <div className="account-control">
             <button
               className="login-button"
@@ -1298,12 +1347,21 @@ function App() {
               aria-expanded={currentUser ? accountPanelOpen : undefined}
               onClick={() => currentUser ? setAccountPanelOpen((open) => !open) : setLoginOpen(true)}
             >
-              <CircleUserRound size={16} /> {currentUser?.display_name ?? '登录'}
+              <CircleUserRound size={16} /> <span>{currentUser?.display_name ?? '登录'}</span>
             </button>
             {currentUser && accountPanelOpen && (
               <div className="account-popover">
                 <div className="account-summary">
-                  <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} frame={currentUser.avatar_frame} />
+                  <button
+                    type="button"
+                    className="account-avatar-edit"
+                    title="更换头像与头像框"
+                    aria-label="更换头像与头像框"
+                    onClick={() => { setAvatarFramePickerOpen(true); setAccountPanelOpen(false) }}
+                  >
+                    <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} avatar={currentUser.avatar} frame={currentUser.avatar_frame} />
+                    <span><Pencil size={11} /> 更换</span>
+                  </button>
                   <div className="account-summary-text">
                     <strong className={currentUser.level >= 6 ? 'nickname-legendary' : ''}>{currentUser.display_name}</strong>
                     <LevelBadge level={currentUser.level} />
@@ -1377,7 +1435,7 @@ function App() {
                   <small className="oauth-account-note">GitHub 登录账号无需站内密码</small>
                 )}
                 <button onClick={() => { setAvatarFramePickerOpen(true); setAccountPanelOpen(false) }}>
-                  头像框
+                  更换头像与头像框
                 </button>
                 <button onClick={() => { setActiveTab('我的收藏'); closeProject(); setAccountPanelOpen(false) }}>
                   查看我的收藏
@@ -1388,7 +1446,7 @@ function App() {
                 <button onClick={() => { setAccessKeyOpen(true); setAccountPanelOpen(false) }}>
                   AccessKey 管理
                 </button>
-                {currentUser.is_admin && <button onClick={() => { setAdminConsoleOpen(true); setAccountPanelOpen(false) }}>
+                {currentUser.is_admin && <button onClick={openAdminConsole}>
                   管理控制台
                 </button>}
                 <button disabled={logoutSubmitting} onClick={() => void performLogout(false)}>退出当前设备</button>
@@ -1495,13 +1553,13 @@ function App() {
         }}
       /></ErrorBoundary>}
       {adminConsoleOpen && currentUser?.is_admin && <ErrorBoundary label="管理控制台"><AdminConsole
-        onClose={() => setAdminConsoleOpen(false)}
+        onClose={closeAdminConsole}
         currentUser={currentUser}
       /></ErrorBoundary>}
       {accessKeyOpen && currentUser && <ErrorBoundary label="AccessKey 管理"><AccessKeyManager
         onClose={() => setAccessKeyOpen(false)}
       /></ErrorBoundary>}
-      {avatarFramePickerOpen && currentUser && <ErrorBoundary label="头像框"><AvatarFramePicker
+      {avatarFramePickerOpen && currentUser && <ErrorBoundary label="头像与头像框"><AvatarFramePicker
         currentUser={currentUser}
         onClose={() => setAvatarFramePickerOpen(false)}
         onChanged={(user) => setCurrentUser(user)}
@@ -1556,16 +1614,21 @@ function Home({
             <button className="text-button" onClick={() => window.open('https://github.com', '_blank')}>提交开源项目 <Upload size={16} /></button>
           </div>
         </div>
-        <div className="hero-visual" aria-label="Agent 工作流预览">
-          <div className="visual-topline"><span>LIVE / PROJECT MAP</span><span>2026.07</span></div>
-          <div className="signal-grid">
-            <div className="signal-line line-one" /><div className="signal-line line-two" /><div className="signal-line line-three" />
-            <div className="signal-node node-a"><span>R</span><small>RETRIEVE</small></div>
-            <div className="signal-node node-b"><span>P</span><small>PLAN</small></div>
-            <div className="signal-node node-c"><span>T</span><small>TOOL</small></div>
-            <div className="signal-node node-d"><span>↗</span><small>OUTPUT</small></div>
-          </div>
-          <div className="visual-footer"><span>372 个公开项目</span><span className="visual-pulse">正在更新</span></div>
+        <div className="hero-visual hero-media-card" aria-label="AI 开源项目动态插画">
+          <video
+            className="hero-media"
+            poster="/hero-ai-poster.webp"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-hidden="true"
+            onCanPlay={(event) => { void event.currentTarget.play().catch(() => undefined) }}
+          >
+            <source src="/hero-ai.webm" type="video/webm" />
+          </video>
+          <div className="hero-media-caption"><span>AI · OPEN SOURCE</span><span>持续生长的开发者社区</span></div>
         </div>
       </section>
 
@@ -1574,7 +1637,7 @@ function Home({
         <div><strong>86</strong><span>今日更新</span></div>
         <div><strong>12.4k</strong><span>本周下载</span></div>
         <div><strong>98%</strong><span>项目可读</span></div>
-        <div className="metrics-note"><Sparkles size={17} /><span>中文项目优先，欢迎分享你的 Agent 实验。</span></div>
+        <div className="metrics-note"><GitBranch size={17} /><span>中文项目优先，欢迎分享你的 Agent 实验。</span></div>
       </section>
 
       <section className="content-section" id="project-grid">
@@ -2142,8 +2205,8 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
     <article id={`comment-${comment.id}`} className={`comment-card ${comment.status === 'resolved' ? 'resolved' : ''} ${comment.authorLevel >= 6 ? 'legendary' : ''}`}>
       <div className="comment-card-head">
         {comment.authorId
-          ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(comment.authorId)} title={`查看 ${comment.user} 的主页`} aria-label={`查看 ${comment.user} 的主页`}><LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} frame={comment.authorFrame} /></button>
-          : <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} frame={comment.authorFrame} />}
+          ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(comment.authorId)} title={`查看 ${comment.user} 的主页`} aria-label={`查看 ${comment.user} 的主页`}><LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} avatar={comment.authorAvatar} frame={comment.authorFrame} /></button>
+          : <LevelAvatar level={comment.authorLevel} initials={comment.initials} size="sm" name={comment.user} avatar={comment.authorAvatar} frame={comment.authorFrame} />}
         <div>
           <span className="name-row">{comment.authorId ? <button type="button" className={`author-profile-link ${comment.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(comment.authorId)}><strong>{comment.user}</strong></button> : <strong className={comment.authorLevel >= 6 ? 'nickname-legendary' : ''}>{comment.user}</strong>}<LevelBadge level={comment.authorLevel} /></span>
           <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}{comment.authorRegion ? ` · IP 属地：${comment.authorRegion}` : ''}</small>
@@ -2159,7 +2222,7 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
         <div className="comment-replies">
           {comment.replies.map((reply) => (
             <div className={`comment-reply ${reply.authorLevel >= 6 ? 'legendary' : ''}`} key={reply.id}>
-              <div className="reply-head">{reply.authorId ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(reply.authorId)} title={`查看 ${reply.user} 的主页`} aria-label={`查看 ${reply.user} 的主页`}><LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} frame={reply.authorFrame} /></button> : <LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} frame={reply.authorFrame} />}{reply.authorId ? <button type="button" className={`author-profile-link ${reply.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(reply.authorId)}><strong>{reply.user}</strong></button> : <strong className={reply.authorLevel >= 6 ? 'nickname-legendary' : ''}>{reply.user}</strong>}<LevelBadge level={reply.authorLevel} /><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
+              <div className="reply-head">{reply.authorId ? <button type="button" className="author-profile-link avatar-link" onClick={() => onOpenProfile(reply.authorId)} title={`查看 ${reply.user} 的主页`} aria-label={`查看 ${reply.user} 的主页`}><LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} avatar={reply.authorAvatar} frame={reply.authorFrame} /></button> : <LevelAvatar level={reply.authorLevel} initials={reply.initials} size="sm" name={reply.user} avatar={reply.authorAvatar} frame={reply.authorFrame} />}{reply.authorId ? <button type="button" className={`author-profile-link ${reply.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(reply.authorId)}><strong>{reply.user}</strong></button> : <strong className={reply.authorLevel >= 6 ? 'nickname-legendary' : ''}>{reply.user}</strong>}<LevelBadge level={reply.authorLevel} /><span><small>{reply.time}{reply.edited ? ' · 已编辑' : ''}</small>{currentUserID !== '' && reply.authorId === currentUserID && <><button disabled={replyEditSubmitting || deletingReplyID === reply.id} onClick={() => { setEditingReplyID(reply.id); setReplyEditDraft(reply.text) }}>编辑</button><button disabled={deletingReplyID === reply.id} onClick={() => deleteReply(reply.id)}>{deletingReplyID === reply.id ? '删除中…' : '删除'}</button></>}</span></div>
               {editingReplyID === reply.id
                 ? <div className="inline-edit"><textarea autoFocus value={replyEditDraft} disabled={replyEditSubmitting} onChange={(event) => setReplyEditDraft(event.target.value)} /><div><EmojiPicker onSelect={(emoji) => setReplyEditDraft((value) => value + emoji)} /><button disabled={replyEditSubmitting} onClick={() => setEditingReplyID(null)}>取消</button><button disabled={replyEditSubmitting || !replyEditDraft.trim()} onClick={() => submitReplyEdit(reply.id)}>{replyEditSubmitting ? '保存中…' : '保存'}</button></div></div>
                 : <p>{reply.text}</p>}

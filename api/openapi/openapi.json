@@ -456,12 +456,29 @@
     },
     "/api/v1/files/frame-asset": {
       "get": {
-        "summary": "公开预览自定义头像框图片",
+        "summary": "公开预览用户头像或自定义头像框图片",
         "operationId": "previewFrameAsset",
         "parameters": [{ "name": "key", "in": "query", "required": true, "description": "Base64URL 编码的 OSS object key（须为 uploads/ 下的图片对象）", "schema": { "type": "string" } }],
         "responses": {
           "307": { "description": "重定向到短时 OSS URL" },
           "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/v1/auth/avatar": {
+      "put": {
+        "summary": "设置或移除当前用户头像",
+        "operationId": "setAvatar",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AvatarUpdateRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "更新后的当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "头像对象键不合法或不属于当前用户", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -2158,6 +2175,7 @@
           "id": { "type": "string" },
           "display_name": { "type": "string" },
           "level": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "avatar": { "type": "string", "description": "作者头像 OSS 对象键（可选）" },
           "avatar_frame": { "type": "string", "description": "作者头像框（可选）" },
           "joined_at": { "type": "string", "format": "date-time" },
           "projects": {
@@ -2340,6 +2358,7 @@
           "author_id": { "type": "string" },
           "author": { "type": "string" },
           "author_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "评论作者等级（1-6），管理员恒为 6" },
+          "author_avatar": { "type": "string", "description": "评论作者头像 OSS 对象键（可选）" },
           "author_frame": { "type": "string", "description": "评论作者的头像框（可选）" },
           "author_region": { "type": "string", "description": "发表时的 IP 归属地（境内为省级简称，境外为国家名）。服务端只存归属地、不存原始 IP；历史评论、内网来源或未配置 IP 库时该字段缺失" },
           "like_count": { "type": "integer", "minimum": 0, "description": "点赞数" },
@@ -2393,7 +2412,7 @@
       },
       "AuthUser": {
         "type": "object",
-        "required": ["id", "email", "display_name", "has_password", "is_admin", "experience", "level", "avatar_frame"],
+        "required": ["id", "email", "display_name", "has_password", "is_admin", "experience", "level", "avatar", "avatar_frame"],
         "properties": {
           "id": { "type": "string" },
           "email": { "type": "string", "format": "email" },
@@ -2402,7 +2421,15 @@
           "is_admin": { "type": "boolean" },
           "experience": { "type": "integer", "minimum": 0, "description": "累计经验值" },
           "level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "用户等级（1-6），管理员恒为 6" },
+          "avatar": { "type": "string", "maxLength": 191, "description": "用户头像 OSS 对象键；空值表示昵称首字母头像" },
           "avatar_frame": { "type": "string", "maxLength": 191, "description": "用户所选头像框：空｜预设星座 id｜custom:<objectKey>" }
+        }
+      },
+      "AvatarUpdateRequest": {
+        "type": "object",
+        "required": ["avatar"],
+        "properties": {
+          "avatar": { "type": "string", "maxLength": 191, "description": "当前用户 uploads/ 目录下的图片对象键；空值表示移除头像" }
         }
       },
       "AvatarFrameUpdateRequest": {

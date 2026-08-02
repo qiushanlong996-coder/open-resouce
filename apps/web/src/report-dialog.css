@@ -6,6 +6,7 @@
   background: var(--surface, #fff);
   border: 1px solid var(--line);
   box-shadow: 0 25px 80px rgba(0, 0, 0, .22);
+  border-radius: 18px;
 }
 
 .report-dialog h2 {
@@ -103,7 +104,7 @@
 }
 
 .report-submit {
-  color: #fff;
+  color: var(--surface);
   background: var(--ink, #1d1d1f);
   border: 1px solid var(--ink, #1d1d1f);
 }

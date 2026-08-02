@@ -73,6 +73,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/password-reset/request", authPasswordResetRequestHandler)
 	mux.HandleFunc("/api/v1/auth/password-reset/confirm", authPasswordResetConfirmHandler)
 	mux.HandleFunc("/api/v1/auth/me", authMeHandler)
+	mux.HandleFunc("/api/v1/auth/avatar", authAvatarHandler)
 	mux.HandleFunc("/api/v1/auth/avatar-frame", authAvatarFrameHandler)
 	mux.HandleFunc("/api/v1/auth/api-keys", userAPIKeysHandler)
 	mux.HandleFunc("/api/v1/auth/api-keys/{keyID}", userAPIKeyHandler)

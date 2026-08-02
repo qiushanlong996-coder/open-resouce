@@ -1,5 +1,5 @@
 :root {
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-family: "Segoe UI Variable", "HarmonyOS Sans SC", "Microsoft YaHei UI", ui-sans-serif, system-ui, sans-serif;
   color: var(--ink);
   background: var(--page);
   font-synthesis: none;
@@ -72,3 +72,4 @@
 body { margin: 0; min-width: 320px; background: var(--page); }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
+button, a, input, textarea { -webkit-tap-highlight-color: transparent; }

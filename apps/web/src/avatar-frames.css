@@ -16,11 +16,51 @@
   border-radius: 50%;
 }
 
-.avatar-frame-custom img {
+.avatar-frame-custom img,
+.avatar-frame-preset img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: contain;
+}
+
+.avatar-frame-preset.af-botanical {
+  inset: -30%;
+  border-radius: 0;
+}
+
+/* 花叶需要压在头像前景，但原 GIF 的浅绿色圆面不透明，不能整层抬高。
+   这里复用同一素材，仅裁出下方花饰作为前景层。 */
+.avatar-frame-preset.af-botanical::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: url('/avatar-frame-botanical.gif') center / contain no-repeat;
+  clip-path: polygon(
+    9% 68%, 20% 64%, 28% 57%, 38% 63%, 45% 66%, 50% 63%,
+    55% 66%, 62% 63%, 72% 57%, 80% 64%, 91% 68%,
+    89% 83%, 64% 83%, 50% 85%, 36% 83%, 11% 83%
+  );
+}
+
+.avatar-frame-preset.af-botanical img {
+  filter: none;
+}
+
+/* 花语框自带完整装饰层：头像贴合内圈，不再叠加高等级呼吸光晕。 */
+.level-avatar:has(.avatar-frame-preset.af-botanical) {
+  isolation: isolate;
+  animation: none;
+  box-shadow: none;
+}
+
+.level-avatar:has(.avatar-frame-preset.af-botanical) .level-avatar-inner {
+  width: 86%;
+  height: 86%;
+  border-radius: 50%;
+  transform: translateY(-8%);
 }
 
 /* 套用头像框时，把方形头像内芯改为圆形，与环形框贴合。 */
