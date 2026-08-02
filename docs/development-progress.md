@@ -2418,3 +2418,31 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 问题：作者中心编辑文档向下滚动时，含「B/I/H2/列表/引用/代码/图表/图片/附件/emoji」的 `.markdown-toolbar` 会随内容滚走。
 - 修复：给 `.markdown-toolbar` 加 `position: sticky; top: 0; z-index: 6;`。它本就是滚动容器 `.document-project-editor`（`overflow-y:auto`）的直接子元素、背景不透明，滚动时会固定在编辑区顶部。
 - 验证：oxlint 零警告 + Vite 构建通过；本环境无浏览器自动化，粘性行为由 DOM/CSS 结构推断，建议上线后浏览器确认。
+
+## 2026-08-02：编辑与阅读核心体验三件套（三 agent 并行）
+
+围绕编辑/阅读核心体验的三个前端功能，三 worktree agent 并行实现。全部纯前端、无迁移、各自新增 CSS 文件（不动 App.css 主题变量）。合并回 main：阅读/编辑零冲突；代码分支因改了 lucide/codeHighlight import 块与前两者的 import 冲突一处，手工合并（保留阅读导入 + 编辑 CSS + 代码的 `useHighlightedLines` 与 codeView.css）。整体 oxlint 零警告、Vite 构建通过。
+
+### 阅读体验（DocumentView）
+
+- 阅读设置：字号/行距/正文宽度/衬线切换，经 CSS 变量应用到 `.article-content`，localStorage `xinyuan-reader-prefs`；齿轮弹层。
+- 目录 scroll-spy：IntersectionObserver 高亮当前章节；阅读进度条（顶部 3px）；返回顶部悬浮按钮；文末上一篇/下一篇（按文档树 DFS 顺序）。
+- 已核对不破坏评论 `data-block-id` 锚点与文内 CSS Highlight 搜索；尊重 reduced-motion；深浅色/多主题适配。
+
+### 编辑体验（作者编辑器）
+
+- 工具栏补充：行内代码、任务列表、分割线、链接、GFM 表格骨架（经 `insertMarkdown`，写作/分屏走 textarea，富文本走编辑器 insert）。
+- 撤销/重做（写作/分屏 textarea 的独立历史栈 + 快捷键；富文本用 Milkdown 自带）。
+- 实时字数统计（中文字 + 英文词 + 字符 + 阅读时间）；保存状态徽标（未保存/保存中/已保存·相对时间）。
+- 顺带修复：`insertMarkdown` 在文档模式下误改项目正文的 bug（统一 sourceValue getter/setter 正确指向 documentDraft / input.description）。
+
+### 代码阅读（CodeView）
+
+- 代码视图重构为每行 `<ol>`：行号锚点/行永久链接（`#L{n}&file=`，`history.replaceState`）+ 逐行"复制行链接"；`splitHighlightedLines` 保证跨行高亮不串。
+- 自动换行开关（pre ↔ pre-wrap，非换行时行号列 sticky），localStorage `nyym:code-view:wrap`。
+- 文件路径面包屑（目录段过滤、文件名为叶子）；文件类型标识（扩展名→标签+色点）、README 徽标；↑/↓ 键在过滤后的文件列表间切换。
+
+### 注意事项 · 部署
+
+- 纯前端、无迁移、无后端改动。**未部署、未做真人浏览器验证**——本环境无浏览器自动化；阅读设置/scroll-spy/行锚点/换行等交互建议上线后浏览器确认。
+- 上线只需发前端（Gateway 无需重编译）。
