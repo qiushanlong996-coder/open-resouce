@@ -1,0 +1,116 @@
+/* 代码阅读增强：行号锚点 / 永久链接、自动换行、路径面包屑、文件类型标识。
+   全部依赖 index.css 暴露的主题变量（--surface / --ink / --line / --soft-blue …），
+   因此浅色、深色与各皮肤下都自动适配。不改动 App.css 里的既有规则。 */
+
+/* ── 顶部工具栏：面包屑 + 语言标识 + 换行开关 ── */
+.code-toolbar-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+
+.code-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-width: 0; font-size: 11px; }
+.code-crumb-item { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.code-crumb { display: inline-flex; align-items: center; max-width: 190px; padding: 2px 4px; color: var(--text-tertiary); background: transparent; border: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-crumb.is-link:hover { color: var(--blue); text-decoration: underline; }
+.code-crumb.is-leaf { color: var(--ink); font-weight: 600; }
+.code-crumb-sep { color: var(--text-tertiary); opacity: .7; }
+.code-crumb-home { display: inline-grid; place-items: center; padding: 2px; color: var(--text-tertiary); background: transparent; border: 0; }
+.code-crumb-home:hover { color: var(--blue); }
+
+.code-lang-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; color: var(--text-secondary); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; font-size: 9px; font-weight: 600; letter-spacing: .4px; white-space: nowrap; }
+.code-file-size { color: var(--text-tertiary); font-size: 10px; white-space: nowrap; }
+
+.code-wrap-toggle[aria-pressed='true'] { color: var(--blue); background: var(--soft-blue); }
+
+/* ── 文件类型色点（树 + 语言标识） ── */
+.ft-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; background: var(--ft-color, #9a9aa0); }
+.ft-ts { --ft-color: #3178c6; }
+.ft-js { --ft-color: #d6a915; }
+.ft-style { --ft-color: #c56bd6; }
+.ft-markup { --ft-color: #e0703a; }
+.ft-data { --ft-color: #2f9e6f; }
+.ft-doc { --ft-color: #6b8fb5; }
+.ft-config { --ft-color: #3fa8a0; }
+.ft-sys { --ft-color: #8a6de0; }
+.ft-script { --ft-color: #4a9e5c; }
+.ft-media { --ft-color: #d64f8a; }
+.ft-other { --ft-color: #9a9aa0; }
+
+.file-item .ft-dot { margin-left: 3px; }
+.file-readme-tag { margin-left: 2px; padding: 1px 5px; color: var(--blue); background: var(--soft-blue); border-radius: 3px; font-size: 8px; font-weight: 600; letter-spacing: .3px; }
+
+/* ── 代码阅读区：逐行行号 + 内容，两种排版都严格对齐 ── */
+.code-reader { min-height: 430px; margin: 0; padding: 14px 0; color: var(--ink); background: var(--surface); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; overflow-x: auto; -moz-tab-size: 2; tab-size: 2; }
+.code-reader-lines { list-style: none; margin: 0; padding: 0; width: max-content; min-width: 100%; }
+.code-reader-line { display: flex; align-items: flex-start; scroll-margin-top: 90px; }
+.code-reader-line.is-active { background: var(--soft-blue); }
+
+/* 行号列：水平滚动时用 sticky 固定在左侧，不随代码滚走 */
+.code-reader-gutter { position: sticky; left: 0; z-index: 1; flex: 0 0 auto; display: inline-flex; align-items: flex-start; gap: 6px; padding: 0 12px 0 14px; background: var(--surface); border-right: 1px solid var(--line); }
+.code-reader-line.is-active .code-reader-gutter { background: var(--soft-blue); }
+.code-reader-no { min-width: 34px; padding: 0; color: var(--text-tertiary); background: transparent; border: 0; text-align: right; font: inherit; font-variant-numeric: tabular-nums; user-select: none; }
+.code-reader-no:hover { color: var(--blue); }
+.code-reader-line.is-active .code-reader-no { color: var(--blue); font-weight: 600; }
+
+/* 复制行链接：默认隐藏，行悬停或行被选中时出现（触屏上锚定行始终可见） */
+.code-reader-link { display: inline-grid; place-items: center; width: 16px; height: 16px; padding: 0; color: var(--text-tertiary); background: transparent; border: 0; opacity: 0; }
+.code-reader-line:hover .code-reader-link,
+.code-reader-line.is-active .code-reader-link,
+.code-reader-link:focus-visible { opacity: 1; }
+.code-reader-link:hover { color: var(--blue); }
+
+.code-reader-code { display: block; flex: 1 1 auto; min-width: 0; padding: 0 16px 0 12px; white-space: pre; background: transparent; }
+
+/* 自动换行：内容软换行，行号顶端对齐首行；关闭横向滚动 */
+.code-reader.is-wrap { overflow-x: hidden; }
+.code-reader.is-wrap .code-reader-lines { width: 100%; }
+.code-reader.is-wrap .code-reader-code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+
+/* ── 语法高亮 token 配色（与 App.css 同色，作用域限定在阅读区，浅深两色均可读） ── */
+.code-reader .hljs-comment, .code-reader .hljs-quote { color: #8d8d95; font-style: italic; }
+.code-reader .hljs-keyword, .code-reader .hljs-built_in, .code-reader .hljs-type { color: #8250df; }
+.code-reader .hljs-string, .code-reader .hljs-regexp { color: #0a7a3d; }
+.code-reader .hljs-number, .code-reader .hljs-literal { color: #b35309; }
+.code-reader .hljs-title, .code-reader .hljs-function, .code-reader .hljs-section { color: #0b69b7; }
+.code-reader .hljs-attr, .code-reader .hljs-attribute, .code-reader .hljs-variable { color: #953800; }
+.code-reader .hljs-meta, .code-reader .hljs-symbol { color: #6e6e76; }
+.code-reader .hljs-deletion { color: #b42318; }
+.code-reader .hljs-addition { color: #0a7a3d; }
+.code-reader .hljs-emphasis { font-style: italic; }
+.code-reader .hljs-strong { font-weight: 600; }
+
+/* 深色下适度提亮 token，避免蓝紫在深底上偏暗 */
+:root[data-theme-mode='dark'] .code-reader .hljs-keyword,
+:root[data-theme-mode='dark'] .code-reader .hljs-built_in,
+:root[data-theme-mode='dark'] .code-reader .hljs-type { color: #c59bff; }
+:root[data-theme-mode='dark'] .code-reader .hljs-string,
+:root[data-theme-mode='dark'] .code-reader .hljs-regexp,
+:root[data-theme-mode='dark'] .code-reader .hljs-addition { color: #98d3a7; }
+:root[data-theme-mode='dark'] .code-reader .hljs-number,
+:root[data-theme-mode='dark'] .code-reader .hljs-literal { color: #e6a66b; }
+:root[data-theme-mode='dark'] .code-reader .hljs-title,
+:root[data-theme-mode='dark'] .code-reader .hljs-function,
+:root[data-theme-mode='dark'] .code-reader .hljs-section { color: #8bc4ff; }
+:root[data-theme-mode='dark'] .code-reader .hljs-attr,
+:root[data-theme-mode='dark'] .code-reader .hljs-attribute,
+:root[data-theme-mode='dark'] .code-reader .hljs-variable { color: #e6a66b; }
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-mode='system'] .code-reader .hljs-keyword,
+  :root[data-theme-mode='system'] .code-reader .hljs-built_in,
+  :root[data-theme-mode='system'] .code-reader .hljs-type { color: #c59bff; }
+  :root[data-theme-mode='system'] .code-reader .hljs-string,
+  :root[data-theme-mode='system'] .code-reader .hljs-regexp,
+  :root[data-theme-mode='system'] .code-reader .hljs-addition { color: #98d3a7; }
+  :root[data-theme-mode='system'] .code-reader .hljs-number,
+  :root[data-theme-mode='system'] .code-reader .hljs-literal { color: #e6a66b; }
+  :root[data-theme-mode='system'] .code-reader .hljs-title,
+  :root[data-theme-mode='system'] .code-reader .hljs-function,
+  :root[data-theme-mode='system'] .code-reader .hljs-section { color: #8bc4ff; }
+  :root[data-theme-mode='system'] .code-reader .hljs-attr,
+  :root[data-theme-mode='system'] .code-reader .hljs-attribute,
+  :root[data-theme-mode='system'] .code-reader .hljs-variable { color: #e6a66b; }
+}
+
+@media (max-width: 760px) {
+  .code-reader-no { min-width: 26px; }
+  .code-reader-gutter { padding: 0 8px 0 10px; }
+  .code-crumb { max-width: 130px; }
+}

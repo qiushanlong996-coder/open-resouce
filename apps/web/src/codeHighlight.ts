@@ -54,3 +54,52 @@ export function useHighlightedCode(content: string, language: string) {
     }
   }, [content, language, ready])
 }
+
+// splitHighlightedLines 把整体高亮后的 HTML 拆成「每行一个 HTML 片段」。
+//
+// 为什么不逐行高亮：见文件顶部说明。这里在拆行时维护一个「当前打开的标签栈」，
+// 遇到换行就先按栈逆序补齐 </span> 收尾当前行，换行后再把这些标签原样重开，
+// 从而在保持跨行着色正确的同时，让每一行都是自洽、可安全注入的 HTML。
+// highlight.js 的公共产物只包含 <span class="hljs-…"> 与转义文本，正则分词即可覆盖；
+// 输入本身已被 useHighlightedCode 转义，拆分不会引入新的可执行 HTML。
+export function splitHighlightedLines(html: string): string[] {
+  const tokenizer = /(<span[^>]*>)|(<\/span>)|([^<]+)/g
+  const lines: string[] = []
+  const openStack: string[] = []
+  let current = ''
+  let match: RegExpExecArray | null
+  while ((match = tokenizer.exec(html)) !== null) {
+    const [, open, close, text] = match
+    if (open) {
+      openStack.push(open)
+      current += open
+    } else if (close) {
+      openStack.pop()
+      current += close
+    } else if (text != null) {
+      const parts = text.split('\n')
+      for (let index = 0; index < parts.length; index += 1) {
+        if (index > 0) {
+          for (let depth = openStack.length - 1; depth >= 0; depth -= 1) current += '</span>'
+          lines.push(current)
+          current = openStack.join('')
+        }
+        current += parts[index]
+      }
+    }
+  }
+  lines.push(current)
+  return lines
+}
+
+// useHighlightedLines 返回逐行高亮片段，行数与源码行数一致时才采用，
+// 否则回退到「按行转义纯文本」，保证行号与内容严格对齐、绝不错位。
+export function useHighlightedLines(content: string, language: string) {
+  const html = useHighlightedCode(content, language)
+  return useMemo(() => {
+    const sourceLines = content.split('\n')
+    const highlighted = splitHighlightedLines(html)
+    if (highlighted.length === sourceLines.length) return highlighted
+    return sourceLines.map((line) => escapeHTML(line))
+  }, [html, content])
+}
