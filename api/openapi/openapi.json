@@ -1988,6 +1988,7 @@
           "status",
           "maintainer",
           "updated_at",
+          "has_cover",
           "metrics"
         ],
         "properties": {
@@ -2030,6 +2031,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "has_cover": {
+            "type": "boolean",
+            "description": "Whether the published project has a configured cover image."
           },
           "metrics": {
             "$ref": "#/components/schemas/ProjectMetrics"

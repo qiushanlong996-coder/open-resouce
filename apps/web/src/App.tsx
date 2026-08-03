@@ -184,6 +184,7 @@ type Project = {
   // 已发布项目的作者信息，用于把「作者」链接到其公开主页；种子项目为空。
   ownerId?: string
   authorName?: string
+  hasCover?: boolean
 }
 
 type CommentItem = {
@@ -333,6 +334,7 @@ function mapProjectSummary(project: ProjectSummary): Project {
     highlights: demoProject?.highlights,
     useCases: demoProject?.useCases,
     currentVersion: demoProject?.currentVersion,
+    hasCover: project.has_cover,
   }
 }
 
@@ -1712,8 +1714,10 @@ function ProjectCard({ project, isSaved, onOpen, onToggleSaved }: { project: Pro
   return (
     <article className="project-card">
       <button className={`project-cover ${project.accent}`} onClick={onOpen} aria-label={`打开 ${project.name}`}>
-        <div className="cover-orbit orbit-one" /><div className="cover-orbit orbit-two" /><div className="cover-orbit orbit-three" />
-        <span className="cover-monogram">{project.name.slice(0, 1)}</span><span className="cover-index">0{Math.max(projectIndex, 0) + 1} / 04</span>
+        {project.hasCover
+          ? <img className="project-cover-image" src={`/api/v1/projects/${encodeURIComponent(project.slug)}/resources/cover`} alt="" loading="lazy" />
+          : <><div className="cover-orbit orbit-one" /><div className="cover-orbit orbit-two" /><div className="cover-orbit orbit-three" /><span className="cover-monogram">{project.name.slice(0, 1)}</span></>}
+        <span className="cover-index">0{Math.max(projectIndex, 0) + 1} / 04</span>
       </button>
       <div className="project-card-body">
         <div className="card-title-row"><div><span className="project-category">{project.category}</span><h3><button onClick={onOpen}>{project.name}</button></h3></div><button className={`icon-button ${isSaved ? 'saved' : ''}`} title={isSaved ? '取消收藏' : '收藏项目'} aria-label={isSaved ? '取消收藏' : '收藏项目'} onClick={onToggleSaved}><Heart size={17} fill={isSaved ? 'currentColor' : 'none'} /></button></div>
@@ -2790,6 +2794,19 @@ function analyzeEditorContent(text: string) {
   return { wordCount, charCount, readingMinutes }
 }
 
+function extractEditorOutline(markdown: string) {
+  let inFence = false
+  return markdown.split('\n').flatMap((line, lineIndex) => {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      return []
+    }
+    if (inFence) return []
+    const match = /^(#{1,3})\s+(.+?)\s*#*\s*$/.exec(line)
+    return match ? [{ level: match[1].length, title: match[2], lineIndex }] : []
+  })
+}
+
 // 把保存时间格式化成中文相对时间，用于“已保存 · …”徽标。
 function formatSavedRelative(timestamp: number, now: number) {
   const seconds = Math.max(0, Math.floor((now - timestamp) / 1000))
@@ -2822,6 +2839,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   const [documentTreeToken, setDocumentTreeToken] = useState(0)
   const [authorToast, setAuthorToast] = useState('')
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
+  const editorPageRef = useRef<HTMLFormElement | null>(null)
   const richEditorRef = useRef<RichMarkdownEditorHandle | null>(null)
   // 记录已载入草稿的文档 id，用于区分“切换文档”和“保存后回写”。
   const loadedDocumentID = useRef('')
@@ -2838,6 +2856,20 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   // 当前编辑目标：选中文档时编辑文档正文，否则编辑项目正文。
   const editingKey = activeDocument?.id ?? activeProject?.id ?? 'new-project'
   const sourceValue = activeDocument ? documentDraft : input.description
+  const editorOutline = useMemo(() => extractEditorOutline(sourceValue), [sourceValue])
+
+  const jumpToOutlineHeading = (headingIndex: number, lineIndex: number) => {
+    if (editorMode === 'write' || editorMode === 'split') {
+      const offset = sourceValue.split('\n').slice(0, lineIndex).reduce((total, line) => total + line.length + 1, 0)
+      editorRef.current?.focus()
+      editorRef.current?.setSelectionRange(offset, offset)
+      const lineHeight = 23.4
+      if (editorRef.current) editorRef.current.scrollTop = Math.max(0, lineIndex * lineHeight - 80)
+      return
+    }
+    const headings = editorPageRef.current?.querySelectorAll('.ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .markdown-canvas h1, .markdown-canvas h2, .markdown-canvas h3')
+    headings?.[headingIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   const applySourceValue = (value: string) => {
     if (activeDocument) setDocumentDraft(value.slice(0, 200000))
     else setInput((current) => ({ ...current, description: value.slice(0, 50000) }))
@@ -3178,14 +3210,22 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
           : { key: 'idle', label: '草稿' }
   const historyEnabled = editorMode === 'write' || editorMode === 'split'
 
-  return <div className="modal-backdrop" role="presentation">
-    <section className="author-center document-author-center" role="dialog" aria-modal="true" aria-label="作者项目中心">
+  return <div className="author-editor-page">
+    <section className="author-center document-author-center" aria-label="作者项目中心">
       <button className="icon-button modal-close" onClick={onClose} aria-label="关闭"><X size={17} /></button>
       {authorToast && <div className="author-toast"><Check size={14} /> {authorToast}</div>}
       <header className="author-editor-head"><div><span className="section-kicker">AUTHOR / DOCUMENT</span><h2>{activeDocument ? activeDocument.title : activeProject ? activeProject.name : '创建项目文档'}</h2><p>{activeDocument ? `正在编辑文档：${activeDocument.slug}` : '像在线文档一样使用 Markdown、图表、图片和附件组织项目内容。'}</p></div><div className="save-indicator">{activeDocument ? (documentSaveState === 'saving' ? '正在保存文档…' : documentSaveState === 'saved' ? '文档已保存' : '文档') : saveState === 'saving' ? '正在自动保存…' : saveState === 'saved' ? '已自动保存' : '草稿'}</div></header>
       <div className="document-editor-layout">
         <aside className="author-project-rail">
           <button className="primary-button" onClick={newProject}>＋ 新建项目</button>
+          <nav className="editor-outline" aria-label="文章目录">
+            <h3>文章目录</h3>
+            {editorOutline.length ? editorOutline.map((heading, index) => (
+              <button key={`${heading.lineIndex}-${heading.title}`} type="button" className={`outline-level-${heading.level}`} onClick={() => jumpToOutlineHeading(index, heading.lineIndex)} title={heading.title}>
+                {heading.title}
+              </button>
+            )) : <p className="empty-copy">添加标题后，目录会自动生成。</p>}
+          </nav>
           <h3>我的项目</h3>
           {loading ? <p>正在加载…</p> : projects.length === 0 ? <p className="empty-copy">还没有项目草稿。</p> : projects.map((project) =>
             <button className={activeProject?.id === project.id ? 'active' : ''} key={project.id} onClick={() => selectProject(project)}>
@@ -3201,7 +3241,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
             />
           </Suspense>}
         </aside>
-        <form className="document-project-editor" onSubmit={(event) => void saveProject(event)}>
+        <form ref={editorPageRef} className="document-project-editor" onSubmit={(event) => void saveProject(event)}>
           <div className="document-title-row">
             {activeDocument ? (
               <div className="document-context-banner">

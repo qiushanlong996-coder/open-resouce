@@ -523,6 +523,29 @@
 /* 从通知/搜索跳转到某条评论时的短暂高亮定位。 */
 .comment-card.is-focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0, 122, 255, .22); animation: comment-focus-pulse 2.4s ease-out; }
 @keyframes comment-focus-pulse { 0% { box-shadow: 0 0 0 4px rgba(0, 122, 255, .38); } 100% { box-shadow: 0 0 0 3px rgba(0, 122, 255, .0); } }
+
+/* Full-page authoring workspace */
+.project-cover-image { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .35s ease; }
+.project-card:hover .project-cover-image { transform: scale(1.025); }
+.author-editor-page { position: fixed; inset: 0; z-index: 50; overflow: hidden; color: var(--ink); background: var(--surface); }
+.author-editor-page .document-author-center { width: 100%; height: 100dvh; max-height: none; padding: 24px clamp(18px, 3vw, 44px); box-shadow: none; }
+.author-editor-page .document-editor-layout { grid-template-columns: 240px minmax(0, 1fr); }
+.author-editor-page .markdown-toolbar { top: 0; z-index: 12; flex: 0 0 auto; box-shadow: 0 8px 18px rgba(0,0,0,.035); }
+.author-editor-page .rich-markdown-editor .milkdown-top-bar { position: sticky; top: 40px; z-index: 5; background: var(--surface); }
+.editor-outline { margin: 0 -4px 22px; padding: 0 4px 18px; border-bottom: 1px solid var(--line); }
+.editor-outline h3 { margin-inline: 1px; }
+.editor-outline button { width: 100%; min-height: 30px; display: block; overflow: hidden; padding: 6px 7px; color: var(--text-secondary); background: transparent; border: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.editor-outline button:hover, .editor-outline button:focus-visible { color: var(--blue); background: var(--soft-blue); outline: none; }
+.editor-outline .outline-level-2 { padding-left: 18px; }
+.editor-outline .outline-level-3 { padding-left: 30px; color: var(--text-tertiary); font-size: 10px; }
+.editor-outline .empty-copy { margin: 8px 7px 0; line-height: 1.6; }
+
+@media (max-width: 900px) {
+  .author-editor-page .document-editor-layout { grid-template-columns: 1fr; }
+  .author-editor-page .author-project-rail { max-height: 180px; }
+  .editor-outline { max-width: 100%; overflow-x: auto; white-space: nowrap; }
+  .editor-outline button { width: auto; display: inline-block; padding-left: 8px; }
+}
 .comment-quote { cursor: pointer; }
 /* 点击评论引用跳转到原文时，被定位的正文区块短暂高亮。 */
 .block-located { border-radius: 4px; outline: 2px solid var(--blue); outline-offset: 3px; animation: block-locate-flash 2.2s ease-out; }

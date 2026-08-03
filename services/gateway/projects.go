@@ -26,6 +26,7 @@ type projectSummary struct {
 	Maintainer string         `json:"maintainer"`
 	UpdatedAt  string         `json:"updated_at"`
 	Metrics    projectMetrics `json:"metrics"`
+	HasCover   bool           `json:"has_cover"`
 }
 
 type projectMetrics struct {
@@ -284,7 +285,7 @@ func managedProjectSummary(project managedProject) projectSummary {
 		ID: project.ID, Slug: project.Slug, Name: project.Name, Summary: project.Summary,
 		Category: project.Category, Tags: project.Tags, Stack: project.TechStack,
 		License: project.License, Status: "已发布", Maintainer: "社区作者",
-		UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339), HasCover: project.CoverObjectKey != "",
 	}
 }
 

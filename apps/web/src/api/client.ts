@@ -141,6 +141,7 @@ export type ProjectSummary = {
   status: string
   maintainer: string
   updated_at: string
+  has_cover: boolean
   metrics: {
     views?: number
     downloads: number
