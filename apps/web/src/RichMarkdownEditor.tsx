@@ -73,7 +73,7 @@ const RichMarkdownEditor = forwardRef<RichMarkdownEditorHandle, {
         root: rootRef.current,
         defaultValue: initialValueRef.current || '# 项目介绍\n\n从这里开始编写项目文档。',
         features: {
-          [Crepe.Feature.TopBar]: true,
+          [Crepe.Feature.TopBar]: false,
         },
         featureConfigs: {
           [Crepe.Feature.ImageBlock]: {
