@@ -530,8 +530,9 @@
 .author-editor-page { position: fixed; inset: 0; z-index: 50; overflow: hidden; color: var(--ink); background: var(--surface); }
 .author-editor-page .document-author-center { width: 100%; height: 100dvh; max-height: none; padding: 24px clamp(18px, 3vw, 44px); box-shadow: none; }
 .author-editor-page .document-editor-layout { grid-template-columns: 240px minmax(0, 1fr); }
-.author-editor-page .markdown-toolbar { top: 0; z-index: 12; flex: 0 0 auto; isolation: isolate; box-shadow: 0 8px 18px rgba(0,0,0,.035); }
-.author-editor-page .markdown-toolbar::before { content: ''; position: absolute; left: -1px; right: -1px; bottom: 100%; height: 24px; background: var(--surface); pointer-events: none; }
+.author-editor-page .document-project-editor { padding-top: 0; }
+.author-editor-page .document-title-row { padding-top: 18px; }
+.author-editor-page .markdown-toolbar { top: 0; z-index: 12; flex: 0 0 auto; box-shadow: 0 8px 18px rgba(0,0,0,.035); }
 .editor-outline { margin: 0 -4px 22px; padding: 0 4px 18px; border-bottom: 1px solid var(--line); }
 .editor-outline h3 { margin-inline: 1px; }
 .editor-outline button { width: 100%; min-height: 30px; display: block; overflow: hidden; padding: 6px 7px; color: var(--text-secondary); background: transparent; border: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
@@ -543,6 +544,7 @@
 @media (max-width: 900px) {
   .author-editor-page .document-editor-layout { grid-template-columns: 1fr; }
   .author-editor-page .author-project-rail { max-height: 180px; }
+  .author-editor-page .document-title-row { padding-top: 14px; }
   .editor-outline { max-width: 100%; overflow-x: auto; white-space: nowrap; }
   .editor-outline button { width: auto; display: inline-block; padding-left: 8px; }
 }
