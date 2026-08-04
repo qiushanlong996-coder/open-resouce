@@ -12,6 +12,15 @@
 - 已解决：HTTPS 连接 GitHub 443 连续超时。2026-07-26 已生成并添加专用 ed25519 密钥，GitHub SSH 认证成功，仓库远程地址已切换为 SSH。
 - 2026-07-31：新 macOS 开发机初始无 Go。brew 从 ghcr.io 下载极慢不可用；已由项目负责人通过阿里云镜像安装官方 Go 1.24.6 pkg（/usr/local/go），并将 GOPROXY 设为 goproxy.cn，不阻塞开发。
 - 2026-07-31：本机无 pnpm，且 apps/web 的 package-lock.json 已过期；前端依赖统一使用 `npx pnpm@10 install --frozen-lockfile` 安装（与 pnpm-lock.yaml 一致），不阻塞开发。
+- 2026-08-05：新增第三台机器「分析服务器」（Ubuntu 22.04，8 核 8G），专跑用户上传代码包的分析作业。
+  **该机器 npm 官方源不可达**：`registry.npmjs.org` 与 `nodejs.org` curl 均返回 000（超时），
+  必须改用 `registry.npmmirror.com` 与 `mirrors.aliyun.com`，否则装依赖会长时间无响应且不报错。
+  **apt 默认源同样不可达**（archive.ubuntu.com 超时）。坑点：`apt-get update -qq` 会返回 rc=0，
+  因为索引下载失败只是 warning、会退回旧缓存——判断可用性要看有没有 `Failed to fetch`，别只看退出码。
+  已换成 `mirrors.aliyun.com`。出厂无 swap，已加 4GB swapfile。
+  SSH 为**非标端口 50698**，脚本中不要写死 22。连接信息见本机 `password.md`（不入库）。
+- 2026-08-05：中间件服务器 `/tmp` 报 `Structure needs cleaning`（文件系统错误），无法写入，
+  部署脚本已改用 `/root` 作临时目录。**该文件系统需排查后 fsck**，属未解决的遗留隐患。
 
 ## 当前基线
 
@@ -2701,3 +2710,72 @@ Claude API 不提供 embeddings 接口，需要额外的第三方服务与密钥
   已核对线上产物确实包含新代码（`search-overlay` / `search-group-head` /
   `ArrowDown` / `isComposing` 均在按需加载的面板 chunk 内，且 8443 可取到 200），
   但**分组结果观感、键盘导航、⌘K、移动端全屏仍需在浏览器里手动过一遍**。
+
+## 2026-08-05：代码包分析（Understand-Anything 接入）Phase 0 可行性验证
+
+需求：用户上传 ≤200MB 代码包 → 分析生成知识路线图 → 可直接放入文档发布；每用户每天 5 次。
+Understand-Anything **不是 Web 服务，是 Claude Code 插件**（执行 `/understand` 产出
+`.ua/knowledge-graph.json`），所以要做的是「驱动 Claude Code 的作业系统」。
+先做可行性闸门，结论如下。
+
+### 结论：原生插件路线（Path A）可行，无需协议转换代理，也无需自研编排
+
+**DeepSeek 确实提供 Anthropic 兼容端点**，实测（不是查文档，本会话 WebSearch/WebFetch 均被网络策略拦掉）：
+
+| 端点 | 结果 |
+| --- | --- |
+| `https://api.deepseek.com/anthropic/v1/messages` | **200**，返回标准 Anthropic 报文（`type:message` / `content[].type:text` / `stop_reason` / `usage`），`deepseek-reasoner` 还会返回 `thinking` 块 |
+| `https://api.deepseek.com/v1/messages` | 404（所以 base URL **必须带 `/anthropic` 后缀**） |
+| `claude -p` + `ANTHROPIC_BASE_URL=…/anthropic` | ✅ 正常回复 |
+
+注意：响应里的 `model` 字段回显为 `deepseek-v4-flash`，与请求的模型名不一致，属对端映射。
+
+### 端到端实测（7 文件 / 48KB 的 TypeScript 小仓库）
+
+产出 `knowledge-graph.json` 18KB，`--language zh` 生效（摘要为中文）：
+
+```
+version, project, nodes(15), edges(25), layers(4), tour(7)
+node.type   : document / file / function
+node 字段   : id, type, name, filePath, summary, tags, complexity
+edge.type   : imports / contains / exports / calls / documents
+layer 字段  : id, name, description, nodeIds
+tour 字段   : order, title, description, nodeIds
+```
+
+这个结构直接决定服务端渲染器（`analysis_roadmap.go`）怎么写：
+`project` → 概览，`layers` → 架构分层，`nodes` → 模块清单，`edges` → Mermaid 依赖图，`tour` → 建议阅读顺序。
+
+### **重要发现：耗时是真正的约束，200MB 是错的旋钮**
+
+**7 个文件跑了 514 秒（8.6 分钟）**，而内存峰值只有 436MB。
+也就是说瓶颈**不是内存**（8GB 绰绰有余），而是**时间与 token**。
+插件自己在 `SKILL.md:271` 就有一道 **>100 文件闸门**，会建议用户缩小范围。
+
+推论：200MB 只是上传体积上限，**真正要限的是参与分析的文件数**。
+一个 200MB 的包可能有上千个文件，按当前速率会跑到小时级、token 成本也不可控。
+因此后续设计要加：参与分析的文件数上限（优先入口文件与核心模块）、
+分阶段进度回报、以及远大于 1800s 的超时；前端要如实告知"大型代码包只分析核心部分"。
+按 5 次/人/天 + 并发 2 估算，单机吞吐约每小时 14 个作业，用户一多需要排队提示。
+
+### 环境与踩坑（已同步进 password.md）
+
+- 新增第三台独立机器作分析机（Ubuntu 22.04 / 8 核 8G / 29GB 盘，SSH **非标端口 50698**）。
+  独立的理由：分析要在陌生人上传的代码上跑 Claude Code（需 Bash 权限），
+  提示注入一旦得手就能读到同机密钥；这台机器上**不放任何主站凭据**。
+- **npm 官方源、nodejs.org、apt 默认源全部不可达**（curl 000 / 连接超时）。
+  已改用 `registry.npmmirror.com` 与 `mirrors.aliyun.com`。
+  坑：`apt-get update -qq` **会返回 rc=0**（索引下载失败只是 warning，退回旧缓存），
+  一开始据此误判"apt 可用"，实际 gcc/make 一个都没装上。判断要看 `Failed to fetch`，不能只看退出码。
+- native tree-sitter **11/12 可加载**（npmmirror 有 linux-x64 预编译包），
+  仅 `tree-sitter-c-sharp` 缺预编译，影响 C# 深度解析，其余语言不受影响。
+- **Claude Code 拒绝以 root 使用 `bypassPermissions`**（安全设计）。
+  这反而把架构推到正确方向：已建专用非特权用户 `ua-runner` + 独立作业目录 `/var/lib/ua-jobs`。
+- print 模式下插件会在 Phase 0.5 停下来征求确认，导致作业静默挂死。
+  解法是在 prompt 里明确「无人值守、不要征求确认、跑到产物落盘为止」。
+- 出厂无 swap，已加 4GB swapfile。
+
+### 下一步
+
+Phase 2+3（数据模型 / 配额 / Gateway 接口）→ Phase 4（worker）→ Phase 5（前端）。
+**尚未开始**：本次只做了可行性验证与分析机基础环境，主站代码一行未改。
