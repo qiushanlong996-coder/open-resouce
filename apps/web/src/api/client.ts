@@ -571,6 +571,10 @@ export type SearchHit = {
   project_name: string
   document_slug: string
   title: string
+  // 所属项目的简介与分类，用于把命中按项目分组时显示组标题。
+  project_summary?: string
+  category?: string
+  // 带 <em> 标记的命中片段，渲染前必须经 renderHighlight 转义。
   highlight: string[]
   score: number
   updated_at: string

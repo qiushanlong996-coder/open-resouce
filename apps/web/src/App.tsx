@@ -162,6 +162,20 @@ const DocumentRevisionPanel = lazy(() => import('./DocumentRevisionPanel'))
 // 顶栏浮层是互斥的：同一时刻最多只有一个下拉面板可见，null 表示全部关闭。
 type HeaderPopover = 'theme' | 'notification' | 'account' | 'mobileMenu' | null
 
+// 快捷键提示要跟平台一致：Mac 上是 ⌘，其他平台是 Ctrl。
+// 之前顶栏固定写死 ⌘ K，在 Windows 上是错的，而且当时根本没有对应的处理器。
+const isAppleShortcutPlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
+const shortcutModifierLabel = isAppleShortcutPlatform ? '⌘' : 'Ctrl'
+
+// shouldIgnoreShortcut 判断当前焦点是否在可编辑区域。
+// 在输入框、textarea 或富文本编辑器里打字时不能劫持快捷键。
+function shouldIgnoreShortcut(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
 type Project = {
   id: string
   name: string
@@ -402,7 +416,6 @@ function reactNodeText(node: ReactNode): string {
 function App() {
   const [activeTab, setActiveTab] = useState('探索')
   const [activeCategory, setActiveCategory] = useState('全部项目')
-  const [search, setSearch] = useState('')
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState('文档阅读')
@@ -479,6 +492,22 @@ function App() {
   const closeHeaderPopover = () => setHeaderPopover(null)
   const toggleHeaderPopover = (panel: Exclude<HeaderPopover, null>) =>
     setHeaderPopover((current) => (current === panel ? null : panel))
+
+  // ⌘K / Ctrl+K 打开统一搜索面板。
+  // 顶栏那个 <kbd>⌘ K</kbd> 之前是纯装饰，没有任何处理器绑定它。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'k') return
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (shouldIgnoreShortcut(event.target)) return
+      // 阻止浏览器自身的 ⌘K（地址栏搜索）。
+      event.preventDefault()
+      closeHeaderPopover()
+      setSearchPanelOpen(true)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // 点击顶栏之外的任意位置，或按 Esc，都要收起当前浮层。
   useEffect(() => {
@@ -642,7 +671,6 @@ function App() {
     const timer = window.setTimeout(() => {
       setCatalogState('checking')
       getProjects({
-        query: search.trim() || undefined,
         category: activeCategory === '全部项目' ? undefined : activeCategory,
         pageSize: 50,
         sort: 'updated',
@@ -662,7 +690,7 @@ function App() {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [activeCategory, search])
+  }, [activeCategory])
 
   useEffect(() => {
     if (!selectedProject || !activeDocument) return
@@ -729,17 +757,11 @@ function App() {
     }
   }, [activeDocument, selectedProject])
 
-  const filteredProjects = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
-    return catalogProjects.filter((project) => {
-      if (activeTab === '我的收藏' && !saved.includes(project.id)) return false
-      const matchesCategory = activeCategory === '全部项目' || project.category === activeCategory
-      const haystack = [project.name, project.summary, project.category, ...project.tags, ...project.stack]
-        .join(' ')
-        .toLowerCase()
-      return matchesCategory && (!normalizedSearch || haystack.includes(normalizedSearch))
-    })
-  }, [activeCategory, activeTab, catalogProjects, saved, search])
+  // 关键词检索统一交给搜索面板（ES），这里只做分类与收藏的本地筛选。
+  const filteredProjects = useMemo(() => catalogProjects.filter((project) => {
+    if (activeTab === '我的收藏' && !saved.includes(project.id)) return false
+    return activeCategory === '全部项目' || project.category === activeCategory
+  }), [activeCategory, activeTab, catalogProjects, saved])
 
   const showToast = (message: string) => {
     setToast(message)
@@ -1290,25 +1312,22 @@ function App() {
         </nav>
 
         <div className="header-actions">
-          <label className="global-search">
+          <button
+            type="button"
+            className="global-search"
+            title="搜索项目与文档"
+            onClick={() => { closeHeaderPopover(); setSearchPanelOpen(true) }}
+          >
             <Search size={16} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} onFocus={closeHeaderPopover} placeholder="搜索项目、文档或技术栈" />
-            <kbd>⌘ K</kbd>
-          </label>
+            <span className="global-search-placeholder">搜索项目、文档或技术栈</span>
+            <kbd>{shortcutModifierLabel} K</kbd>
+          </button>
           <div className="theme-control">
             <button className="icon-button quiet" title="切换主题" aria-label="切换主题" aria-expanded={themePanelOpen} onClick={() => toggleHeaderPopover('theme')}>
               {themeMode === 'dark' ? <Moon size={18} /> : themeMode === 'light' ? <Sun size={18} /> : <MonitorCog size={18} />}
             </button>
             {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); closeHeaderPopover() }} onSkinChange={setSkin} />}
           </div>
-          <button
-            className="icon-button quiet"
-            title="搜索全站文档"
-            aria-label="搜索全站文档"
-            onClick={() => { setSearchPanelOpen(true); closeHeaderPopover() }}
-          >
-            <Search size={17} />
-          </button>
           <div className="notification-control">
             <button
               className="icon-button quiet notification-button"
@@ -1575,6 +1594,7 @@ function App() {
       {searchPanelOpen && <Suspense fallback={null}>
         <DocumentSearchPanel
           onOpenResult={openSearchResult}
+          onOpenProject={(projectSlug) => openProjectBySlug(projectSlug)}
           onClose={() => setSearchPanelOpen(false)}
         />
       </Suspense>}

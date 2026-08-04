@@ -825,7 +825,7 @@
     "/api/v1/search": {
       "get": {
         "summary": "跨项目跨文档全文搜索",
-        "description": "仅检索已发布项目的文档。由 Elasticsearch 提供，中文用内置 cjk 分析器做 bigram 切分。标题权重高于正文。未配置搜索服务时返回 503 而不是 500。",
+        "description": "仅检索已发布项目的文档。由 Elasticsearch 提供，覆盖文档标题与正文、项目名、简介、分类和标签。中文分两层：精确字段只切 bigram，.loose 子字段额外输出单字，因此「猫」能搜到「猫咪」。召回优先、短语命中置顶，拉丁文容忍错拼。这是词法检索而非语义检索——同义词（「宠物」→「猫咪」）不支持，那需要向量嵌入模型。未配置搜索服务时返回 503 而不是 500。",
         "operationId": "searchDocuments",
         "parameters": [
           {
@@ -862,9 +862,12 @@
     "/api/v1/admin/search/reindex": {
       "post": {
         "summary": "重建全量搜索索引",
-        "description": "索引写入是 best-effort 的（ES 故障不能让文档保存失败），因此长期运行可能产生漂移。此接口是修复手段：逐项目清空旧记录后重建。仅管理员可用。",
+        "description": "索引写入是 best-effort 的（ES 故障不能让文档保存失败），因此长期运行可能产生漂移。此接口是修复手段：逐项目清空旧记录后重建。带 recreate=1 时先删索引再按当前映射重建——分析器与字段映射的改动对已存在的索引无效，改了分析器必须走这条路径。MySQL 是唯一真相源，索引是二级派生物，重建没有数据风险。仅管理员可用。",
         "operationId": "reindexSearch",
         "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "recreate", "in": "query", "required": false, "description": "传 1 时先删除索引再按当前映射重建。映射或分析器变更后必须使用。", "schema": { "type": "string", "enum": ["1"] } }
+        ],
         "responses": {
           "200": {
             "description": "重建结果",
@@ -2823,9 +2826,11 @@
           "project_name": { "type": "string" },
           "document_slug": { "type": "string", "description": "项目正文为 overview" },
           "title": { "type": "string" },
+          "project_summary": { "type": "string", "description": "所属项目简介，供前端把命中按项目分组时显示组标题" },
+          "category": { "type": "string", "description": "所属项目分类" },
           "highlight": {
             "type": "array",
-            "description": "带 <em> 标记的命中片段。客户端渲染时必须只信任 <em>，其余一律转义，否则存在 XSS 风险。",
+            "description": "带 <em> 标记的命中片段，已合并精确字段与 .loose 子字段并去重。客户端渲染时必须只信任 <em>，其余一律转义，否则存在 XSS 风险。",
             "items": { "type": "string" }
           },
           "score": { "type": "number" },
@@ -2862,10 +2867,11 @@
       },
       "ReindexResponse": {
         "type": "object",
-        "required": ["indexed", "skipped", "request_id"],
+        "required": ["indexed", "skipped", "recreated", "request_id"],
         "properties": {
           "indexed": { "type": "integer", "description": "成功写入的文档数" },
           "skipped": { "type": "integer", "description": "单条写入失败而跳过的数量，不中断整体重建" },
+          "recreated": { "type": "boolean", "description": "索引是否被删除重建（recreate=1 时为 true）" },
           "request_id": { "type": "string" }
         }
       },

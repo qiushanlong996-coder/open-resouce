@@ -108,8 +108,22 @@ func TestElasticIndexEnsureCreatesMappingWithCJKAnalyzer(t *testing.T) {
 	if create.Method != http.MethodPut || create.Path != "/test-index" {
 		t.Fatalf("create request = %#v", create)
 	}
-	// 中文检索依赖 cjk 分析器，映射里必须带上。
-	for _, expected := range []string{`"analyzer":"cjk"`, `"number_of_replicas":0`, `"type":"keyword"`} {
+	// 精确字段用 cjk（只 bigram），召回子字段用 cjk_loose（额外输出单字）。
+	// 少了 output_unigrams，「猫」就永远搜不到「猫咪」，这是必须守住的点。
+	for _, expected := range []string{
+		`"analyzer":"cjk"`,
+		`"analyzer":"cjk_loose"`,
+		`"output_unigrams":true`,
+		`"type":"cjk_bigram"`,
+		`"cjk_bigram_loose"`,
+		`"asciifolding"`,
+		`"number_of_replicas":0`,
+		`"type":"keyword"`,
+		// 按标签/分类/简介搜索要能命中，这三个字段必须进索引。
+		`"summary"`, `"category"`, `"tags"`,
+		// 映射版本用于发现线上索引是否还是老映射。
+		`"mapping_version":2`,
+	} {
 		if !strings.Contains(create.Body, expected) {
 			t.Fatalf("mapping missing %s: %s", expected, create.Body)
 		}
@@ -125,8 +139,47 @@ func TestElasticIndexEnsureSkipsWhenIndexExists(t *testing.T) {
 	if err := fake.index(t).Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if requests := fake.captured(); len(requests) != 1 {
-		t.Fatalf("existing index should only be probed, got %#v", requests)
+	// 索引已存在时不能擅自删库重建，只允许探测 + 读映射版本（用于落后告警）。
+	requests := fake.captured()
+	for _, request := range requests {
+		if request.Method == http.MethodPut || request.Method == http.MethodDelete {
+			t.Fatalf("existing index must not be modified by Ensure: %#v", requests)
+		}
+	}
+	if requests[0].Method != http.MethodHead {
+		t.Fatalf("first request should probe the index: %#v", requests[0])
+	}
+}
+
+// TestElasticIndexRecreateDeletesThenCreates 验证重建会先删再建。
+// 分析器改动对已存在的索引无效，不先删就等于没改。
+func TestElasticIndexRecreateDeletesThenCreates(t *testing.T) {
+	fake := newFakeElastic(t)
+	fake.indexExists = true
+	if err := fake.index(t).Recreate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	requests := fake.captured()
+	if len(requests) != 2 {
+		t.Fatalf("requests = %d, want 2 (DELETE + PUT): %#v", len(requests), requests)
+	}
+	if requests[0].Method != http.MethodDelete || requests[0].Path != "/test-index" {
+		t.Fatalf("first request should delete the index: %#v", requests[0])
+	}
+	if requests[1].Method != http.MethodPut || requests[1].Path != "/test-index" {
+		t.Fatalf("second request should recreate the index: %#v", requests[1])
+	}
+	if !strings.Contains(requests[1].Body, `"analyzer":"cjk_loose"`) {
+		t.Fatalf("recreate should use the current mapping: %s", requests[1].Body)
+	}
+}
+
+// TestElasticIndexRecreateToleratesMissingIndex 索引本来就不存在时删除返回 404，应继续建。
+func TestElasticIndexRecreateToleratesMissingIndex(t *testing.T) {
+	fake := newFakeElastic(t)
+	fake.indexExists = false
+	if err := fake.index(t).Recreate(context.Background()); err != nil {
+		t.Fatalf("recreate on missing index should succeed: %v", err)
 	}
 }
 
@@ -137,9 +190,14 @@ func TestElasticIndexSearchBuildsWeightedQuery(t *testing.T) {
 		"_source": {
 			"project_id":"project-1","project_slug":"demo","project_name":"演示项目",
 			"document_id":"document-1","document_slug":"guide","title":"使用指南",
-			"body":"正文内容","updated_at":"2026-08-01T00:00:00Z"
+			"body":"正文内容","summary":"项目简介","category":"Coding Agent",
+			"tags":["Agent"],"updated_at":"2026-08-01T00:00:00Z"
 		},
-		"highlight": {"title":["<em>使用</em>指南"],"body":["匹配到的<em>正文</em>片段"]}
+		"highlight": {
+			"title":["<em>使用</em>指南"],
+			"title.loose":["<em>使用</em>指南"],
+			"body":["匹配到的<em>正文</em>片段"]
+		}
 	}]}}`
 
 	hits, err := fake.index(t).Search(context.Background(), "使用", 10)
@@ -153,20 +211,42 @@ func TestElasticIndexSearchBuildsWeightedQuery(t *testing.T) {
 	if hit.ProjectSlug != "demo" || hit.DocumentSlug != "guide" || hit.Title != "使用指南" {
 		t.Fatalf("hit = %#v", hit)
 	}
-	// 高亮片段来自 title 与 body 两处，都要带上。
+	// 精确字段与 .loose 子字段返回了同一个片段，必须去重，
+	// 否则同一句话会在结果卡片里出现两遍。
 	if len(hit.Highlight) != 2 || !strings.Contains(hit.Highlight[0], "<em>") {
-		t.Fatalf("highlight = %#v", hit.Highlight)
+		t.Fatalf("highlight should merge and dedupe fragments: %#v", hit.Highlight)
 	}
 	if hit.Score != 4.5 || hit.UpdatedAt != "2026-08-01T00:00:00Z" {
 		t.Fatalf("score/updated = %v %q", hit.Score, hit.UpdatedAt)
 	}
+	// 前端按项目分组时要用这两项做组标题。
+	if hit.ProjectSummary != "项目简介" || hit.Category != "Coding Agent" {
+		t.Fatalf("hit group fields = %#v", hit)
+	}
 
 	body := fake.captured()[0].Body
-	// 标题权重必须高于正文，否则搜索相关度会明显变差。
-	for _, expected := range []string{`"title^3"`, `"project_name^2"`, `"multi_match"`, `"highlight"`} {
+	for _, expected := range []string{
+		// 短语命中排最前。
+		`"type":"phrase"`,
+		// 精确字段权重高于对应的 .loose 子字段，保证排序质量。
+		`"title^4"`, `"title.loose^1.2"`,
+		`"project_name^3"`, `"body.loose^0.4"`,
+		// 标签与分类可搜。
+		`"tags^3"`, `"category^2"`,
+		// 拉丁文错拼容忍。
+		`"fuzziness":"AUTO"`,
+		// 命中项目名或简介时也要有高亮片段。
+		`"project_name"`, `"summary"`,
+		`"highlight"`,
+	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("query missing %s: %s", expected, body)
 		}
+	}
+	// 刻意不设百分比门槛：单字查询「猫」只有一个 token，
+	// 任何百分比门槛都会把它的兜底召回一起挡掉。
+	if strings.Contains(body, `"minimum_should_match":"`) {
+		t.Fatalf("query must not set a percentage minimum_should_match: %s", body)
 	}
 }
 
@@ -265,6 +345,114 @@ func TestSearchHandlerRejectsInvalidLimit(t *testing.T) {
 	}
 }
 
+// TestSearchRecordsCarryProjectMetadata 验证索引记录带上项目的简介/分类/标签。
+// 少了这三项，按标签或分类搜索就是静默失效——接口 200、结果永远为空。
+func TestSearchRecordsCarryProjectMetadata(t *testing.T) {
+	project := managedProject{
+		ID: "project-1", Slug: "demo", Name: "演示项目",
+		Summary: "一个用于验证搜索的示例项目", Description: "# 标题\n\n项目正文。",
+		Category: "Coding Agent", Tags: []string{"Agent", "检索"},
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	body := projectBodySearchDocument(project)
+	if body.Summary != project.Summary || body.Category != project.Category {
+		t.Fatalf("project body record = %#v", body)
+	}
+	if len(body.Tags) != 2 || body.Tags[0] != "Agent" {
+		t.Fatalf("project body tags = %#v", body.Tags)
+	}
+
+	// 文档记录也要继承项目元信息，否则按标签搜索搜不到项目下的文档。
+	record := projectDocumentSearchRecord(project, projectDocument{
+		ID: "document-1", Slug: "guide", Title: "使用指南",
+		Markdown: "正文", UpdatedAt: time.Now().UTC(),
+	})
+	if record.Summary != project.Summary || record.Category != project.Category {
+		t.Fatalf("document record = %#v", record)
+	}
+	if len(record.Tags) != 2 {
+		t.Fatalf("document record tags = %#v", record.Tags)
+	}
+}
+
+// TestSearchQueryClauseKeepsSingleCharRecall 用真实的分析器语义反证查询结构。
+//
+// 这条守的是本次修复的核心：单字查询「猫」经 cjk_loose 只切出一个 token，
+// 必须靠 .loose 字段才能命中只含 bigram「猫咪」的文档；
+// 任何 minimum_should_match 百分比门槛都会把这条兜底召回挡掉。
+func TestSearchQueryClauseKeepsSingleCharRecall(t *testing.T) {
+	encoded, err := json.Marshal(searchQueryClause("猫"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clause := string(encoded)
+	if strings.Contains(clause, `"minimum_should_match":"`) {
+		t.Fatalf("百分比门槛会挡掉单字召回: %s", clause)
+	}
+	if !strings.Contains(clause, `"minimum_should_match":1`) {
+		t.Fatalf("外层 bool 应要求至少命中一条 should: %s", clause)
+	}
+	// .loose 子字段是单字召回的唯一来源，权重必须低于精确字段。
+	if !strings.Contains(clause, `"title.loose^1.2"`) || !strings.Contains(clause, `"title^4"`) {
+		t.Fatalf("缺少精确/召回双字段: %s", clause)
+	}
+}
+
+// TestSearchQueryClauseRequiresAllLooseTokens 守一个踩过的坑。
+//
+// .loose 字段会把中文拆到单字。如果这一段用 or，查询「凤凰于飞」里的「于」
+// 是极常见字，会把「用于验证跨文档搜索的临时项目」这类毫不相关的内容全召回
+// （上线验证时实测到 4 条假命中）。必须是 and：
+// 单字查询只有一个 token，照样能命中；长查询则要求全部字都出现。
+func TestSearchQueryClauseRequiresAllLooseTokens(t *testing.T) {
+	encoded, err := json.Marshal(searchQueryClause("凤凰于飞"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Bool struct {
+			Should []struct {
+				MultiMatch struct {
+					Fields   []string `json:"fields"`
+					Operator string   `json:"operator"`
+					Type     string   `json:"type"`
+				} `json:"multi_match"`
+			} `json:"should"`
+		} `json:"bool"`
+	}
+	if err := json.Unmarshal(encoded, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	looseFound := false
+	for _, clause := range parsed.Bool.Should {
+		isLoose := false
+		for _, field := range clause.MultiMatch.Fields {
+			if strings.Contains(field, ".loose") {
+				isLoose = true
+				break
+			}
+		}
+		if !isLoose {
+			continue
+		}
+		looseFound = true
+		if clause.MultiMatch.Operator != "and" {
+			t.Fatalf(".loose 段的 operator = %q，必须是 and，否则常见单字会把无关内容全召回",
+				clause.MultiMatch.Operator)
+		}
+		// 精确字段不能混进这一段：它们该走 or，混在 and 里会误杀正常召回。
+		for _, field := range clause.MultiMatch.Fields {
+			if !strings.Contains(field, ".loose") {
+				t.Fatalf(".loose 段不应混入精确字段 %q", field)
+			}
+		}
+	}
+	if !looseFound {
+		t.Fatal("查询里没有 .loose 兜底段，单字查询会搜不到东西")
+	}
+}
+
 // TestSearchHandlerReportsUnavailableInsteadOf500 未配置 ES 时应给出明确提示。
 func TestSearchHandlerReportsUnavailableInsteadOf500(t *testing.T) {
 	original := searchIndexStore
@@ -333,6 +521,73 @@ func TestSearchReindexRequiresAdmin(t *testing.T) {
 			t.Fatalf("admin status = %d, want 200: %s", response.Code, response.Body)
 		}
 		if !strings.Contains(response.Body.String(), `"indexed"`) {
+			t.Fatalf("body = %s", response.Body)
+		}
+	})
+}
+
+// TestSearchReindexRecreateFlag 验证只有带 recreate=1 才会删索引重建。
+// 默认路径必须不删：日常修漂移不该顺手清空索引。
+func TestSearchReindexRecreateFlag(t *testing.T) {
+	setup := func(t *testing.T) (*fakeElastic, *http.Cookie) {
+		t.Helper()
+		// 管理员身份由 ADMIN_EMAILS 白名单现算，不是库里的标记。
+		t.Setenv("ADMIN_EMAILS", "admin@example.com")
+		originalAuth, originalIndex, originalProjects, originalLimiter :=
+			authRepositoryStore, searchIndexStore, managedProjectRepositoryStore, authRateLimiter
+		authRepositoryStore = newMemoryAuthRepository()
+		managedProjectRepositoryStore = newMemoryManagedProjectRepository()
+		authRateLimiter = newFixedWindowLimiter()
+		fake := newFakeElastic(t)
+		fake.indexExists = true
+		searchIndexStore = fake.index(t)
+		t.Cleanup(func() {
+			authRepositoryStore, searchIndexStore, managedProjectRepositoryStore, authRateLimiter =
+				originalAuth, originalIndex, originalProjects, originalLimiter
+		})
+		cookie, _ := registerTestUser(t, "admin@example.com", "管理员")
+		return fake, cookie
+	}
+	deletes := func(fake *fakeElastic) int {
+		count := 0
+		for _, request := range fake.captured() {
+			if request.Method == http.MethodDelete && request.Path == "/test-index" {
+				count++
+			}
+		}
+		return count
+	}
+
+	t.Run("默认不删索引", func(t *testing.T) {
+		fake, cookie := setup(t)
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/search/reindex", nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		newHandler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", response.Code, response.Body)
+		}
+		if deletes(fake) != 0 {
+			t.Fatalf("默认路径不该删索引: %#v", fake.captured())
+		}
+		if !strings.Contains(response.Body.String(), `"recreated":false`) {
+			t.Fatalf("body = %s", response.Body)
+		}
+	})
+
+	t.Run("recreate=1 先删再建", func(t *testing.T) {
+		fake, cookie := setup(t)
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/search/reindex?recreate=1", nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		newHandler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", response.Code, response.Body)
+		}
+		if deletes(fake) != 1 {
+			t.Fatalf("recreate 应该删一次索引: %#v", fake.captured())
+		}
+		if !strings.Contains(response.Body.String(), `"recreated":true`) {
 			t.Fatalf("body = %s", response.Body)
 		}
 	})

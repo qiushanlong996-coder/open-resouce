@@ -98,13 +98,18 @@ func searchHotTermsHandler(writer http.ResponseWriter, request *http.Request) {
 }
 
 type reindexResponse struct {
-	Indexed   int    `json:"indexed"`
-	Skipped   int    `json:"skipped"`
+	Indexed int `json:"indexed"`
+	Skipped int `json:"skipped"`
+	// Recreated 表示索引是否被删除重建（而不是仅刷新文档）。
+	Recreated bool   `json:"recreated"`
 	RequestID string `json:"request_id"`
 }
 
 // searchReindexHandler 全量重建索引。
 // 索引写入是 best-effort 的，长期运行必然产生漂移，这里是修复手段。
+//
+// 带 ?recreate=1 时先删索引再按当前映射重建：分析器和字段映射的改动
+// 对已存在的索引无效，改了分析器就必须走这条路径，否则召回不会变好。
 func searchReindexHandler(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		writer.Header().Set("Allow", http.MethodPost)
@@ -122,6 +127,15 @@ func searchReindexHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	recreate := request.URL.Query().Get("recreate") == "1"
+	if recreate {
+		if err := searchIndexStore.Recreate(request.Context()); err != nil {
+			slog.ErrorContext(request.Context(), "recreate search index failed",
+				"request_id", requestIDFromContext(request.Context()), "error", err)
+			writeAPIError(writer, request, http.StatusBadGateway, "reindex_failed", "重建索引失败")
+			return
+		}
+	}
 	indexed, skipped, err := rebuildSearchIndex(request.Context())
 	if err != nil {
 		slog.ErrorContext(request.Context(), "reindex failed",
@@ -129,9 +143,13 @@ func searchReindexHandler(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, http.StatusBadGateway, "reindex_failed", "重建索引失败")
 		return
 	}
-	auditAuth(request, "search_reindexed", user.Email, user.ID)
+	action := "search_reindexed"
+	if recreate {
+		action = "search_index_recreated"
+	}
+	auditAuth(request, action, user.Email, user.ID)
 	writeJSON(writer, http.StatusOK, reindexResponse{
-		Indexed: indexed, Skipped: skipped,
+		Indexed: indexed, Skipped: skipped, Recreated: recreate,
 		RequestID: requestIDFromContext(request.Context()),
 	})
 }
@@ -201,6 +219,9 @@ func projectBodySearchDocument(project managedProject) searchDocument {
 		DocumentSlug: publishedDocumentSlug,
 		Title:        title,
 		Body:         project.Description,
+		Summary:      project.Summary,
+		Category:     project.Category,
+		Tags:         project.Tags,
 		UpdatedAt:    project.UpdatedAt.UTC(),
 	}
 }
@@ -216,7 +237,12 @@ func projectDocumentSearchRecord(project managedProject, document projectDocumen
 		DocumentSlug: document.Slug,
 		Title:        document.Title,
 		Body:         document.Markdown,
-		UpdatedAt:    document.UpdatedAt.UTC(),
+		// 文档记录也带上所属项目的元信息，
+		// 这样按标签或分类搜索能把项目下的文档一并召回。
+		Summary:   project.Summary,
+		Category:  project.Category,
+		Tags:      project.Tags,
+		UpdatedAt: document.UpdatedAt.UTC(),
 	}
 }
 
