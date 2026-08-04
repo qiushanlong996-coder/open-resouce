@@ -760,6 +760,59 @@
         }
       }
     },
+    "/api/v1/author/projects/{projectID}/documents/{documentID}/revisions": {
+      "get": {
+        "summary": "列出文章历史版本",
+        "description": "按版本号倒序返回最多 50 条历史版本，不含正文。编辑器每 1.2s 自动保存一次，同一作者在 5 分钟窗口内的连续编辑会合并为同一个版本，因此列表里的每一条都是有意义的还原点。需要项目所有者或 editor 协作权限。",
+        "operationId": "listAuthorDocumentRevisions",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "历史版本列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentRevisionListResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目或文档不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/author/projects/{projectID}/documents/{documentID}/revisions/{version}": {
+      "get": {
+        "summary": "读取指定历史版本的正文",
+        "description": "返回该版本的完整正文快照，供作者预览或与当前版本逐行对比。",
+        "operationId": "showAuthorDocumentRevision",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "version", "in": "path", "required": true, "description": "历史版本号", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "历史版本内容", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentRevisionResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目、文档或该历史版本不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/v1/author/projects/{projectID}/documents/{documentID}/revisions/{version}/restore": {
+      "post": {
+        "summary": "把文章正文回滚到指定历史版本",
+        "description": "只还原正文，不改标题、slug 与目录位置，避免已分享出去的阅读链接被改回旧值。回滚会把还原内容作为新版本追加在历史顶端，因此回滚之后仍能再回滚回去，不存在误操作丢内容。",
+        "operationId": "restoreAuthorDocumentRevision",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "projectID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "documentID", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } },
+          { "name": "version", "in": "path", "required": true, "description": "要回滚到的历史版本号", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "正文已回滚，返回回滚后的文档", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectDocumentResponse" } } } },
+          "401": { "description": "未登录", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "项目、文档或该历史版本不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
     "/api/v1/author/projects/{projectID}/submit": {
       "post": {
         "summary": "提交项目审核",
@@ -2314,7 +2367,17 @@
             "type": "string"
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "项目版本号（如 1.2.0），与文章自身的修订号无关"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "文章修订号，从 1 开始；项目正文兜底文档为 0"
+          },
+          "updated_by_name": {
+            "type": "string",
+            "description": "最后一次改动正文的作者昵称，取不到时为空"
           },
           "updated_at": {
             "type": "string",
@@ -2642,7 +2705,7 @@
       },
       "ProjectDocument": {
         "type": "object",
-        "required": ["id", "project_id", "parent_id", "slug", "title", "markdown", "sort_order", "created_at", "updated_at"],
+        "required": ["id", "project_id", "parent_id", "slug", "title", "markdown", "sort_order", "version", "created_at", "updated_at"],
         "properties": {
           "id": { "type": "string" },
           "project_id": { "type": "string" },
@@ -2651,9 +2714,68 @@
           "title": { "type": "string" },
           "markdown": { "type": "string" },
           "sort_order": { "type": "integer", "minimum": 0 },
+          "version": { "type": "integer", "minimum": 1, "description": "文章修订号，从 1 开始，作者每次实质性改动都会推进" },
+          "updated_by": { "type": "string", "description": "最后一次改动正文的用户 ID" },
           "created_by": { "type": "string" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DocumentRevisionSummary": {
+        "type": "object",
+        "description": "历史版本列表项，不含正文，只带体量与作者信息。",
+        "required": ["id", "version", "title", "slug", "source", "char_count", "created_at", "updated_at", "current"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "slug": { "type": "string" },
+          "source": { "type": "string", "enum": ["create", "edit", "restore"], "description": "create 首次建档，edit 正文编辑，restore 回滚" },
+          "restored_from": { "type": "integer", "minimum": 1, "description": "仅回滚版本有值，记录还原自哪个版本号" },
+          "author_id": { "type": "string" },
+          "author_name": { "type": "string" },
+          "author_avatar": { "type": "string" },
+          "char_count": { "type": "integer", "minimum": 0, "description": "该版本正文字符数，用于展示体量变化" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time", "description": "合并窗口内的连续自动保存会刷新这个时间" },
+          "current": { "type": "boolean", "description": "是否就是文档当前正文所处的版本" }
+        }
+      },
+      "DocumentRevision": {
+        "type": "object",
+        "description": "单个历史版本的完整内容，用于预览与逐行对比。",
+        "required": ["id", "document_id", "project_id", "version", "slug", "title", "source", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "document_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "version": { "type": "integer", "minimum": 1 },
+          "slug": { "type": "string" },
+          "title": { "type": "string" },
+          "markdown": { "type": "string", "description": "该版本的正文快照" },
+          "author_id": { "type": "string" },
+          "source": { "type": "string", "enum": ["create", "edit", "restore"] },
+          "char_count": { "type": "integer", "minimum": 0 },
+          "restored_from": { "type": "integer", "minimum": 1 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DocumentRevisionListResponse": {
+        "type": "object",
+        "required": ["data", "current_version", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentRevisionSummary" }, "description": "按版本号倒序，最多 50 条" },
+          "current_version": { "type": "integer", "minimum": 0, "description": "文档正文当前所处的版本号" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "DocumentRevisionResponse": {
+        "type": "object",
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/DocumentRevision" },
+          "request_id": { "type": "string" }
         }
       },
       "ProjectDocumentInput": {

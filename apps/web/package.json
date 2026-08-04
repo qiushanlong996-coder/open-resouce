@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "check:search-highlight": "node scripts/check-search-highlight.mjs",
+    "check:diff-lines": "node scripts/check-diff-lines.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

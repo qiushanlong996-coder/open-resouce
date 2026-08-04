@@ -696,8 +696,10 @@ func projectCollaborationWebSocketHandler(writer http.ResponseWriter, request *h
 					saved, err = projectDocumentRepositoryStore.UpdateMarkdown(
 						context.Background(), project.ID, target.documentID, markdown, now)
 					if err == nil {
-						// 协作保存是文档正文的主要更新路径，索引要跟上。
+						// 协作保存是文档正文的主要更新路径，索引和版本历史都要跟上。
 						syncDocumentIndex(project, saved)
+						syncDocumentRevision(
+							context.Background(), saved, user.ID, revisionSourceEdit, nil)
 					}
 				} else {
 					var saved managedProject

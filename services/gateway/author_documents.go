@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,9 @@ import (
 //   PUT    /api/v1/author/projects/{projectID}/documents/{documentID}
 //   DELETE /api/v1/author/projects/{projectID}/documents/{documentID}
 //   POST   /api/v1/author/projects/{projectID}/documents/{documentID}/move
+//   GET    /api/v1/author/projects/{projectID}/documents/{documentID}/revisions
+//   GET    /api/v1/author/projects/{projectID}/documents/{documentID}/revisions/{version}
+//   POST   /api/v1/author/projects/{projectID}/documents/{documentID}/revisions/{version}/restore
 //
 // 权限：项目所有者，或拥有 editor 权限的协作者。
 
@@ -36,6 +40,14 @@ type authorDocumentContext struct {
 	project    managedProject
 	documentID string
 	action     string
+	// hasRevisionSegment 表示 /revisions/ 后面还带了段路径。
+	// 用它区分「列表请求」和「版本号写错的请求」：后者必须 404，
+	// 不能因为解析不出版本号就悄悄退化成返回整个列表。
+	hasRevisionSegment bool
+	// revisionVersion 是 /revisions/{version} 里的版本号，非正整数时为 0。
+	revisionVersion int
+	// revisionAction 是版本号之后的子动作，目前只有 restore。
+	revisionAction string
 }
 
 func authorProjectDocumentsHandler(writer http.ResponseWriter, request *http.Request) {
@@ -55,6 +67,17 @@ func authorProjectDocumentsHandler(writer http.ResponseWriter, request *http.Req
 		deleteAuthorDocument(writer, request, scope)
 	case request.Method == http.MethodPost && scope.action == "move":
 		moveAuthorDocument(writer, request, scope)
+	case request.Method == http.MethodGet && scope.action == "revisions" && !scope.hasRevisionSegment:
+		listAuthorDocumentRevisions(writer, request, scope)
+	case scope.action == "revisions" && scope.revisionVersion == 0:
+		// /revisions/abc 之类的非法版本号：明确报 404，而不是当成列表请求。
+		writeAPIError(writer, request, http.StatusNotFound, "revision_not_found", "该历史版本不存在")
+	case request.Method == http.MethodGet && scope.action == "revisions" &&
+		scope.revisionVersion > 0 && scope.revisionAction == "":
+		showAuthorDocumentRevision(writer, request, scope)
+	case request.Method == http.MethodPost && scope.action == "revisions" &&
+		scope.revisionVersion > 0 && scope.revisionAction == "restore":
+		restoreAuthorDocumentRevision(writer, request, scope)
 	default:
 		writer.Header().Set("Allow", "GET, POST, PUT, DELETE")
 		writeAPIError(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "请求方法不受支持")
@@ -81,6 +104,17 @@ func resolveAuthorDocumentScope(
 	}
 	if len(parts) >= 4 {
 		scope.action = parts[3]
+	}
+	// /revisions/{version}[/restore]：版本号必须是正整数。
+	// 非法值让 revisionVersion 保持 0，由上层路由判定为 404。
+	if len(parts) >= 5 {
+		scope.hasRevisionSegment = true
+		if version, err := strconv.Atoi(parts[4]); err == nil && version > 0 {
+			scope.revisionVersion = version
+		}
+	}
+	if len(parts) >= 6 {
+		scope.revisionAction = parts[5]
 	}
 
 	project, found, err := managedProjectRepositoryStore.FindByID(request.Context(), parts[0])
@@ -138,6 +172,7 @@ func createAuthorDocument(writer http.ResponseWriter, request *http.Request, pro
 		return
 	}
 	syncDocumentIndex(project, document)
+	document = syncDocumentRevision(request.Context(), document, user.ID, revisionSourceCreate, nil)
 	writeJSON(writer, http.StatusCreated, projectDocumentResponse{
 		Data: document, RequestID: requestIDFromContext(request.Context()),
 	})
@@ -162,6 +197,8 @@ func updateAuthorDocument(writer http.ResponseWriter, request *http.Request, sco
 		return
 	}
 	syncDocumentIndex(scope.project, document)
+	user, _ := currentUser(request)
+	document = syncDocumentRevision(request.Context(), document, user.ID, revisionSourceEdit, nil)
 	writeJSON(writer, http.StatusOK, projectDocumentResponse{
 		Data: document, RequestID: requestIDFromContext(request.Context()),
 	})
@@ -210,6 +247,125 @@ func deleteAuthorDocument(writer http.ResponseWriter, request *http.Request, sco
 		removeFromIndexBestEffort(searchDocumentID(scope.project.ID, documentID))
 	}
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+type documentRevisionListResponse struct {
+	Data []documentRevisionSummary `json:"data"`
+	// CurrentVersion 是文档正文当前所处的版本号，前端用它标出「当前版本」。
+	CurrentVersion int    `json:"current_version"`
+	RequestID      string `json:"request_id"`
+}
+
+type documentRevisionResponse struct {
+	Data      documentRevision `json:"data"`
+	RequestID string           `json:"request_id"`
+}
+
+// findScopedDocument 在已鉴权的项目下按 ID 取出文档。
+func findScopedDocument(
+	writer http.ResponseWriter, request *http.Request, scope authorDocumentContext,
+) (projectDocument, bool) {
+	documents, err := projectDocumentRepositoryStore.ListByProject(request.Context(), scope.project.ID)
+	if err != nil {
+		writeDocumentError(writer, request, err)
+		return projectDocument{}, false
+	}
+	for _, document := range documents {
+		if document.ID == scope.documentID {
+			return document, true
+		}
+	}
+	writeAPIError(writer, request, http.StatusNotFound, "document_not_found", "文档不存在")
+	return projectDocument{}, false
+}
+
+// listAuthorDocumentRevisions 返回文章历史版本列表（不含正文）。
+func listAuthorDocumentRevisions(
+	writer http.ResponseWriter, request *http.Request, scope authorDocumentContext,
+) {
+	document, ok := findScopedDocument(writer, request, scope)
+	if !ok {
+		return
+	}
+	revisions, err := documentRevisionRepositoryStore.List(
+		request.Context(), document.ID, documentRevisionListLimit)
+	if err != nil {
+		slog.ErrorContext(request.Context(), "list document revisions failed",
+			"document_id", document.ID, "error", err)
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "版本历史服务暂时不可用")
+		return
+	}
+	writeJSON(writer, http.StatusOK, documentRevisionListResponse{
+		Data:           summarizeRevisions(request.Context(), revisions, document.Version),
+		CurrentVersion: document.Version,
+		RequestID:      requestIDFromContext(request.Context()),
+	})
+}
+
+// showAuthorDocumentRevision 返回指定历史版本的完整正文，供预览与对比使用。
+func showAuthorDocumentRevision(
+	writer http.ResponseWriter, request *http.Request, scope authorDocumentContext,
+) {
+	document, ok := findScopedDocument(writer, request, scope)
+	if !ok {
+		return
+	}
+	revision, found, err := documentRevisionRepositoryStore.Find(
+		request.Context(), document.ID, scope.revisionVersion)
+	if err != nil {
+		slog.ErrorContext(request.Context(), "load document revision failed",
+			"document_id", document.ID, "version", scope.revisionVersion, "error", err)
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "版本历史服务暂时不可用")
+		return
+	}
+	if !found {
+		writeAPIError(writer, request, http.StatusNotFound, "revision_not_found", "该历史版本不存在")
+		return
+	}
+	writeJSON(writer, http.StatusOK, documentRevisionResponse{
+		Data: revision, RequestID: requestIDFromContext(request.Context()),
+	})
+}
+
+// restoreAuthorDocumentRevision 把文章正文回滚到指定历史版本。
+//
+// 回滚不是删除历史：被还原的内容会作为一个新版本追加在历史顶端，
+// 因此回滚之后仍能再回滚回去，不存在误操作丢内容的情况。
+func restoreAuthorDocumentRevision(
+	writer http.ResponseWriter, request *http.Request, scope authorDocumentContext,
+) {
+	document, ok := findScopedDocument(writer, request, scope)
+	if !ok {
+		return
+	}
+	revision, found, err := documentRevisionRepositoryStore.Find(
+		request.Context(), document.ID, scope.revisionVersion)
+	if err != nil {
+		slog.ErrorContext(request.Context(), "load document revision failed",
+			"document_id", document.ID, "version", scope.revisionVersion, "error", err)
+		writeAPIError(writer, request, http.StatusInternalServerError, "repository_error", "版本历史服务暂时不可用")
+		return
+	}
+	if !found {
+		writeAPIError(writer, request, http.StatusNotFound, "revision_not_found", "该历史版本不存在")
+		return
+	}
+	// 只还原正文。标题、slug 和目录位置留给作者自己决定，
+	// 避免回滚正文时把已经分享出去的阅读链接一起改回旧值。
+	restored, err := projectDocumentRepositoryStore.UpdateMarkdown(
+		request.Context(), scope.project.ID, document.ID, revision.Markdown, time.Now().UTC())
+	if err != nil {
+		writeDocumentError(writer, request, err)
+		return
+	}
+	syncDocumentIndex(scope.project, restored)
+	user, _ := currentUser(request)
+	restoredFrom := revision.Version
+	restored = syncDocumentRevision(
+		request.Context(), restored, user.ID, revisionSourceRestore, &restoredFrom)
+	writeJSON(writer, http.StatusOK, projectDocumentResponse{
+		Data: restored, RequestID: requestIDFromContext(request.Context()),
+	})
 }
 
 // documentsToRemoveFromIndex 收集目标文档及其全部后代的 ID。

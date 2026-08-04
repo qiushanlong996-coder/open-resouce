@@ -29,15 +29,20 @@ type documentBlock struct {
 }
 
 type documentDetail struct {
-	ID        string                `json:"id"`
-	ProjectID string                `json:"project_id"`
-	Slug      string                `json:"slug"`
-	Title     string                `json:"title"`
-	Version   string                `json:"version"`
-	UpdatedAt string                `json:"updated_at"`
-	Markdown  string                `json:"markdown"`
-	Outline   []documentOutlineItem `json:"outline"`
-	Blocks    []documentBlock       `json:"blocks"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Slug      string `json:"slug"`
+	Title     string `json:"title"`
+	// Version 是项目版本号（如 1.2.0），与文章自身的修订号无关。
+	Version string `json:"version"`
+	// Revision 是这篇文章的修订号，从 1 开始，作者每次实质性改动都会推进。
+	Revision int `json:"revision"`
+	// UpdatedByName 是最后一次改动正文的作者昵称，取不到时为空。
+	UpdatedByName string                `json:"updated_by_name,omitempty"`
+	UpdatedAt     string                `json:"updated_at"`
+	Markdown      string                `json:"markdown"`
+	Outline       []documentOutlineItem `json:"outline"`
+	Blocks        []documentBlock       `json:"blocks"`
 }
 
 type documentListResponse struct {
@@ -115,7 +120,9 @@ func (repository managedDocumentRepository) Get(
 		}
 		for _, document := range stored {
 			if document.Slug == target {
-				return documentDetailFrom(document, project.CurrentVersion), true, true, nil
+				detail := documentDetailFrom(document, project.CurrentVersion)
+				detail.UpdatedByName = resolveDocumentEditorName(ctx, document.UpdatedBy)
+				return detail, true, true, nil
 			}
 		}
 		return documentDetail{}, true, false, nil
@@ -125,6 +132,19 @@ func (repository managedDocumentRepository) Get(
 		return document, true, true, nil
 	}
 	return documentDetail{}, true, false, nil
+}
+
+// resolveDocumentEditorName 取最后更新人的昵称。
+// 这只是阅读页的展示信息：查不到就返回空串，不让它拖垮文档加载。
+func resolveDocumentEditorName(ctx context.Context, userID string) string {
+	if userID == "" || authRepositoryStore == nil {
+		return ""
+	}
+	users, err := authRepositoryStore.UsersByIDs(ctx, []string{userID})
+	if err != nil {
+		return ""
+	}
+	return users[userID].DisplayName
 }
 
 func (repository managedDocumentRepository) publishedProject(

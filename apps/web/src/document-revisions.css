@@ -1,0 +1,281 @@
+/* 文章历史版本面板：左侧版本列表 + 右侧逐行对比。 */
+
+.revision-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 100%);
+  max-height: min(86vh, 860px);
+  padding: 26px 28px 22px;
+  color: var(--ink);
+  background: var(--surface, #fff);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel, 18px);
+  box-shadow: 0 25px 80px rgba(0, 0, 0, .22);
+}
+
+.revision-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 6px;
+  font-size: 20px;
+}
+
+.revision-head p {
+  margin: 0 0 16px;
+  max-width: 62ch;
+  color: var(--text-tertiary, #77777d);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.revision-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  min-height: 0;
+  flex: 1;
+}
+
+.revision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.revision-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+}
+
+.revision-row:hover {
+  background: var(--surface-muted, rgba(0, 0, 0, .03));
+}
+
+.revision-row.is-active {
+  border-color: var(--ink);
+  background: var(--surface-muted, rgba(0, 0, 0, .05));
+}
+
+.revision-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.revision-source {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #55555c);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.revision-source.is-restore {
+  color: var(--blue, #2563eb);
+  border-color: currentColor;
+}
+
+.revision-current-tag {
+  margin-left: auto;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--surface, #fff);
+  background: var(--ink);
+  border-radius: 999px;
+}
+
+.revision-row-meta,
+.revision-row-size {
+  color: var(--text-tertiary, #77777d);
+  font-size: 11.5px;
+}
+
+.revision-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.revision-detail-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.revision-mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+}
+
+.revision-mode-switch button {
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--text-secondary, #55555c);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+
+.revision-mode-switch button.active {
+  color: var(--ink);
+  background: var(--surface-muted, rgba(0, 0, 0, .06));
+}
+
+.revision-diff-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.revision-diff-stat .stat-added {
+  color: #15803d;
+}
+
+.revision-diff-stat .stat-removed {
+  color: #b91c1c;
+}
+
+.revision-diff-stat .stat-note {
+  color: var(--text-tertiary, #77777d);
+}
+
+.revision-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--surface, #fff);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-control, 10px);
+}
+
+.revision-restore:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.revision-empty {
+  margin: 0;
+  padding: 18px 4px;
+  color: var(--text-tertiary, #77777d);
+  font-size: 13px;
+}
+
+.revision-source,
+.revision-diff {
+  min-height: 0;
+}
+
+pre.revision-source {
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: inherit;
+  background: var(--surface-muted, rgba(0, 0, 0, .03));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+}
+
+.revision-diff {
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.65;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 44px 44px 18px minmax(0, 1fr);
+  align-items: start;
+}
+
+.diff-line-number {
+  padding: 0 6px;
+  text-align: right;
+  color: var(--text-tertiary, #9a9aa2);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.diff-sign {
+  text-align: center;
+  user-select: none;
+}
+
+.diff-text {
+  padding: 0 10px 0 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+/* 增删用底色和左侧色条双重标记，不只靠颜色区分。 */
+.diff-row.is-added {
+  background: rgba(22, 163, 74, .1);
+  box-shadow: inset 3px 0 0 #15803d;
+}
+
+.diff-row.is-removed {
+  background: rgba(185, 28, 28, .1);
+  box-shadow: inset 3px 0 0 #b91c1c;
+}
+
+.diff-gap {
+  padding: 4px 12px;
+  color: var(--text-tertiary, #77777d);
+  font-size: 11.5px;
+  background: var(--surface-muted, rgba(0, 0, 0, .03));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 860px) {
+  .revision-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .revision-list {
+    max-height: 180px;
+  }
+
+  .diff-row {
+    grid-template-columns: 34px 18px minmax(0, 1fr);
+  }
+
+  /* 窄屏只保留新版行号，避免两列行号挤掉正文。 */
+  .diff-line-number:first-child {
+    display: none;
+  }
+}

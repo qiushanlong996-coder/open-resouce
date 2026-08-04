@@ -227,7 +227,12 @@ export type DocumentDetail = {
   project_id: string
   slug: string
   title: string
+  // version 是项目版本号（如 1.2.0），与文章自身的修订号无关。
   version: string
+  // revision 是这篇文章的修订号，从 1 开始；项目正文兜底文档为 0。
+  revision?: number
+  // updated_by_name 是最后一次改动正文的作者昵称，取不到时缺失。
+  updated_by_name?: string
   updated_at: string
   markdown: string
   outline: DocumentOutlineItem[]
@@ -287,9 +292,59 @@ export type ProjectDocument = {
   title: string
   markdown: string
   sort_order: number
+  // version 是文章修订号，从 1 开始，每次实质性改动都会推进。
+  version: number
+  updated_by?: string
   created_by?: string
   created_at: string
   updated_at: string
+}
+
+// DocumentRevisionSource 说明这个版本是怎么产生的。
+export type DocumentRevisionSource = 'create' | 'edit' | 'restore'
+
+// DocumentRevisionSummary 是历史列表项，不含正文，只带体量与作者信息。
+export type DocumentRevisionSummary = {
+  id: string
+  version: number
+  title: string
+  slug: string
+  source: DocumentRevisionSource
+  restored_from?: number
+  author_id?: string
+  author_name?: string
+  author_avatar?: string
+  char_count: number
+  created_at: string
+  updated_at: string
+  current: boolean
+}
+
+export type DocumentRevision = {
+  id: string
+  document_id: string
+  project_id: string
+  version: number
+  title: string
+  slug: string
+  markdown?: string
+  author_id?: string
+  source: DocumentRevisionSource
+  char_count?: number
+  restored_from?: number
+  created_at: string
+  updated_at: string
+}
+
+export type DocumentRevisionListResponse = {
+  data: DocumentRevisionSummary[]
+  current_version: number
+  request_id: string
+}
+
+export type DocumentRevisionResponse = {
+  data: DocumentRevision
+  request_id: string
 }
 
 export type ProjectDocumentInput = {
@@ -787,6 +842,32 @@ export function moveAuthorProjectDocument(
   return apiRequest<ProjectDocumentResponse>(
     `${authorDocumentsPath(projectID)}/${encodeURIComponent(documentID)}/move`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(move) },
+  )
+}
+
+// 文章历史版本。编辑器每 1.2s 自动保存一次，服务端把同一作者 5 分钟内的
+// 连续编辑合并成一个版本，所以列表里的每一条都是有意义的还原点。
+function authorRevisionsPath(projectID: string, documentID: string) {
+  return `${authorDocumentsPath(projectID)}/${encodeURIComponent(documentID)}/revisions`
+}
+
+export function getAuthorDocumentRevisions(projectID: string, documentID: string, signal?: AbortSignal) {
+  return apiRequest<DocumentRevisionListResponse>(authorRevisionsPath(projectID, documentID), { signal })
+}
+
+export function getAuthorDocumentRevision(
+  projectID: string, documentID: string, version: number, signal?: AbortSignal,
+) {
+  return apiRequest<DocumentRevisionResponse>(
+    `${authorRevisionsPath(projectID, documentID)}/${version}`, { signal },
+  )
+}
+
+// restoreAuthorDocumentRevision 只还原正文，不改标题、slug 与目录位置；
+// 还原内容会作为新版本追加，因此回滚之后还能再回滚回去。
+export function restoreAuthorDocumentRevision(projectID: string, documentID: string, version: number) {
+  return apiRequest<ProjectDocumentResponse>(
+    `${authorRevisionsPath(projectID, documentID)}/${version}/restore`, { method: 'POST' },
   )
 }
 

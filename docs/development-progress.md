@@ -2496,3 +2496,45 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - OpenAPI 同步新增头像接口、请求模型及 `avatar` / `author_avatar` 响应字段。
 - 验证：TypeScript + Vite 生产构建通过；Gateway 全量原有测试通过，新头像的持久化/恢复、越权与非图片校验、评论头像透传测试在 Linux 服务器通过；本地浏览器完成桌面、390px 移动端、登录弹窗、头像弹窗和管理控制台视觉回归，新页面控制台无错误。
 - 生产数据库迁移已应用；Gateway 与 Nginx 均为 `active`，`/readyz` 200，公网首页 200，匿名访问头像写接口返回 401。前端发布目录：`/var/www/open-resouce/releases/20260803-buttons-avatar-v10`，主资源：`assets/index-BCysSXEo.js`。
+
+## 2026-08-04：顶栏浮层互斥修复 + 文章版本历史
+
+### 顶栏浮层修复（问题反馈）
+
+- 问题：首页点击通知、主题、账号菜单会弹出面板但不会关闭，多点几个就叠在一起；点击页面其他地方也不收起。
+- 原因：`themePanelOpen` / `notificationPanelOpen` / `accountPanelOpen` / `mobileMenuOpen` 是四个独立布尔，互不知情，且完全没有点击外部关闭的逻辑。
+- 修复：改为单一 `headerPopover` 状态（`'theme' | 'notification' | 'account' | 'mobileMenu' | null`），四个开关由它派生，互斥由数据结构保证而不是靠调用方记得清理。
+- 新增 `pointerdown` 与 `Esc` 监听：点击顶栏之外任意位置或按 Esc 收起当前浮层；面板本身在顶栏内，所以面板内操作不会误关。
+- 顶栏内那些不属于浮层的入口（品牌、全站搜索按钮与搜索框、管理台）也显式收起浮层，避免"点了别的东西面板还开着"。
+
+### 文章版本历史（自定需求）
+
+围绕编辑 / 发布 / 浏览文章补齐 `docs/requirements.md` 14.2 已列出但一直缺失的「版本号」「更新人」。
+原先编辑器每 1.2s 直接把正文写进线上文档，误删一段话没有任何找回手段，协作者互相覆盖也无迹可查。
+
+- 迁移 `000023`：新增 `project_document_revisions` 表；`project_documents` 增加 `version`、`updated_by` 两个反范式字段（阅读页免联表），存量文档回填为 v1 + 创建人。
+- **合并窗口**：同一作者 5 分钟内的连续自动保存原地更新最新那条版本，只有换人编辑、超出窗口或回滚才递增版本号。否则自动保存会把历史刷爆，作者反而找不到还原点。
+- **回滚不删历史**：还原内容作为新版本追加在顶端（`source=restore` + `restored_from`），所以回滚之后还能再回滚回去。回滚只改正文，不动标题 / slug / 目录位置，避免把已分享出去的阅读链接改回旧值。
+- 单篇保留最新 50 个版本，超出丢弃最旧的。历史列表不回传正文，只回传字符数。
+- 协作编辑（WebSocket snapshot）是文档正文的主要写入路径，同样记录版本，否则多人协作会完全绕过历史。
+- 新接口（作者或 editor 协作者权限）：
+  - `GET /api/v1/author/projects/{projectID}/documents/{documentID}/revisions`
+  - `GET .../revisions/{version}`
+  - `POST .../revisions/{version}/restore`
+- 阅读页：文章工具栏展示「修订 vN · 最后由 X 更新」，让读者知道文章新旧；`DocumentDetail` 新增 `revision`、`updated_by_name`。
+- 编辑器：工具栏新增「历史版本 · vN」入口，打开面板可选版本、查看该版本原文、与编辑器当前正文（含未保存改动）逐行对比、一键回滚。对比用 LCS 行级 diff，折叠大段未改动内容，超 2000 行退化为整块替换以免卡住主线程。
+- 历史记录失败不阻断保存：正文已落库，作者不该因为历史服务抖动看到保存失败，只记日志。
+
+### 验证
+
+- `gofmt`、`go vet`、`go test ./...` 全量通过（新增 7 项版本历史测试：自动保存合并、超窗口拆分、换人拆分、修剪上限、回滚追加与只改正文、非法版本号 404、匿名 401、阅读页透出修订号与更新人）。
+- OpenAPI 补齐 3 条路径与 4 个 schema，共 83 路径 92 schema，`$ref` 无悬空引用。
+- 前端 `oxlint` 零警告、`tsc -b` 通过、Vite 生产构建通过。
+- 新增 `npm run check:diff-lines`（沿用 `check:search-highlight` 的可执行脚本模式）：24 项 diff 断言全通过，覆盖插入 / 删除 / 修改 / 行号归属 / 空正文 / 超长退化 / 折叠上下文。
+- 路由自查发现并修掉一个缺陷：`/revisions/abc` 这类非法版本号原会静默退化成返回整个列表，现在明确 404。
+
+### 注意事项 · 部署
+
+- **含迁移 `000023`，上线要走完整流程**（先应用迁移再换二进制，否则 `SELECT ... version, updated_by` 会报未知列）。
+- 迁移里的 `UPDATE project_documents SET version = 1, updated_by = created_by` 会全表扫描，文档量大时安排在低峰执行。
+- **未部署、未做真人浏览器验证**：本环境沙箱会 kill 长驻进程，无法起真实 Gateway 与浏览器。顶栏浮层的点击外部关闭、版本面板与 diff 观感建议上线后手动确认。

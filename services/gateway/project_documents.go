@@ -34,13 +34,17 @@ const (
 )
 
 type projectDocument struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	ParentID  *string   `json:"parent_id"`
-	Slug      string    `json:"slug"`
-	Title     string    `json:"title"`
-	Markdown  string    `json:"markdown"`
-	SortOrder int       `json:"sort_order"`
+	ID        string  `json:"id"`
+	ProjectID string  `json:"project_id"`
+	ParentID  *string `json:"parent_id"`
+	Slug      string  `json:"slug"`
+	Title     string  `json:"title"`
+	Markdown  string  `json:"markdown"`
+	SortOrder int     `json:"sort_order"`
+	// Version 是当前正文对应的历史版本号，从 1 开始，回滚也会推进它。
+	Version int `json:"version"`
+	// UpdatedBy 是最后一次改动正文的用户 ID，空值表示历史数据尚未回填。
+	UpdatedBy string    `json:"updated_by,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -69,6 +73,9 @@ type projectDocumentRepository interface {
 	UpdateMarkdown(ctx context.Context, projectID, documentID, markdown string, now time.Time) (projectDocument, error)
 	Move(ctx context.Context, projectID, documentID string, move documentMove) (projectDocument, error)
 	Delete(ctx context.Context, projectID, documentID string, now time.Time) error
+	// ApplyRevisionMeta 把历史版本号与最后更新人冗余写回文档，供阅读页免联表展示。
+	// 这是反范式缓存：写失败不影响历史记录本身，下一次保存会重新写正确的值。
+	ApplyRevisionMeta(ctx context.Context, projectID, documentID string, version int, updatedBy string) error
 }
 
 // normalizeDocumentInput 统一裁剪空白并小写 slug。
@@ -141,6 +148,7 @@ func documentDetailFrom(document projectDocument, version string) documentDetail
 		Slug:      document.Slug,
 		Title:     document.Title,
 		Version:   version,
+		Revision:  document.Version,
 		UpdatedAt: document.UpdatedAt.UTC().Format(time.RFC3339),
 		Markdown:  document.Markdown,
 		Outline:   parsed.Outline,
@@ -239,7 +247,8 @@ func (repository *memoryProjectDocumentRepository) Create(
 	document := projectDocument{
 		ID: "document-" + newRequestID(), ProjectID: projectID, ParentID: input.ParentID,
 		Slug: input.Slug, Title: input.Title, Markdown: input.Markdown,
-		SortOrder: count, CreatedBy: authorID, CreatedAt: now, UpdatedAt: now,
+		SortOrder: count, Version: 1, UpdatedBy: authorID,
+		CreatedBy: authorID, CreatedAt: now, UpdatedAt: now,
 	}
 	repository.documents[document.ID] = document
 	return document, nil
@@ -340,6 +349,20 @@ func (repository *memoryProjectDocumentRepository) Delete(
 	return nil
 }
 
+func (repository *memoryProjectDocumentRepository) ApplyRevisionMeta(
+	_ context.Context, projectID, documentID string, version int, updatedBy string,
+) error {
+	repository.Lock()
+	defer repository.Unlock()
+	document, found := repository.documents[documentID]
+	if !found || document.ProjectID != projectID {
+		return errDocumentNotFound
+	}
+	document.Version, document.UpdatedBy = version, updatedBy
+	repository.documents[documentID] = document
+	return nil
+}
+
 // validateParentLocked 校验父级属于同一项目、不指向自身、不形成环且不超过深度上限。
 func (repository *memoryProjectDocumentRepository) validateParentLocked(
 	projectID, documentID string, parentID *string,
@@ -379,17 +402,19 @@ func newMySQLProjectDocumentRepository(db *sql.DB) *mysqlProjectDocumentReposito
 }
 
 const projectDocumentSelect = `SELECT id, project_id, parent_id, slug, title,
-	content_markdown, sort_order, created_by, created_at, updated_at
+	content_markdown, sort_order, version, updated_by, created_by, created_at, updated_at
 	FROM project_documents`
 
 func scanProjectDocument(scanner rowScanner) (projectDocument, error) {
 	var document projectDocument
+	var updatedBy sql.NullString
 	err := scanner.Scan(&document.ID, &document.ProjectID, &document.ParentID, &document.Slug,
-		&document.Title, &document.Markdown, &document.SortOrder, &document.CreatedBy,
-		&document.CreatedAt, &document.UpdatedAt)
+		&document.Title, &document.Markdown, &document.SortOrder, &document.Version, &updatedBy,
+		&document.CreatedBy, &document.CreatedAt, &document.UpdatedAt)
 	if err != nil {
 		return document, fmt.Errorf("scan project document: %w", err)
 	}
+	document.UpdatedBy = updatedBy.String
 	return document, nil
 }
 
@@ -430,7 +455,7 @@ func (repository *mysqlProjectDocumentRepository) FindByAliasSlug(
 ) (projectDocument, bool, error) {
 	document, err := scanProjectDocument(repository.db.QueryRowContext(ctx,
 		`SELECT d.id, d.project_id, d.parent_id, d.slug, d.title, d.content_markdown,
-		 d.sort_order, d.created_by, d.created_at, d.updated_at
+		 d.sort_order, d.version, d.updated_by, d.created_by, d.created_at, d.updated_at
 		 FROM document_slug_aliases a
 		 JOIN project_documents d ON d.id = a.document_id
 		 WHERE a.project_id = ? AND a.slug = ? AND d.deleted_at IS NULL`,
@@ -475,9 +500,10 @@ func (repository *mysqlProjectDocumentRepository) Create(
 
 	documentID := "document-" + newRequestID()
 	_, err = transaction.ExecContext(ctx, `INSERT INTO project_documents
-		(id, project_id, parent_id, slug, title, content_markdown, sort_order, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		documentID, projectID, input.ParentID, input.Slug, input.Title, input.Markdown, count, authorID)
+		(id, project_id, parent_id, slug, title, content_markdown, sort_order, version, updated_by, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		documentID, projectID, input.ParentID, input.Slug, input.Title, input.Markdown, count,
+		authorID, authorID)
 	if isDuplicateDocumentSlug(err) {
 		return projectDocument{}, errDocumentSlugExists
 	}
@@ -670,6 +696,27 @@ func (repository *mysqlProjectDocumentRepository) Delete(
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit delete project document: %w", err)
+	}
+	return nil
+}
+
+func (repository *mysqlProjectDocumentRepository) ApplyRevisionMeta(
+	ctx context.Context, projectID, documentID string, version int, updatedBy string,
+) error {
+	var editor any
+	if updatedBy != "" {
+		editor = updatedBy
+	}
+	// 只改冗余字段，不碰 updated_at：版本号回填不应被当成一次内容更新。
+	//
+	// 这里刻意不检查受影响行数。合并窗口内的连续保存会写入完全相同的
+	// version 与 updated_by，MySQL 默认只统计真正发生变化的行，受影响行数
+	// 为 0 并不代表文档不存在。调用方只记录日志，因此不区分这两种情况。
+	if _, err := repository.db.ExecContext(ctx, `UPDATE project_documents
+		SET version = ?, updated_by = ?, updated_at = updated_at
+		WHERE id = ? AND project_id = ? AND deleted_at IS NULL`,
+		version, editor, documentID, projectID); err != nil {
+		return fmt.Errorf("apply document revision meta: %w", err)
 	}
 	return nil
 }

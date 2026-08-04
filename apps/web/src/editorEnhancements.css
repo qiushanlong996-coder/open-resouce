@@ -98,3 +98,28 @@
     display: none;
   }
 }
+
+/* 工具栏里的历史版本入口。面板本身按需加载，这个按钮常驻工具栏，
+   所以样式放在这里而不是 document-revisions.css。 */
+.editor-history-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary, #55555c);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 8px);
+}
+
+.editor-history-button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.editor-history-button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}

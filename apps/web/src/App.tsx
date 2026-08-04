@@ -19,6 +19,7 @@ import {
   Flag,
   GitBranch,
   Heart,
+  History,
   Home as HomeIcon,
   Link2,
   ThumbsUp,
@@ -156,6 +157,10 @@ const RichMarkdownEditor = lazy(() => import('./RichMarkdownEditor'))
 const CollaborativeMarkdownEditor = lazy(() => import('./CollaborativeMarkdownEditor'))
 const ProjectDocumentTree = lazy(() => import('./ProjectDocumentTree'))
 const DocumentSearchPanel = lazy(() => import('./DocumentSearchPanel'))
+const DocumentRevisionPanel = lazy(() => import('./DocumentRevisionPanel'))
+
+// 顶栏浮层是互斥的：同一时刻最多只有一个下拉面板可见，null 表示全部关闭。
+type HeaderPopover = 'theme' | 'notification' | 'account' | 'mobileMenu' | null
 
 type Project = {
   id: string
@@ -418,10 +423,10 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(() => new URLSearchParams(window.location.search).has('reset_token'))
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [accountPanelOpen, setAccountPanelOpen] = useState(false)
+  // 顶栏浮层同时只允许打开一个，避免主题、通知、账号面板互相叠加。
+  const [headerPopover, setHeaderPopover] = useState<HeaderPopover>(null)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
-  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false)
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [authorCenterOpen, setAuthorCenterOpen] = useState(false)
@@ -442,7 +447,6 @@ function App() {
   const [profileEditing, setProfileEditing] = useState(false)
   const [profileDisplayName, setProfileDisplayName] = useState('')
   const [profileSubmitting, setProfileSubmitting] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = window.localStorage.getItem('xinyuan-theme-mode')
     return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
@@ -453,7 +457,6 @@ function App() {
   })
   // 跟随系统模式时，需要知道当前系统偏好明暗，才能应用对应的一套主题变量。
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const [themePanelOpen, setThemePanelOpen] = useState(false)
   const [searchPanelOpen, setSearchPanelOpen] = useState(false)
   const [openDocsOpen, setOpenDocsOpen] = useState(false)
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
@@ -467,6 +470,34 @@ function App() {
   const documentRequestSequence = useRef(0)
   // 从通知跳转过来时，记录要定位的评论线程 ID，等评论加载后滚动高亮。
   const pendingCommentFocus = useRef<string | null>(null)
+  const headerRef = useRef<HTMLElement | null>(null)
+
+  const themePanelOpen = headerPopover === 'theme'
+  const notificationPanelOpen = headerPopover === 'notification'
+  const accountPanelOpen = headerPopover === 'account'
+  const mobileMenuOpen = headerPopover === 'mobileMenu'
+  const closeHeaderPopover = () => setHeaderPopover(null)
+  const toggleHeaderPopover = (panel: Exclude<HeaderPopover, null>) =>
+    setHeaderPopover((current) => (current === panel ? null : panel))
+
+  // 点击顶栏之外的任意位置，或按 Esc，都要收起当前浮层。
+  useEffect(() => {
+    if (!headerPopover) return
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && headerRef.current?.contains(target)) return
+      closeHeaderPopover()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeHeaderPopover()
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [headerPopover])
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
@@ -555,7 +586,7 @@ function App() {
     if (!currentUser) {
       setNotifications([])
       setUnreadNotificationCount(0)
-      setNotificationPanelOpen(false)
+      closeHeaderPopover()
       return
     }
     const controller = new AbortController()
@@ -724,8 +755,7 @@ function App() {
 
   const openAdminConsole = () => {
     setAdminConsoleOpen(true)
-    setAccountPanelOpen(false)
-    setMobileMenuOpen(false)
+    closeHeaderPopover()
     setAdminConsoleLocation(true)
   }
 
@@ -777,7 +807,7 @@ function App() {
   }
 
   const openNotification = async (entry: AppNotification) => {
-    setNotificationPanelOpen(false)
+    closeHeaderPopover()
     navigateToNotification(entry)
     if (entry.read_at) return
     try {
@@ -1177,7 +1207,7 @@ function App() {
       setAuthSessions([])
       setSaved([])
       setFollowed([])
-      setAccountPanelOpen(false)
+      closeHeaderPopover()
       showToast(allDevices ? '所有设备已退出登录' : '已退出当前设备')
     } catch {
       showToast('退出失败，请稍后重试')
@@ -1194,7 +1224,7 @@ function App() {
       if (session.current) {
         setCurrentUser(null)
         setAuthSessions([])
-        setAccountPanelOpen(false)
+        closeHeaderPopover()
         showToast('已退出当前设备')
       } else {
         setAuthSessions((current) => current.filter((item) => item.id !== session.id))
@@ -1242,8 +1272,8 @@ function App() {
 
   return (
     <div className="app-shell" data-theme-mode={themeMode} data-skin={skin}>
-      <header className="site-header">
-        <button className="brand" onClick={closeProject} aria-label="返回首页">
+      <header className="site-header" ref={headerRef}>
+        <button className="brand" onClick={() => { closeProject(); closeHeaderPopover() }} aria-label="返回首页">
           <BrandMark className="brand-mark-svg" size={32} title="新猿译码" />
           <span>
             <strong>新猿译码</strong>
@@ -1253,7 +1283,7 @@ function App() {
 
         <nav className={`main-nav ${mobileMenuOpen ? 'is-open' : ''}`}>
           {['探索', '趋势', '最新更新', '社区'].map((item) => (
-            <button key={item} className={activeTab === item ? 'active' : ''} onClick={() => { setActiveTab(item); closeProject(); setMobileMenuOpen(false) }}>
+            <button key={item} className={activeTab === item ? 'active' : ''} onClick={() => { setActiveTab(item); closeProject(); closeHeaderPopover() }}>
               {item}
             </button>
           ))}
@@ -1262,20 +1292,20 @@ function App() {
         <div className="header-actions">
           <label className="global-search">
             <Search size={16} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索项目、文档或技术栈" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} onFocus={closeHeaderPopover} placeholder="搜索项目、文档或技术栈" />
             <kbd>⌘ K</kbd>
           </label>
           <div className="theme-control">
-            <button className="icon-button quiet" title="切换主题" aria-label="切换主题" aria-expanded={themePanelOpen} onClick={() => setThemePanelOpen((open) => !open)}>
+            <button className="icon-button quiet" title="切换主题" aria-label="切换主题" aria-expanded={themePanelOpen} onClick={() => toggleHeaderPopover('theme')}>
               {themeMode === 'dark' ? <Moon size={18} /> : themeMode === 'light' ? <Sun size={18} /> : <MonitorCog size={18} />}
             </button>
-            {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); setThemePanelOpen(false) }} onSkinChange={setSkin} />}
+            {themePanelOpen && <ThemePanel themeMode={themeMode} skin={skin} onModeChange={(mode) => { setThemeMode(mode); closeHeaderPopover() }} onSkinChange={setSkin} />}
           </div>
           <button
             className="icon-button quiet"
             title="搜索全站文档"
             aria-label="搜索全站文档"
-            onClick={() => setSearchPanelOpen(true)}
+            onClick={() => { setSearchPanelOpen(true); closeHeaderPopover() }}
           >
             <Search size={17} />
           </button>
@@ -1291,7 +1321,7 @@ function App() {
                   showToast('登录后可查看通知')
                   return
                 }
-                setNotificationPanelOpen((open) => !open)
+                toggleHeaderPopover('notification')
               }}
             >
               <Bell size={18} />
@@ -1347,7 +1377,7 @@ function App() {
               className="login-button"
               title={currentUser ? '打开账号菜单' : '登录或注册'}
               aria-expanded={currentUser ? accountPanelOpen : undefined}
-              onClick={() => currentUser ? setAccountPanelOpen((open) => !open) : setLoginOpen(true)}
+              onClick={() => currentUser ? toggleHeaderPopover('account') : setLoginOpen(true)}
             >
               <CircleUserRound size={16} /> <span>{currentUser?.display_name ?? '登录'}</span>
             </button>
@@ -1359,7 +1389,7 @@ function App() {
                     className="account-avatar-edit"
                     title="更换头像与头像框"
                     aria-label="更换头像与头像框"
-                    onClick={() => { setAvatarFramePickerOpen(true); setAccountPanelOpen(false) }}
+                    onClick={() => { setAvatarFramePickerOpen(true); closeHeaderPopover() }}
                   >
                     <LevelAvatar level={currentUser.level} initials={currentUser.display_name.slice(0, 1)} size="lg" name={currentUser.display_name} avatar={currentUser.avatar} frame={currentUser.avatar_frame} />
                     <span><Pencil size={11} /> 更换</span>
@@ -1436,16 +1466,16 @@ function App() {
                 ) : (
                   <small className="oauth-account-note">GitHub 登录账号无需站内密码</small>
                 )}
-                <button onClick={() => { setAvatarFramePickerOpen(true); setAccountPanelOpen(false) }}>
+                <button onClick={() => { setAvatarFramePickerOpen(true); closeHeaderPopover() }}>
                   更换头像与头像框
                 </button>
-                <button onClick={() => { setActiveTab('我的收藏'); closeProject(); setAccountPanelOpen(false) }}>
+                <button onClick={() => { setActiveTab('我的收藏'); closeProject(); closeHeaderPopover() }}>
                   查看我的收藏
                 </button>
-                <button onClick={() => { setAuthorCenterOpen(true); setAccountPanelOpen(false) }}>
+                <button onClick={() => { setAuthorCenterOpen(true); closeHeaderPopover() }}>
                   作者项目中心
                 </button>
-                <button onClick={() => { setAccessKeyOpen(true); setAccountPanelOpen(false) }}>
+                <button onClick={() => { setAccessKeyOpen(true); closeHeaderPopover() }}>
                   AccessKey 管理
                 </button>
                 {currentUser.is_admin && <button onClick={openAdminConsole}>
@@ -1456,7 +1486,7 @@ function App() {
               </div>
             )}
           </div>
-          <button className="icon-button mobile-only" title="打开菜单" aria-label="打开菜单" onClick={() => setMobileMenuOpen((open) => !open)}><Menu size={19} /></button>
+          <button className="icon-button mobile-only" title="打开菜单" aria-label="打开菜单" onClick={() => toggleHeaderPopover('mobileMenu')}><Menu size={19} /></button>
         </div>
       </header>
 
@@ -2087,7 +2117,7 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
       {activeDocument && <ReadingProgressBar progress={scrollMetrics.progress} />}
       <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={`${item.level > 1 ? 'indent' : ''} ${item.id === activeHeadingId ? 'is-current' : ''}`.trim()} aria-current={item.id === activeHeadingId ? 'location' : undefined} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
-        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span><div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}{activeDocument && <ReaderSettingsControl controller={readerPrefs} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
+        <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span>{activeDocument && activeDocument.revision ? <span className="article-revision-meta" title={`这篇文章的第 ${activeDocument.revision} 个修订版本`}><History size={12} /> 修订 v{activeDocument.revision}{activeDocument.updated_by_name ? ` · 最后由 ${activeDocument.updated_by_name} 更新` : ''}</span> : null}<div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}{activeDocument && <ReaderSettingsControl controller={readerPrefs} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
         {documentState === 'offline' && <div className="document-sync-state offline"><span className="gateway-state-dot" />文档服务暂时不可用，请稍后重试。</div>}
         <div className="article-content reader-surface" ref={articleContentRef} style={readerPrefs.style}>
           {activeDocument ? (
@@ -2838,6 +2868,8 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   // 保存成功后递增，通知文档树重拉数据。
   const [documentTreeToken, setDocumentTreeToken] = useState(0)
   const [authorToast, setAuthorToast] = useState('')
+  // 历史版本面板只在编辑具体文档时可用，项目正文没有独立的修订历史。
+  const [revisionPanelOpen, setRevisionPanelOpen] = useState(false)
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const editorPageRef = useRef<HTMLFormElement | null>(null)
   const richEditorRef = useRef<RichMarkdownEditorHandle | null>(null)
@@ -3289,6 +3321,15 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
               <span className={`editor-save-badge is-${saveBadge.key}`} role="status" aria-live="polite">
                 <span className="editor-save-dot" aria-hidden="true" />{saveBadge.label}
               </span>
+              <button
+                type="button"
+                className="editor-history-button"
+                disabled={!activeDocument}
+                title={activeDocument ? '查看历史版本并回滚' : '选择一篇文档后可查看历史版本'}
+                onClick={() => setRevisionPanelOpen(true)}
+              >
+                <History size={13} /> 历史版本{activeDocument ? ` · v${activeDocument.version}` : ''}
+              </button>
             </div>
           </div>
           <div className={`markdown-workspace mode-${editorMode}`}>
@@ -3321,6 +3362,27 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
         </form>
       </div>
     </section>
+    {revisionPanelOpen && activeDocument && activeProject && (
+      <Suspense fallback={null}>
+        <DocumentRevisionPanel
+          projectID={activeProject.id}
+          document={activeDocument}
+          currentMarkdown={documentDraft}
+          onClose={() => setRevisionPanelOpen(false)}
+          onRestored={(restored) => {
+            // 回滚后端已落库，这里把编辑器草稿一起换成回滚结果，
+            // 否则自动保存会立刻用旧草稿把回滚覆盖回去。
+            loadedDocumentID.current = restored.id
+            setActiveDocument(restored)
+            setDocumentDraft(restored.markdown)
+            setDocumentSaveState('saved')
+            setSavedAt(Date.now())
+            setDocumentTreeToken((current) => current + 1)
+          }}
+          onNotify={showAuthorToast}
+        />
+      </Suspense>
+    )}
   </div>
 }
 

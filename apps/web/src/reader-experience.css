@@ -277,3 +277,12 @@
     transition: none;
   }
 }
+
+/* 文章工具栏里的修订号徽标：告诉读者这篇文章改到第几版、最后是谁更新的。 */
+.article-toolbar .article-revision-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary, #77777d);
+  font-size: 12px;
+}

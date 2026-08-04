@@ -221,6 +221,7 @@ func main() {
 		collaborationRepositoryStore = newMySQLCollaborationRepository(database)
 		notificationRepositoryStore = newMySQLNotificationRepository(database)
 		projectDocumentRepositoryStore = newMySQLProjectDocumentRepository(database)
+		documentRevisionRepositoryStore = newMySQLDocumentRevisionRepository(database)
 		commentLikeRepositoryStore = newMySQLCommentLikeRepository(database)
 		projectMetricsRepositoryStore = newMySQLProjectMetricsRepository(database)
 		banRepositoryStore = newMySQLBanRepository(database)
