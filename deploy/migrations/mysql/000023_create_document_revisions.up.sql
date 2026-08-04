@@ -41,3 +41,21 @@ ALTER TABLE project_documents
 
 -- 存量文档没有历史记录，统一视为 v1，最后更新人回填为创建人。
 UPDATE project_documents SET version = 1, updated_by = created_by;
+
+-- 给存量文档补一条 v1 基线快照。
+--
+-- 不补的话，上线后第一次编辑记录到的是「改完之后」的内容，
+-- 改动前的正文永远拿不回来——存量文章等于白白少一个还原点。
+--
+-- source 必须是 create 而不是 edit：合并窗口只会原地更新 source=edit 的版本，
+-- 写成 edit 会让作者上线后的第一次编辑直接把这条基线覆盖掉。
+INSERT INTO project_document_revisions
+    (id, document_id, project_id, version, slug, title, content_markdown,
+     author_id, source, created_at, updated_at)
+SELECT CONCAT('revision-seed-', d.id), d.id, d.project_id, 1, d.slug, d.title,
+       d.content_markdown, d.created_by, 'create', d.created_at, d.updated_at
+FROM project_documents d
+WHERE d.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM project_document_revisions r WHERE r.document_id = d.id
+  );

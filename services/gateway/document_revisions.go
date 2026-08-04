@@ -406,17 +406,10 @@ func (repository *mysqlDocumentRevisionRepository) Amend(
 	if err != nil {
 		return documentRevision{}, fmt.Errorf("amend document revision: %w", err)
 	}
+	// 连接串带 clientFoundRows=true，受影响行数是匹配行数，
+	// 所以正文没变也不会被误判成记录不存在。
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		// 受影响行数为 0 也可能是内容完全没变，先确认记录是否还在。
-		var exists int
-		err := repository.db.QueryRowContext(ctx,
-			`SELECT 1 FROM project_document_revisions WHERE id = ?`, revisionID).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
-			return documentRevision{}, errRevisionNotFound
-		}
-		if err != nil {
-			return documentRevision{}, fmt.Errorf("confirm document revision: %w", err)
-		}
+		return documentRevision{}, errRevisionNotFound
 	}
 	revision, err := scanDocumentRevisionWithMarkdown(repository.db.QueryRowContext(ctx,
 		`SELECT `+documentRevisionColumns+`, content_markdown FROM project_document_revisions

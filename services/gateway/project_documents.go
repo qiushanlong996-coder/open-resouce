@@ -709,14 +709,18 @@ func (repository *mysqlProjectDocumentRepository) ApplyRevisionMeta(
 	}
 	// 只改冗余字段，不碰 updated_at：版本号回填不应被当成一次内容更新。
 	//
-	// 这里刻意不检查受影响行数。合并窗口内的连续保存会写入完全相同的
-	// version 与 updated_by，MySQL 默认只统计真正发生变化的行，受影响行数
-	// 为 0 并不代表文档不存在。调用方只记录日志，因此不区分这两种情况。
-	if _, err := repository.db.ExecContext(ctx, `UPDATE project_documents
+	// 受影响行数可以直接当"匹配到了没有"用：连接串固定带 clientFoundRows=true
+	// （见 mysqlDSN），因此返回的是匹配行数而不是真正变化的行数。
+	// 合并窗口内的连续保存会写入完全相同的值，若按变化行数统计就会误判为不存在。
+	result, err := repository.db.ExecContext(ctx, `UPDATE project_documents
 		SET version = ?, updated_by = ?, updated_at = updated_at
 		WHERE id = ? AND project_id = ? AND deleted_at IS NULL`,
-		version, editor, documentID, projectID); err != nil {
+		version, editor, documentID, projectID)
+	if err != nil {
 		return fmt.Errorf("apply document revision meta: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return errDocumentNotFound
 	}
 	return nil
 }

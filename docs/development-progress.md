@@ -2533,8 +2533,65 @@ UI 5 项通过：文档隔离在 UI 层生效（文档乙 `hasDocAContent: false
 - 新增 `npm run check:diff-lines`（沿用 `check:search-highlight` 的可执行脚本模式）：24 项 diff 断言全通过，覆盖插入 / 删除 / 修改 / 行号归属 / 空正文 / 超长退化 / 折叠上下文。
 - 路由自查发现并修掉一个缺陷：`/revisions/abc` 这类非法版本号原会静默退化成返回整个列表，现在明确 404。
 
-### 注意事项 · 部署
+### 存量文档的 v1 基线（部署时补上的设计缺口）
 
-- **含迁移 `000023`，上线要走完整流程**（先应用迁移再换二进制，否则 `SELECT ... version, updated_by` 会报未知列）。
-- 迁移里的 `UPDATE project_documents SET version = 1, updated_by = created_by` 会全表扫描，文档量大时安排在低峰执行。
-- **未部署、未做真人浏览器验证**：本环境沙箱会 kill 长驻进程，无法起真实 Gateway 与浏览器。顶栏浮层的点击外部关闭、版本面板与 diff 观感建议上线后手动确认。
+生产冒烟时发现：存量文档没有任何历史记录，上线后**第一次编辑记录到的是"改完之后"的内容**，
+改动前的正文永远拿不回来——等于存量文章白白少一个还原点。
+因此迁移 `000023` 追加了一段基线回填：给每篇未删除文档补一条 v1 快照（正文取当前内容）。
+
+`source` 必须是 `create` 而不是 `edit`：合并窗口只原地更新 `source=edit` 的版本，
+写成 `edit` 会让作者上线后的第一次编辑直接把这条基线覆盖掉。回填语句幂等，已重跑验证。
+
+## 2026-08-04：文章版本历史 上线
+
+### 部署顺序
+
+1. 中间件服务器（`www.lovenuaa.xyz`）用 root 应用迁移 `000023`：建 `project_document_revisions`、
+   给 `project_documents` 加 `version` / `updated_by`、回填 v1 与 v1 基线快照。**生产库与测试库都做**。
+2. 应用服务器（`103.236.98.166`）跑全量测试二进制（真实 MySQL + Redis）作为放行闸门。
+3. 换 Gateway 二进制并重启，再发前端。迁移必须先行，否则新的
+   `SELECT ... version, updated_by` 会报未知列。
+
+### 顺带修掉的两笔历史欠账
+
+- **测试库 schema 落后**：迁移 `000022`（`users.avatar`）上一轮只应用到生产库，测试库漏了，
+  导致 `TestMySQLAuthRepositoryIntegration` / `TestMySQLExperienceIntegration` 报
+  `Unknown column 'avatar'` 假失败。已补齐，并加了一次生产/测试库列级差异全量比对，当前差异为 0。
+- **MySQL 版本历史仓库原先只被编译检查、没被执行过**：新增
+  `document_revisions_mysql_test.go` 真库集成测试，覆盖 `CHAR_LENGTH` 按字符计（不是字节）、
+  修剪的 `LIMIT 1 OFFSET n` 边界、`restored_from` 的 NULL 处理、唯一键、
+  以及回填版本号不改 `updated_at`。在 MySQL 5.7.39 上通过。
+- 顺带纠正一处注释错误：连接串固定带 `clientFoundRows=true`，
+  `RowsAffected` 返回的是匹配行数而不是变化行数，因此"值没变会被误判成记录不存在"的顾虑不成立，
+  `ApplyRevisionMeta` 恢复了正常的 not-found 判定，`Amend` 里多余的兜底查询也删掉了。
+
+### 生产验证
+
+- 迁移前后 `project_documents` 行数不变（6 → 6），存量文档 `version` 全为 1、`updated_by` 无空值。
+- 全量测试二进制在应用服务器通过，**0 skip**，测试库无残留数据。
+- 内网 `healthz` / `readyz` = 200；Gateway 与 Nginx 均 `active`；启动日志无 error/panic。
+- 三个新接口匿名访问均 401；`/revisions/abc` 与 `/revisions/999` 均 404。
+- 公开阅读接口透出修订号：真实文档 `111/doc1` 返回 `revision:1`、
+  `updated_by_name:"archive"`；项目正文兜底文档返回 `revision:0`（前端据此隐藏徽标）。
+- 公网 8443 首页 200，已引用新资源 `assets/index-BXy_29Ch.js`，经 Nginx 的 `/api/v1` = 200。
+- 端到端（管理员自己的回归草稿 `search-draft-check`，跑完按原文还原、字节级比对一致）：
+  v1 基线 → 编辑推进 v2 且基线未被覆盖 → 读取 v1 拿到改动前原文 →
+  回滚找回误删内容并追加为 v3（`restored_from=1`，历史未删、可再回滚）→ 回滚未动 slug 与标题。
+- 前端发布目录 `20260804091752-revisions`，主资源 `assets/index-BXy_29Ch.js`，只保留最近 5 个发布。
+- 回滚点：`/opt/open-resouce/current/bin/gateway.previous`。
+
+### 部署踩坑记录
+
+- **本机 scp 连 CentOS 7 要加 `-O`**：新版 OpenSSH 默认走 SFTP，服务器只认旧 SCP 协议，
+  否则报 `dest open ... Failure`。
+- **中间件服务器 `/tmp` 报 `Structure needs cleaning`**（文件系统错误），无法写入。
+  本次改用 `/root` 绕过。**这台机器的 `/tmp` 需要检查文件系统，建议排查后 fsck**，属于遗留隐患。
+- **两台服务器都没有 `python` / `python3`**，远端脚本不能依赖它解析 JSON；本次改为回传原始 JSON 在本地断言。
+- **用 mysql 客户端回写中文必须带 `--default-character-set=utf8mb4`**。冒烟收尾时漏了这个参数，
+  把那篇草稿文档的中文正文写成了逐字 `?`。已按 `.codex-tools/search-regression.sh` 里的原文
+  经 API 回写并做字节级比对确认还原。**结论：涉及中文内容的回写一律走 API，不走 mysql 客户端。**
+
+### 仍未验证
+
+- **真人浏览器验证仍未做**（本地沙箱会 kill 长驻进程，无浏览器自动化）。
+  顶栏浮层的点击外部关闭 / Esc 收起、历史版本面板与逐行 diff 的观感，建议在浏览器里手动过一遍。
