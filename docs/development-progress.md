@@ -2779,3 +2779,60 @@ tour 字段   : order, title, description, nodeIds
 
 Phase 2+3（数据模型 / 配额 / Gateway 接口）→ Phase 4（worker）→ Phase 5（前端）。
 **尚未开始**：本次只做了可行性验证与分析机基础环境，主站代码一行未改。
+
+## 2026-08-05：ICP 备案通过，部署正式 TLS 证书并搬到标准 443
+
+备案通过，收到阿里云免费 DV 证书（DigiCert，SAN 覆盖 `openresource.cn` 与 `www.openresource.cn`）。
+
+### 已完成
+
+- 证书装到 `/etc/open-resouce/tls/openresource.cn.pem`（含中间证书，2 层链）与 `.key`（0600）。
+  部署前先本地校验：证书与私钥公钥指纹一致、SAN 覆盖两个域名。
+- Nginx 重写为四个 server 块：
+  `:80` 域名 → 301 到 `https://www.openresource.cn`；
+  `:443` 裸域 → 301 到 www（统一规范域名，证书覆盖两者所以跳转不告警）；
+  `:443`(default_server) + `:8443` → 主站。
+- **保留 8443 监听**：DNS 切过来之前它是唯一可用入口，运维与回归脚本也都指着它。
+- HSTS 只给 `max-age=86400`。HSTS 下发后很难撤回，站点刚上线，先短的，稳定后再调到一年。
+- 装了 `/etc/cron.weekly/openresource-cert-expiry`：剩余不足 21 天往 syslog 告警。
+  阿里云免费 DV **只有 3 个月**（2026-11-02 到期），必须有提醒。
+- 仓库 `deploy/nginx/open-resouce.conf` 已与线上同步。
+
+### 验证（DNS 未就绪，用 `curl --resolve` 强制解析到本机）
+
+| 检查 | 结果 |
+| --- | --- |
+| `https://www.openresource.cn/`（**不加 -k**） | 200，`ssl_verify_result=0`（证书链被信任） |
+| 服务端返回链层数 | 2（中间证书已带上，不会出现部分客户端不信任） |
+| `http://www` / `http://裸域` / `https://裸域` | 全部 301 → `https://www.openresource.cn/` |
+| `/api/v1` | 200 |
+| HSTS 响应头 | `max-age=86400` |
+| 原 `https://IP:8443/` 与 `/api/v1` | 200（入口未被打断） |
+| `http://IP/` | 200（保持原样，仍落 nginx 默认块） |
+
+### ⚠️ 还差一步：DNS（只能你做）
+
+`openresource.cn` 与 `www` 的 A 记录目前指向 **`59.82.113.122`** —— 那台机器 80 只回 403、
+443 不做 TLS，**不是本站服务器**。需要在 DNS 服务商把两条 A 记录改到 **`103.236.98.166`**。
+
+DNS 生效后运行 `/usr/local/sbin/openresource-go-live`（已装好）：
+它先自检「本机公网 IP == 域名解析结果」和外部 HTTPS 可达，然后把
+`PUBLIC_BASE_URL` 从 `https://103.236.98.166:8443` 切成 `https://www.openresource.cn` 并重启网关。
+不一致会直接中止 —— 因为 `PUBLIC_BASE_URL` 同时决定密码重置邮件里的链接和 OAuth 的
+`redirect_uri`，DNS 没生效时切过去这两条都会指向打不开的地址。
+
+**切之前必须先改 GitHub OAuth App 的 Authorization callback URL** 为
+`https://www.openresource.cn/api/v1/auth/oauth/github/callback`，否则 GitHub 登录报
+`redirect_uri_mismatch`。
+
+### 部署中踩的坑（都是我自己的错，记下来避免重犯）
+
+1. **`nginx.conf` 自带 `listen 80 default_server`**，我又在 conf.d 里声明了一个，
+   `nginx -t` 直接报 `duplicate default server for 0.0.0.0:80`。conf.d 里的 `:80` 块不能抢 default。
+2. **第一版脚本把 reload 挂在 `systemctl reload nginx` 的返回值上**，
+   配置语法错误时 reload 仍返回 0（nginx 拒绝加载但保持旧配置继续服务），
+   于是脚本打印"reloaded"却什么都没生效，磁盘上还留着一份坏配置——
+   一旦有人重启 nginx 就会起不来。**闸门必须是 `nginx -t`，不是 reload 的退出码。**
+   已改成 `nginx -t` 不通过就还原备份且绝不 reload。
+3. 顺带发现两条旧记录已过期：`8080` 上的 Java 服务与 `/opt/more-offer` **都已不存在**，
+   所以「禁止占用 8080 / 禁止覆盖 more-offer 的 Nginx 配置」这两条约束不再适用，443 也是空的。
