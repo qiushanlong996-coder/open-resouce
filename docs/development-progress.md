@@ -2810,20 +2810,36 @@ Phase 2+3（数据模型 / 配额 / Gateway 接口）→ Phase 4（worker）→ 
 | 原 `https://IP:8443/` 与 `/api/v1` | 200（入口未被打断） |
 | `http://IP/` | 200（保持原样，仍落 nginx 默认块） |
 
-### ⚠️ 还差一步：DNS（只能你做）
+### 站点已在正式域名上线
 
-`openresource.cn` 与 `www` 的 A 记录目前指向 **`59.82.113.122`** —— 那台机器 80 只回 403、
-443 不做 TLS，**不是本站服务器**。需要在 DNS 服务商把两条 A 记录改到 **`103.236.98.166`**。
+权威 NS（`dns15/dns16.hichina.com`）对 `www` 与裸域都返回 `103.236.98.166`，解析本来就是对的。
+从分析机（干净出口）实测：
 
-DNS 生效后运行 `/usr/local/sbin/openresource-go-live`（已装好）：
-它先自检「本机公网 IP == 域名解析结果」和外部 HTTPS 可达，然后把
-`PUBLIC_BASE_URL` 从 `https://103.236.98.166:8443` 切成 `https://www.openresource.cn` 并重启网关。
-不一致会直接中止 —— 因为 `PUBLIC_BASE_URL` 同时决定密码重置邮件里的链接和 OAuth 的
-`redirect_uri`，DNS 没生效时切过去这两条都会指向打不开的地址。
+| 检查 | 结果 |
+| --- | --- |
+| `https://www.openresource.cn/` | 200，`ssl_verify_result=0`，HTTP/2 |
+| 三条跳转 | 全部 301 → `https://www.openresource.cn/` |
+| `/api/v1`、`/healthz`、`/api/v1/projects` | 200 |
+| `?q=猫` 搜索 | 命中「猫咪好可爱啊…」（上次的中文单字修复在域名下同样生效） |
+| TLS | 1.2（ECDHE-RSA-AES256-GCM）与 1.3（TLS_AES_256_GCM）均可 |
 
-**切之前必须先改 GitHub OAuth App 的 Authorization callback URL** 为
-`https://www.openresource.cn/api/v1/auth/oauth/github/callback`，否则 GitHub 登录报
-`redirect_uri_mismatch`。
+**我一开始误判 DNS 没生效，这是错的。** 原因：开发机所在网络有代理拦截该域名，
+`curl` 直接返回 403，`dig` 一度给出 `59.82.113.122`（代理自身地址）。
+**结论：在这个开发网络里不能用来判断线上可达性**，要换干净出口（分析机）复测。
+以后排查此类问题的顺序应该是「先直接问权威 NS，再换出口验证」，
+而不是拿本机解析结果当事实。
+
+### 还差一步：`PUBLIC_BASE_URL`（需要你先改 GitHub）
+
+仍是 `https://103.236.98.166:8443`。改成正式域名会同时影响：
+密码重置邮件里的链接（`auth.go:1712`）与 GitHub OAuth 的 `redirect_uri`（`oauth.go:141`）。
+所以顺序必须是：**先在 GitHub OAuth App 把 callback URL 改成**
+`https://www.openresource.cn/api/v1/auth/oauth/github/callback`，
+**再**运行 `/usr/local/sbin/openresource-go-live`（脚本会自检解析与外部可达，不一致直接中止）。
+
+顺带修掉一个原配置就有的问题：静态资源同时发两个 `Cache-Control`
+（`expires 7d` 与 `add_header` 各发一个）。已去掉 `expires`，
+只保留带 `immutable` 的那条——构建产物文件名带内容哈希，`immutable` 才是正确语义。
 
 ### 部署中踩的坑（都是我自己的错，记下来避免重犯）
 
