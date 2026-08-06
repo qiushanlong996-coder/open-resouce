@@ -1005,6 +1005,23 @@ export function getServiceInfo(signal?: AbortSignal) {
   return apiRequest<ServiceInfo>('/api/v1', { signal })
 }
 
+export type SiteStats = {
+  projects: number
+  updated_today: number
+  downloads: number
+  documents: number
+}
+
+export type SiteStatsResponse = {
+  data: SiteStats
+  request_id: string
+}
+
+// 首页指标条：公开、只读，统计已发布项目、今日更新、累计下载与文档篇数。
+export function getSiteStats(signal?: AbortSignal) {
+  return apiRequest<SiteStatsResponse>('/api/v1/stats', { signal })
+}
+
 export function getProjects(
   filters: { query?: string; category?: string; page?: number; pageSize?: number; sort?: 'updated' | 'downloads' | 'stars' },
   signal?: AbortSignal,

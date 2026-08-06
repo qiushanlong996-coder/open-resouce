@@ -15,6 +15,7 @@ import {
   Copy,
   Download,
   Eye,
+  FileCode2,
   FileText,
   Flag,
   GitBranch,
@@ -76,6 +77,7 @@ import {
   getProjectCollaborationWebSocketURL,
   getProjects,
   getServiceInfo,
+  getSiteStats,
   login,
   logout,
   logoutAll,
@@ -113,6 +115,7 @@ import {
   type ProjectDetail as APIProjectDetail,
   type ProjectSummary,
   type ServiceInfo,
+  type SiteStats,
 } from './api/client'
 import AiAssistant from './AiAssistant'
 import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
@@ -1528,7 +1531,6 @@ function App() {
           }}
           onReport={() => openReport({ type: 'project', id: selectedProject.slug, label: selectedProject.name })}
           onReportComment={(commentId) => openReport({ type: 'comment', id: commentId, label: '文档评论' })}
-          onDownload={() => showToast('演示下载已开始')}
           comments={comments}
           selectedQuote={selectedQuote}
           composerAnchor={composerAnchor}
@@ -1654,6 +1656,82 @@ function Home({
   catalogState: CatalogState
   onOpenDocs: () => void
 }) {
+  const [stats, setStats] = useState<SiteStats | null>(null)
+  const [statsState, setStatsState] = useState<'loading' | 'ready' | 'offline'>('loading')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [stackFilter, setStackFilter] = useState<string | null>(null)
+  const [licenseFilter, setLicenseFilter] = useState<string | null>(null)
+  const filterRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getSiteStats(controller.signal)
+      .then((response) => {
+        setStats(response.data)
+        setStatsState('ready')
+      })
+      .catch(() => setStatsState('offline'))
+    return () => controller.abort()
+  }, [])
+
+  // 更多筛选弹层：点外部关闭。
+  useEffect(() => {
+    if (!filterOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && filterRef.current?.contains(event.target)) return
+      setFilterOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFilterOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [filterOpen])
+
+  const availableStacks = useMemo(() => {
+    const stacks = new Set<string>()
+    for (const project of filteredProjects) {
+      for (const item of project.stack) stacks.add(item)
+    }
+    return [...stacks].sort((left, right) => left.localeCompare(right))
+  }, [filteredProjects])
+
+  const availableLicenses = useMemo(() => {
+    const licenses = new Set<string>()
+    for (const project of filteredProjects) {
+      if (project.license) licenses.add(project.license)
+    }
+    return [...licenses].sort((left, right) => left.localeCompare(right))
+  }, [filteredProjects])
+
+  const visibleProjects = useMemo(
+    () => filteredProjects.filter((project) =>
+      (!stackFilter || project.stack.includes(stackFilter)) &&
+      (!licenseFilter || project.license === licenseFilter)),
+    [filteredProjects, stackFilter, licenseFilter],
+  )
+
+  const hasExtraFilter = stackFilter !== null || licenseFilter !== null
+  const resetExtraFilters = () => {
+    setStackFilter(null)
+    setLicenseFilter(null)
+  }
+
+  // 本周精选：取当前目录里最近更新的项目，避免挂死文案。
+  const curated = useMemo(() => {
+    if (filteredProjects.length === 0) return null
+    return [...filteredProjects].sort((left, right) => (left.updated ?? '').localeCompare(right.updated ?? ''))[
+      filteredProjects.length - 1
+    ] ?? filteredProjects[0]
+  }, [filteredProjects])
+
+  const formatCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  const formatInteger = (value: number) => new Intl.NumberFormat('zh-CN').format(value)
+
   return (
     <main>
       <section className="hero-band">
@@ -1685,21 +1763,46 @@ function Home({
       </section>
 
       <section className="metrics-strip">
-        <div><strong>372</strong><span>公开项目</span></div>
-        <div><strong>86</strong><span>今日更新</span></div>
-        <div><strong>12.4k</strong><span>本周下载</span></div>
-        <div><strong>98%</strong><span>项目可读</span></div>
+        <div><strong>{statsState === 'ready' && stats ? formatInteger(stats.projects) : '-'}</strong><span>公开项目</span></div>
+        <div><strong>{statsState === 'ready' && stats ? formatInteger(stats.updated_today) : '-'}</strong><span>今日更新</span></div>
+        <div><strong>{statsState === 'ready' && stats ? formatCount(stats.downloads) : '-'}</strong><span>累计下载</span></div>
+        <div><strong>{statsState === 'ready' && stats ? formatInteger(stats.documents) : '-'}</strong><span>在线文档</span></div>
         <div className="metrics-note"><GitBranch size={17} /><span>中文项目优先，欢迎分享你的 Agent 实验。</span></div>
       </section>
 
       <section className="content-section" id="project-grid">
         <div className="section-heading">
           <div><span className="section-kicker">PROJECT INDEX</span><h2>{activeTab === '探索' ? '探索项目' : activeTab}</h2></div>
-          <button className="outline-button">查看全部 <ChevronRight size={15} /></button>
+          <button className="outline-button" onClick={() => { setActiveCategory('全部项目'); resetExtraFilters(); document.getElementById('project-grid')?.scrollIntoView({ behavior: 'smooth' }) }}>查看全部 <ChevronRight size={15} /></button>
         </div>
         <div className="filter-row">
           {categories.map((category) => <button key={category} className={`filter-chip ${activeCategory === category ? 'active' : ''}`} onClick={() => setActiveCategory(category)}>{category}</button>)}
-          <button className="filter-more"><Tag size={14} /> 更多筛选 <ChevronDown size={14} /></button>
+          <div className="filter-more-wrap" ref={filterRef}>
+            <button className={`filter-more ${hasExtraFilter ? 'has-filter' : ''}`} aria-expanded={filterOpen} onClick={() => setFilterOpen((open) => !open)}><Tag size={14} /> {hasExtraFilter ? '已筛选' : '更多筛选'} <ChevronDown size={14} /></button>
+            {filterOpen && (
+              <div className="filter-popover" role="menu" aria-label="更多筛选">
+                <div className="filter-popover-group">
+                  <span className="filter-popover-label">技术栈</span>
+                  <div className="filter-option-list">
+                    {availableStacks.length === 0 && <span className="filter-popover-empty">暂无可选技术栈</span>}
+                    {availableStacks.map((stack) => (
+                      <button key={stack} type="button" className={stackFilter === stack ? 'active' : ''} onClick={() => setStackFilter(stackFilter === stack ? null : stack)}>{stack}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-popover-group">
+                  <span className="filter-popover-label">许可证</span>
+                  <div className="filter-option-list">
+                    {availableLicenses.length === 0 && <span className="filter-popover-empty">暂无可选许可证</span>}
+                    {availableLicenses.map((license) => (
+                      <button key={license} type="button" className={licenseFilter === license ? 'active' : ''} onClick={() => setLicenseFilter(licenseFilter === license ? null : license)}>{license}</button>
+                    ))}
+                  </div>
+                </div>
+                {hasExtraFilter && <button type="button" className="filter-popover-reset" onClick={resetExtraFilters}>清除筛选</button>}
+              </div>
+            )}
+          </div>
         </div>
 
         {catalogState !== 'online' && (
@@ -1709,11 +1812,11 @@ function Home({
           </div>
         )}
 
-        {filteredProjects.length ? (
+        {visibleProjects.length ? (
           <div className="project-grid">
-            {filteredProjects.map((project) => <ProjectCard key={project.id} project={project} isSaved={saved.includes(project.id)} onOpen={() => onOpenProject(project)} onToggleSaved={() => onToggleSaved(project.id)} />)}
+            {visibleProjects.map((project) => <ProjectCard key={project.id} project={project} isSaved={saved.includes(project.id)} onOpen={() => onOpenProject(project)} onToggleSaved={() => onToggleSaved(project.id)} />)}
           </div>
-        ) : <div className="empty-state"><Search size={24} /><h3>没有找到匹配项目</h3><p>试试其他关键词或清空筛选条件。</p></div>}
+        ) : <div className="empty-state"><Search size={24} /><h3>没有找到匹配项目</h3><p>{hasExtraFilter ? '试试调整技术栈或许可证筛选条件。' : '试试其他关键词或清空筛选条件。'}</p></div>}
       </section>
 
       <section className="editorial-band">
@@ -1722,11 +1825,15 @@ function Home({
       </section>
 
       <section className="content-section compact-section">
-        <div className="section-heading"><div><span className="section-kicker">CURATED NOTE</span><h2>本周精选</h2></div><button className="text-button">阅读编辑手记 <ArrowUpRight size={15} /></button></div>
-        <div className="curated-row">
-          <div className="curated-cover cover-blue"><div className="cover-label">FIELD NOTE 07</div><span>Agent<br />Observability</span></div>
-          <div className="curated-copy"><span className="meta-label">编辑推荐 · 6 分钟阅读</span><h3>为什么 Agent 需要自己的“运行日志”？</h3><p>从单次回答到可回放的任务链路，观察每一步工具调用，才能让实验走向生产。</p><button className="text-button">打开文章 <ArrowUpRight size={15} /></button></div>
-        </div>
+        {curated && (
+          <>
+            <div className="section-heading"><div><span className="section-kicker">CURATED NOTE</span><h2>本周精选</h2></div><button className="text-button" onClick={() => onOpenProject(curated)}>阅读项目手记 <ArrowUpRight size={15} /></button></div>
+            <div className="curated-row">
+              <div className="curated-cover cover-blue"><div className="cover-label">FEATURED PROJECT</div><span>{curated.name}</span></div>
+              <div className="curated-copy"><span className="meta-label">{curated.category} · 最近更新于 {curated.updated}</span><h3>{curated.summary}</h3><p>{curated.description}</p><button className="text-button" onClick={() => onOpenProject(curated)}>打开项目 <ArrowUpRight size={15} /></button></div>
+            </div>
+          </>
+        )}
       </section>
       <section className="content-section compact-section">
         <div className="section-heading">
@@ -1760,14 +1867,13 @@ function Home({
 }
 
 function ProjectCard({ project, isSaved, onOpen, onToggleSaved }: { project: Project; isSaved: boolean; onOpen: () => void; onToggleSaved: () => void }) {
-  const projectIndex = projects.findIndex((item) => item.id === project.id)
   return (
     <article className="project-card">
       <button className={`project-cover ${project.accent}`} onClick={onOpen} aria-label={`打开 ${project.name}`}>
         {project.hasCover
           ? <img className="project-cover-image" src={`/api/v1/projects/${encodeURIComponent(project.slug)}/resources/cover`} alt="" loading="lazy" />
           : <><div className="cover-orbit orbit-one" /><div className="cover-orbit orbit-two" /><div className="cover-orbit orbit-three" /><span className="cover-monogram">{project.name.slice(0, 1)}</span></>}
-        <span className="cover-index">0{Math.max(projectIndex, 0) + 1} / 04</span>
+        <span className="cover-index">{project.category}</span>
       </button>
       <div className="project-card-body">
         <div className="card-title-row"><div><span className="project-category">{project.category}</span><h3><button onClick={onOpen}>{project.name}</button></h3></div><button className={`icon-button ${isSaved ? 'saved' : ''}`} title={isSaved ? '取消收藏' : '收藏项目'} aria-label={isSaved ? '取消收藏' : '收藏项目'} onClick={onToggleSaved}><Heart size={17} fill={isSaved ? 'currentColor' : 'none'} /></button></div>
@@ -1792,7 +1898,6 @@ function ProjectDetail({
   onShare,
   onReport,
   onReportComment,
-  onDownload,
   comments,
   selectedQuote,
   composerAnchor,
@@ -1835,7 +1940,6 @@ function ProjectDetail({
   onShare: () => void
   onReport: () => void
   onReportComment: (commentId: string) => void
-  onDownload: () => void
   comments: CommentItem[]
   selectedQuote: string
   composerAnchor: { top: number } | null
@@ -1870,12 +1974,32 @@ function ProjectDetail({
   const [collaborationEditing, setCollaborationEditing] = useState(false)
   const [collaborationInitialMarkdown, setCollaborationInitialMarkdown] = useState('')
   const [permissionsOpen, setPermissionsOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && moreMenuRef.current?.contains(event.target)) return
+      setMoreOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [moreOpen])
 
   useEffect(() => {
     const controller = new AbortController()
     setCollaborationAccess(null)
     setCollaborationEditing(false)
     setPermissionsOpen(false)
+    setMoreOpen(false)
     getProjectCollaborationAccess(project.slug, controller.signal)
       .then((response) => setCollaborationAccess(response.data))
       .catch(() => setCollaborationAccess({ role: 'viewer', can_edit: false, can_manage: false }))
@@ -1908,7 +2032,17 @@ function ProjectDetail({
           <button className={`outline-button ${isFollowed ? 'is-saved' : ''}`} onClick={onToggleFollowed}><Bell size={15} fill={isFollowed ? 'currentColor' : 'none'} /> {isFollowed ? '已关注' : '关注'}</button>
           <button className="icon-button" title="分享项目" aria-label="分享项目" onClick={onShare}><Share2 size={17} /></button>
           <button className="icon-button" title="举报项目" aria-label="举报项目" onClick={onReport}><Flag size={16} /></button>
-          <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
+          <div className="detail-more-wrap" ref={moreMenuRef}>
+            <button className="icon-button" title="更多操作" aria-label="更多操作" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal size={18} /></button>
+            {moreOpen && (
+              <div className="action-menu" role="menu" aria-label="项目更多操作">
+                {project.repo && <button type="button" role="menuitem" onClick={() => { window.open(project.repo, '_blank', 'noopener,noreferrer'); setMoreOpen(false) }}><GitBranch size={14} /> 在 GitHub 查看</button>}
+                <button type="button" role="menuitem" onClick={() => { setDetailTab('代码预览'); setMoreOpen(false) }}><FileCode2 size={14} /> 打开代码预览</button>
+                <button type="button" role="menuitem" onClick={() => { setDetailTab('下载资源'); setMoreOpen(false) }}><Download size={14} /> 打开下载资源</button>
+                <button type="button" role="menuitem" onClick={() => { onShare(); setMoreOpen(false) }}><Copy size={14} /> 复制项目链接</button>
+              </div>
+            )}
+          </div>
         </div>
       </section>
       <div className="detail-stats"><div><strong>{project.views}</strong><span>浏览</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '-'}</strong><span>当前版本</span></div></div>
@@ -1941,7 +2075,7 @@ function ProjectDetail({
           {/* 每个标签各自设边界：某个标签内容异常不应连带项目头部与导航一起白屏。 */}
           {detailTab === '文档阅读' && <ErrorBoundary label="文档阅读" onReset={() => activeDocument && onOpenDocument(activeDocument.slug)}><DocumentView project={project} onOpenProfile={onOpenProfile} documentState={documentState} documentTree={documentTree} activeDocument={activeDocument} onOpenDocument={onOpenDocument} comments={comments} commentsState={commentsState} commentSubmitting={commentSubmitting} resolvingCommentID={resolvingCommentID} deletingCommentID={deletingCommentID} currentUserID={currentUserID} selectedQuote={selectedQuote} composerAnchor={composerAnchor} commentComposerOpen={commentComposerOpen} setCommentComposerOpen={setCommentComposerOpen} draftComment={draftComment} setDraftComment={setDraftComment} onSelection={onSelection} onSubmitComment={onSubmitComment} onResolveComment={onResolveComment} onLikeComment={onLikeComment} onReplyComment={onReplyComment} onDeleteReply={onDeleteReply} onDeleteComment={onDeleteComment} onEditComment={onEditComment} onEditReply={onEditReply} onReportComment={onReportComment} showToast={showToast} /></ErrorBoundary>}
           {detailTab === '代码预览' && <ErrorBoundary label="代码预览"><CodeView project={project} onCopy={() => showToast('代码已复制到剪贴板')} showToast={showToast} /></ErrorBoundary>}
-          {detailTab === '下载资源' && <ErrorBoundary label="下载资源"><DownloadView project={project} onDownload={onDownload} /></ErrorBoundary>}
+      {detailTab === '下载资源' && <ErrorBoundary label="下载资源"><DownloadView project={project} /></ErrorBoundary>}
           {detailTab === '项目概览' && <ErrorBoundary label="项目概览"><OverviewView project={project} onRead={() => setDetailTab('文档阅读')} /></ErrorBoundary>}
         </>
       )}
@@ -2056,7 +2190,31 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
   const articleContentRef = useRef<HTMLDivElement | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [commentFilter, setCommentFilter] = useState<'all' | 'open' | 'resolved'>('all')
+  const [commentFilterOpen, setCommentFilterOpen] = useState(false)
+  const commentFilterRef = useRef<HTMLDivElement | null>(null)
   const documentSearch = useDocumentSearch(articleContentRef, searchKeyword, activeDocument?.id ?? '')
+
+  useEffect(() => {
+    if (!commentFilterOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && commentFilterRef.current?.contains(event.target)) return
+      setCommentFilterOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCommentFilterOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [commentFilterOpen])
+
+  const visibleComments = commentFilter === 'all'
+    ? comments
+    : comments.filter((comment) => comment.status === commentFilter)
   // 阅读增强：正文排版偏好、目录滚动高亮、阅读进度/回到顶部、上下篇导航。
   const readerPrefs = useReaderPreferences()
   const activeHeadingId = useScrollSpy(activeDocument?.outline, activeDocument?.id ?? '')
@@ -2207,7 +2365,7 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
           style={composerAnchor ? { top: `${composerAnchor.top}px` } : undefined}
         ><div className="composer-quote">“{selectedQuote}”</div><textarea autoFocus value={draftComment} disabled={commentSubmitting} onChange={(event) => setDraftComment(event.target.value)} placeholder="写下你的评论..." /><div className="composer-actions"><EmojiPicker onSelect={(emoji) => setDraftComment(draftComment + emoji)} /><button className="text-button" disabled={commentSubmitting} onClick={() => setCommentComposerOpen(false)}>取消</button><button className="primary-button small" disabled={commentSubmitting || !draftComment.trim()} onClick={onSubmitComment}><Send size={14} /> {commentSubmitting ? '发布中…' : '发布评论'}</button></div></div>}
       </article>
-      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选"><MoreHorizontal size={17} /></button></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button><div className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} onOpenProfile={onOpenProfile} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onReport={() => onReportComment(comment.id)} onLocate={locateBlock} />)}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
+      <aside className="comments-sidebar"><div className="comments-heading"><div><span className="meta-label">DISCUSSION</span><h3>文档评论 <span>{comments.length} 条线程 · {comments.reduce((total, comment) => total + comment.replyCount, 0)} 条回复</span></h3></div><div className="comment-filter-wrap" ref={commentFilterRef}><button className="icon-button quiet" title="评论筛选" aria-label="评论筛选" aria-expanded={commentFilterOpen} onClick={() => setCommentFilterOpen((open) => !open)}><MoreHorizontal size={17} /></button>{commentFilterOpen && <div className="action-menu comment-filter-menu" role="menu" aria-label="评论筛选"><button type="button" role="menuitem" className={commentFilter === 'all' ? 'active' : ''} onClick={() => { setCommentFilter('all'); setCommentFilterOpen(false) }}>全部</button><button type="button" role="menuitem" className={commentFilter === 'open' ? 'active' : ''} onClick={() => { setCommentFilter('open'); setCommentFilterOpen(false) }}>未解决</button><button type="button" role="menuitem" className={commentFilter === 'resolved' ? 'active' : ''} onClick={() => { setCommentFilter('resolved'); setCommentFilterOpen(false) }}>已解决</button></div>}</div></div><button className="new-comment-button" disabled={commentsState === 'checking'} onClick={() => setCommentComposerOpen(true)}><MessageSquare size={15} /> {commentsState === 'checking' ? '加载评论中…' : '添加评论'}</button>{commentFilter !== 'all' && <div className="comment-filter-note">正在查看{commentFilter === 'open' ? '未解决' : '已解决'}评论，<button type="button" onClick={() => setCommentFilter('all')}>显示全部</button></div>}<div className="comment-list">{visibleComments.length ? visibleComments.map((comment) => <CommentCard key={comment.id} comment={comment} onOpenProfile={onOpenProfile} currentUserID={currentUserID} resolving={resolvingCommentID === comment.id} deleting={deletingCommentID === comment.id} onResolve={() => onResolveComment(comment.id)} onLike={onLikeComment} onReply={(body) => onReplyComment(comment.id, body)} onDeleteReply={(replyId) => onDeleteReply(comment.id, replyId)} onDelete={() => onDeleteComment(comment.id)} onEdit={(body) => onEditComment(comment.id, body)} onEditReply={(replyId, body) => onEditReply(comment.id, replyId, body)} onReport={() => onReportComment(comment.id)} onLocate={locateBlock} />) : <div className="comment-filter-empty">没有{commentFilter === 'open' ? '未解决' : '已解决'}的评论</div>}</div><div className={`realtime-note ${commentsState}`}><span className="status-dot" /> {commentsState === 'offline' ? '评论同步暂时离线' : commentsState === 'checking' ? '评论同步中…' : '评论实时同步中'}</div></aside>
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
       {activeDocument && <BackToTopButton visible={scrollMetrics.scrolled} />}
     </section>
@@ -2225,6 +2383,38 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
   const [editingReplyID, setEditingReplyID] = useState<string | null>(null)
   const [replyEditDraft, setReplyEditDraft] = useState('')
   const [replyEditSubmitting, setReplyEditSubmitting] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && moreMenuRef.current?.contains(event.target)) return
+      setMoreOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [moreOpen])
+
+  const copyCommentLink = () => {
+    const url = new URL(window.location.href)
+    url.hash = `comment-${comment.id}`
+    navigator.clipboard?.writeText(url.toString())
+      .then(() => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1600)
+      })
+      .catch(() => undefined)
+  }
+
   const submitReply = async () => {
     if (!replyDraft.trim()) return
     setReplySubmitting(true)
@@ -2265,7 +2455,17 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
           <span className="name-row">{comment.authorId ? <button type="button" className={`author-profile-link ${comment.authorLevel >= 6 ? 'nickname-legendary' : ''}`} onClick={() => onOpenProfile(comment.authorId)}><strong>{comment.user}</strong></button> : <strong className={comment.authorLevel >= 6 ? 'nickname-legendary' : ''}>{comment.user}</strong>}<LevelBadge level={comment.authorLevel} /></span>
           <small>{comment.time}{comment.edited ? ' · 已编辑' : ''}{comment.authorRegion ? ` · IP 属地：${comment.authorRegion}` : ''}</small>
         </div>
-        {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : <button className="comment-more" title="更多评论操作" aria-label="更多评论操作"><MoreHorizontal size={15} /></button>}
+        {comment.status === 'resolved' ? <Check size={15} className="resolved-icon" /> : (
+          <div className="comment-more-wrap" ref={moreMenuRef}>
+            <button className="comment-more" title="更多评论操作" aria-label="更多评论操作" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal size={15} /></button>
+            {moreOpen && (
+              <div className="action-menu comment-more-menu" role="menu" aria-label="评论操作">
+                <button type="button" role="menuitem" onClick={() => { void copyCommentLink(); setMoreOpen(false) }}><Copy size={13} /> {copied ? '已复制' : '复制评论链接'}</button>
+                {comment.quote && comment.blockId && <button type="button" role="menuitem" onClick={() => { onLocate(comment.blockId); setMoreOpen(false) }}><Link2 size={13} /> 定位到原文</button>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {comment.quote && <button className="comment-quote" title="跳转到原文" onClick={() => onLocate(comment.blockId)}>“{comment.quote}”</button>}
       {editing
@@ -2698,12 +2898,12 @@ function CodeView({ project, onCopy, showToast }: {
   )
 }
 
-function DownloadView({ project, onDownload }: { project: Project; onDownload: () => void }) {
+function DownloadView({ project }: { project: Project }) {
   const resourceURL = (kind: 'code' | 'document') => `/api/v1/projects/${encodeURIComponent(project.slug)}/resources/${kind}`
   const downloadControl = (kind: 'code' | 'document', label: string) => project.resources?.[kind]
     ? <a className="icon-button" title={label} aria-label={label} href={resourceURL(kind)}><Download size={16} /></a>
-    : <button className="icon-button" title={label} aria-label={label} onClick={onDownload}><Download size={16} /></button>
-  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p>{project.resources?.code ? <a className="outline-button" href={resourceURL('code')}><Download size={15} /> 下载代码包</a> : <button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button>}</div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>{project.slug}-v{project.currentVersion ?? 'latest'}</strong><small>代码包 · {project.license}</small></div><span>v{project.currentVersion ?? '-'}</span>{downloadControl('code', '下载代码包')}</div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档</strong><small>文档 · 作者维护</small></div><span>DOC</span>{downloadControl('document', '下载文档')}</div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
+    : <span className="resource-missing" title={`作者尚未上传${label}，上传后即可下载`}>-</span>
+  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p>{project.resources?.code ? <a className="outline-button" href={resourceURL('code')}><Download size={15} /> 下载代码包</a> : <button className="outline-button" disabled title="作者尚未上传代码包"><Download size={15} /> 代码包未上传</button>}</div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>{project.slug}-v{project.currentVersion ?? 'latest'}</strong><small>代码包 · {project.license}</small></div><span>v{project.currentVersion ?? '-'}</span>{downloadControl('code', '下载代码包')}</div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档</strong><small>文档 · 作者维护</small></div><span>DOC</span>{downloadControl('document', '下载文档')}</div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链 · 视频链接保存在文档中</small></div><span>VIDEO</span><span className="resource-missing" title="演示视频由作者在文档中嵌入">-</span></div></div></section>
 }
 
 function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
