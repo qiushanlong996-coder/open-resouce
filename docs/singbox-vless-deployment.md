@@ -107,4 +107,4 @@ bash /root/singbox_deploy.sh                       # 可重复执行，UUID 不�
 1. **证书 2026-11-03 到期**。sing-box 在启动时读取证书文件，续期后必须 `systemctl restart sing-box`，否则会继续用旧证书。建议把这一步加进证书续期流程，和 nginx 的 reload 放在一起。
 2. 客户端的 `flow` 必须是 `xtls-rprx-vision`，与服务端一致；留空会握手失败。
 3. CentOS 7 已 EOL，sing-box 是静态二进制不受影响，但升级需手动替换 `/usr/local/bin/sing-box` 后重启服务。
-4. WireGuard 相关配置和服务仍保留在机器上（`wg-quick@wg0` 仍 enabled），它监听的 UDP 8443 收不到任何公网包，属于无害的空转。若厂商日后放通 UDP 可直接启用；否则可 `systemctl disable --now wg-quick@wg0` 关掉。
+4. WireGuard 已于 2026-08-06 从服务器上完全清理（服务、接口、内核模块、密钥、源码、构建依赖，并把 `ip_forward` 恢复为 0），清理明细见 [wireguard-deployment.md](./wireguard-deployment.md) 第 9 节。现在这台机器上的出网方案只有 sing-box 一套，不存在两套并存的情况。

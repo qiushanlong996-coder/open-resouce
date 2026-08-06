@@ -4,8 +4,12 @@
 
 监听端口为 **UDP 8443**，与 nginx 占用的 **TCP 8443** 不冲突：两者是不同协议，可以共存。
 
-> **结论（2026-08-06）**：已向云厂商确认，**该服务器不开放 UDP 端口**。本文第 6 节的抓包判断得到证实，WireGuard 在这台机器上无法使用。实际投入使用的是改走 TCP 的方案，见
-> [singbox-vless-deployment.md](./singbox-vless-deployment.md)。本文保留作为排查记录，以及厂商日后放通 UDP 时的启用依据——服务端已部署完毕且功能验证通过，届时无需重做。
+> **本文是历史排查记录，所描述的部署已于 2026-08-06 从服务器上完全移除。**
+>
+> 已向云厂商确认，**该服务器不开放 UDP 端口**，第 6 节的抓包判断得到证实，WireGuard 在这台机器上无法使用。实际投入使用的是改走 TCP 的方案，见
+> [singbox-vless-deployment.md](./singbox-vless-deployment.md)。
+>
+> 清理明细见第 9 节。保留本文的价值在于：第 2.1 节的 `compat.h` 补丁（在 RHEL 7.6 老内核上编译 WireGuard 的必要修改）和第 6 节的 UDP 阻断诊断方法，日后若换机器或厂商放通 UDP 可直接复用。
 
 ## 1. 部署结果概览
 
@@ -130,20 +134,32 @@ http_code=301                                 # 经隧道 + MASQUERADE 访问 ht
 2. 确认没有额外的**云防火墙**实例挡在安全组之前。
 3. 若厂商本身不承载 UDP（部分香港线路为防滥用会全局丢弃非 53 的 UDP），则 WireGuard 无法直接使用，需要改走 TCP 承载：`udp2raw`、`phantun` 或 `wstunnel` 把 UDP 封进 TCP。注意 TCP 8443 已被 nginx 占用，需另选端口或用 nginx `stream` 模块按 SNI 分流。
 
-## 7. 常用运维命令
+## 7. 若日后需要重建
 
-```bash
-systemctl status wg-quick@wg0        # 服务状态
-wg show                              # 接口与 peer 握手情况
-wg-quick down wg0 && wg-quick up wg0 # 重启接口（会重建 iptables 规则）
-bash /root/netns_test.sh             # 端到端自测，不影响生产接口
-```
+前提是厂商放通 UDP，否则重建也不可用。关键信息都在本文里：第 2 节的编译方式与 `kernel-devel` 取得途径、第 2.1 节的 `compat.h` 补丁、第 4 节的网络规划、第 5 节的 netns 自测方法。
 
-新增客户端：编辑 `/root/setup_wg.sh` 的 `CLIENTS` 变量后重新执行，再 `wg-quick down wg0 && wg-quick up wg0`。已有密钥不会被覆盖。
+注意内核绑定问题：模块与编译时的内核版本一一对应，换内核必须用对应版本的 `kernel-devel` 重新编译。若希望自动跟随内核升级，用 DKMS 管理而不是手工编译。
 
-## 8. 需要留意的运维风险
+## 8. 排查过程中值得留存的两点方法
 
-1. **内核升级会让 WireGuard 失效**。模块装在 `/lib/modules/3.10.0-957.1.3.el7.x86_64/extra/`，与该内核绑定。一旦更换内核，必须用新内核的 `kernel-devel` 重新执行 `/root/patch_and_build.sh`。若希望自动跟随内核，可改用 DKMS 管理。
-2. CentOS 7 已 EOL，yum 走的是 vault 归档源，不再有安全更新。
-3. 客户端配置里含私钥，导入后建议从服务器以外的位置清除副本。
-4. `wg0.conf` 的 `PostDown` 依赖 `PostUp` 建过的规则，若手工改过 iptables，`down` 时可能报规则不存在，属正常现象。
+1. **用 netns 把「配置对不对」和「网络通不通」分开**。公网不通时，在本机建独立 network namespace 起一个客户端连服务端内网地址，可以在不受上游网络干扰的前提下验证隧道本身。这个方法对任何 VPN/代理排查都适用。
+2. **`tcpdump` 的抓包点早于 netfilter**。因此「eth0 上抓不到包」可以直接排除本机所有防火墙、SELinux、服务配置因素，把问题定位到实例之外，避免在机器内部反复试错。
+
+## 9. 清理记录（2026-08-06）
+
+确认厂商不放通 UDP 后，按要求把 WireGuard 从服务器上完全移除，逐项复查通过：
+
+| 对象 | 处理 |
+| --- | --- |
+| `wg-quick@wg0` 服务 | 已 `disable --now`，systemd 单元已不存在 |
+| `wg0` 接口 | 已移除 |
+| iptables 规则 | `FORWARD` 与 `nat POSTROUTING` 均已回到只有默认策略、无自定义规则 |
+| 内核模块 | 已 `rmmod`，`extra/wireguard.ko` 已删除并 `depmod -a`，`modinfo` 已找不到；连带的 `udp_tunnel`、`ip6_udp_tunnel` 也已卸载 |
+| 配置与密钥 | `/etc/wireguard`、`/root/wireguard-clients` 已删除（含所有私钥与预共享密钥） |
+| 源码与脚本 | `wireguard-linux-compat` 源码及 `setup_wg.sh`、`patch_and_build.sh`、`netns_test.sh` 已删除 |
+| `ip_forward` | 删除 `/etc/sysctl.d/99-wireguard.conf` 并恢复为 `0`（原值）。已先确认无 Docker、无网桥、无其他服务依赖转发，sing-box 是用户态代理不需要 |
+| 软件包 | `wireguard-tools`、`kernel-devel`、`elrepo-release` 已卸载，`elrepo.repo` 已删除 |
+
+清理后复测：sing-box `active/enabled`，经隧道出口 IP 仍为 `156.225.28.10`，google/youtube 均 200；网站 443/8443/80 分别 200/200/200，nginx 与 gateway 均未受影响。
+
+仍留在机器上的 `gcc`、`tcpdump`、`kernel-headers`、`libmnl` 是本次排查期间安装的通用工具，本身与 WireGuard 无关，故保留；如需一并卸载可另行处理。
