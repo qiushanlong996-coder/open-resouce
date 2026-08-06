@@ -1624,6 +1624,7 @@ function App() {
           onOpenProfile={openProfile}
           onToggleSaved={() => toggleSaved(selectedProject.id)}
           onToggleFollowed={() => toggleFollowed(selectedProject.id)}
+          onOpenRelatedProject={(slug) => openProjectBySlug(slug)}
           onShare={() => {
             navigator.clipboard?.writeText(window.location.href)
             showToast('项目链接已复制')
@@ -2177,6 +2178,7 @@ function ProjectDetail({
   isFollowed,
   onBack,
   onOpenProfile,
+  onOpenRelatedProject,
   onToggleSaved,
   onToggleFollowed,
   onShare,
@@ -2219,6 +2221,7 @@ function ProjectDetail({
   isFollowed: boolean
   onBack: () => void
   onOpenProfile: (userId: string) => void
+  onOpenRelatedProject: (slug: string) => void
   onToggleSaved: () => void
   onToggleFollowed: () => void
   onShare: () => void
@@ -2260,6 +2263,20 @@ function ProjectDetail({
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
+  const [related, setRelated] = useState<Project[]>([])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getProjects({ category: project.category, pageSize: 6 }, controller.signal)
+      .then((response) => {
+        setRelated(response.data
+          .filter((item) => item.slug !== project.slug)
+          .slice(0, 5)
+          .map(mapProjectSummary))
+      })
+      .catch(() => setRelated([]))
+    return () => controller.abort()
+  }, [project.slug, project.category])
 
   useEffect(() => {
     if (!moreOpen) return
@@ -2297,6 +2314,13 @@ function ProjectDetail({
     setCollaborationEditing(true)
   }
 
+  const copyProjectSummary = () => {
+    const text = `${project.name}\n${project.summary}${project.repo ? `\n${project.repo}` : ''}`
+    navigator.clipboard?.writeText(text)
+      .then(() => showToast('项目简介已复制'))
+      .catch(() => showToast('浏览器未允许复制，请手动复制'))
+  }
+
   return (
     <main className="detail-page">
       <div className="detail-topbar"><button className="back-button" onClick={onBack}><ArrowLeft size={16} /> 返回项目索引</button><span className="breadcrumb">/ {project.category} / {project.name}</span></div>
@@ -2324,6 +2348,7 @@ function ProjectDetail({
                 <button type="button" role="menuitem" onClick={() => { setDetailTab('代码预览'); setMoreOpen(false) }}><FileCode2 size={14} /> 打开代码预览</button>
                 <button type="button" role="menuitem" onClick={() => { setDetailTab('下载资源'); setMoreOpen(false) }}><Download size={14} /> 打开下载资源</button>
                 <button type="button" role="menuitem" onClick={() => { onShare(); setMoreOpen(false) }}><Copy size={14} /> 复制项目链接</button>
+                <button type="button" role="menuitem" onClick={() => { void copyProjectSummary(); setMoreOpen(false) }}><Copy size={14} /> 复制项目简介</button>
               </div>
             )}
           </div>
@@ -2364,6 +2389,21 @@ function ProjectDetail({
         </>
       )}
       {permissionsOpen && collaborationAccess?.can_manage && <ProjectCollaborationPermissions projectSlug={project.slug} onClose={() => setPermissionsOpen(false)} showToast={showToast} />}
+      {related.length > 0 && (
+        <section className="related-section">
+          <div className="section-heading">
+            <div><span className="section-kicker">RELATED</span><h2>相关推荐</h2></div>
+          </div>
+          <div className="recent-row">
+            {related.map((item) => (
+              <button key={item.id} type="button" className="recent-card" onClick={() => onOpenRelatedProject(item.slug)}>
+                <span className={`recent-cover ${item.accent}`}>{item.name.slice(0, 1)}</span>
+                <span className="recent-info"><strong>{item.name}</strong><small>{item.category}</small></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   )
 }
