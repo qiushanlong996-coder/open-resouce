@@ -1121,6 +1121,39 @@ export function getFeaturedProjects(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/featured', { signal })
 }
 
+export type TagCount = {
+  name: string
+  count: number
+}
+
+export type TagListResponse = {
+  data: TagCount[]
+  request_id: string
+}
+
+// 热门标签：已发布项目标签聚合。
+export function getHotTags(signal?: AbortSignal) {
+  return apiRequest<TagListResponse>('/api/v1/tags', { signal })
+}
+
+export type ActivityItem = {
+  type: 'project_published' | 'project_updated' | 'comment'
+  title: string
+  summary: string
+  project_slug: string
+  created_at: string
+}
+
+export type ActivityResponse = {
+  data: ActivityItem[]
+  request_id: string
+}
+
+// 社区动态：最近发布/更新项目 + 最近评论。
+export function getActivity(signal?: AbortSignal) {
+  return apiRequest<ActivityResponse>('/api/v1/activity', { signal })
+}
+
 export type AdminFeaturedResponse = {
   data: {
     featured: ManagedProject[]

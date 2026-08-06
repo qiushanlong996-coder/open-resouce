@@ -3291,3 +3291,27 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
   状态徽标（已上传 / 未上传），悬停可查看对象键，覆盖需求 5.3 #8 的
   资源管理视图（零新表，复用现有项目数据）。
 - 发布 `20260807-admin-resources`（330 文件）。
+
+## 2026-08-07：自拟需求第一批（深链 / RSS 订阅 / 热门标签 / 社区动态）
+
+围绕现有平台定位（项目发现、阅读、讨论、订阅）自拟并落地四个需求：
+
+1. **可分享深链**：此前 SPA 不支持 `/projects/{slug}` 直达，分享链接只会回
+   首页。现在打开项目同步 URL（`/projects/{slug}`）、文档定位写入
+   `?document=`、浏览器后退可返回首页，直达链接可用。
+2. **RSS / Atom 订阅源**：`GET /feed.xml`（另注册 `/api/v1/feed`），输出
+   最近 20 个已发布项目（标题/链接/摘要/更新时间）；Nginx 增加
+   `location = /feed.xml` 转发；`index.html` 增加 `rel="alternate"` 自动发现，
+   页脚新增「RSS 订阅」入口。
+3. **热门标签**：`GET /api/v1/tags` 聚合已发布项目标签（Top 30）；
+   首页新增热门标签胶囊行（点击即筛选），「更多筛选」弹层增加标签组。
+4. **社区动态**：`GET /api/v1/activity` 合并最近发布/更新项目与最近评论
+   （按时间倒序）；首页新增「社区动态」区块（发布/更新/评论三类图标，
+   相对时间，点击打开项目）。
+
+### 验证与部署
+
+- `go test ./services/gateway` 全量通过（新增 feed/tags/activity 三组测试）。
+- 前端构建通过；发布 `20260807-feed-tags-activity`（330 文件）。
+- 公网验证：`/feed.xml` 200 `application/atom+xml`；`/api/v1/tags` 返回
+  真实聚合；`/api/v1/activity` 返回动态；`/projects/maomi` 200（深链可达）。

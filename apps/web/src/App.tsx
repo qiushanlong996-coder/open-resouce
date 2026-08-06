@@ -33,6 +33,8 @@ import {
   Palette,
   Pencil,
   Play,
+  RefreshCw,
+  Rocket,
   Search,
   Send,
   Share2,
@@ -82,6 +84,8 @@ import {
   getSiteStats,
   getLeaderboard,
   getFeaturedProjects,
+  getHotTags,
+  getActivity,
   login,
   logout,
   logoutAll,
@@ -123,6 +127,8 @@ import {
   type ServiceInfo,
   type SiteStats,
   type LeaderboardUser,
+  type TagCount,
+  type ActivityItem,
 } from './api/client'
 import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
 import {
@@ -575,6 +581,27 @@ function App() {
     }
   }, [selectedProject, activeTab])
 
+  // 直达链接：/projects/{slug}[?document=...] 可直达项目/文档，后退可返回首页。
+  useEffect(() => {
+    const openFromURL = () => {
+      const match = /^\/projects\/([^/?#]+)/.exec(window.location.pathname)
+      if (!match) {
+        setSelectedProject(null)
+        selectedProjectSlug.current = null
+        return
+      }
+      const documentSlug = new URLSearchParams(window.location.search).get('document')
+      openProjectBySlug(
+        decodeURIComponent(match[1]),
+        documentSlug ? () => openDocument(documentSlug) : undefined,
+      )
+    }
+    openFromURL()
+    window.addEventListener('popstate', openFromURL)
+    return () => window.removeEventListener('popstate', openFromURL)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     const controller = new AbortController()
     getServiceInfo(controller.signal)
@@ -890,6 +917,11 @@ function App() {
     selectedProjectSlug.current = null
     documentRequestSequence.current += 1
     setSelectedProject(null)
+    // 关闭详情时 URL 回到首页，保证「复制链接」与地址栏一致。
+    const url = new URL(window.location.href)
+    url.pathname = '/'
+    url.search = ''
+    window.history.replaceState(window.history.state, '', url.toString())
   }
 
   // openProfile 打开某个用户的公开主页弹窗（评论作者、项目作者点击进入）。
@@ -923,6 +955,11 @@ function App() {
   const openProject = (project: Project) => {
     selectedProjectSlug.current = project.slug
     setSelectedProject(project)
+    // 同步到 URL：/projects/{slug} 可分享、可直达、可后退。
+    const url = new URL(window.location.href)
+    url.pathname = `/projects/${encodeURIComponent(project.slug)}`
+    url.search = ''
+    window.history.pushState({ projectSlug: project.slug }, '', url.toString())
     // 记录一次浏览（fire-and-forget，失败不影响打开）。
     void recordProjectView(project.slug).catch(() => {})
     setDetailTab('文档阅读')
@@ -966,6 +1003,10 @@ function App() {
   const openDocument = (documentSlug: string) => {
     const projectSlug = selectedProjectSlug.current
     if (!projectSlug || activeDocument?.slug === documentSlug) return
+    // 把当前文档写进 ?document=，深链可直接定位到具体文档。
+    const url = new URL(window.location.href)
+    url.searchParams.set('document', documentSlug)
+    window.history.replaceState(window.history.state, '', url.toString())
     const requestSequence = ++documentRequestSequence.current
     setDocumentState('checking')
     getDocument(projectSlug, documentSlug)
@@ -1604,6 +1645,7 @@ function App() {
           catalogState={catalogState}
           onOpenDocs={() => setOpenDocsOpen(true)}
           onOpenProfile={(userId) => setProfileUserId(userId)}
+          onOpenProjectSlug={(slug) => openProjectBySlug(slug)}
           onSubmitProject={() => {
             if (currentUser) {
               setAuthorCenterOpen(true)
@@ -1683,6 +1725,7 @@ function Home({
   catalogState,
   onOpenDocs,
   onOpenProfile,
+  onOpenProjectSlug,
   onSubmitProject,
 }: {
   activeTab: string
@@ -1696,10 +1739,14 @@ function Home({
   catalogState: CatalogState
   onOpenDocs: () => void
   onOpenProfile: (userId: string) => void
+  onOpenProjectSlug: (slug: string) => void
   onSubmitProject: () => void
 }) {
   const [stats, setStats] = useState<SiteStats | null>(null)
   const [statsState, setStatsState] = useState<'loading' | 'ready' | 'offline'>('loading')
+  const [hotTags, setHotTags] = useState<TagCount[]>([])
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [activity, setActivity] = useState<ActivityItem[]>([])
   const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([])
   const [leaderboardState, setLeaderboardState] = useState<'loading' | 'ready' | 'offline'>('loading')
   const [featuredSlug, setFeaturedSlug] = useState('')
@@ -1724,6 +1771,22 @@ function Home({
     getFeaturedProjects(controller.signal)
       .then((response) => setFeaturedSlug(response.data[0]?.slug ?? ''))
       .catch(() => setFeaturedSlug(''))
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getHotTags(controller.signal)
+      .then((response) => setHotTags(response.data))
+      .catch(() => setHotTags([]))
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getActivity(controller.signal)
+      .then((response) => setActivity(response.data))
+      .catch(() => setActivity([]))
     return () => controller.abort()
   }, [])
 
@@ -1772,11 +1835,24 @@ function Home({
     return [...licenses].sort((left, right) => left.localeCompare(right))
   }, [filteredProjects])
 
+  const availableTags = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const project of filteredProjects) {
+      for (const tag of project.tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+  }, [filteredProjects])
+
   const visibleProjects = useMemo(
     () => filteredProjects.filter((project) =>
       (!stackFilter || project.stack.includes(stackFilter)) &&
-      (!licenseFilter || project.license === licenseFilter)),
-    [filteredProjects, stackFilter, licenseFilter],
+      (!licenseFilter || project.license === licenseFilter) &&
+      (!tagFilter || project.tags.includes(tagFilter))),
+    [filteredProjects, stackFilter, licenseFilter, tagFilter],
   )
 
   // 顶栏标签的真实语义：趋势按浏览量、最新更新按时间、社区按讨论数。
@@ -1792,10 +1868,11 @@ function Home({
     return sorted
   }, [visibleProjects, activeTab])
 
-  const hasExtraFilter = stackFilter !== null || licenseFilter !== null
+  const hasExtraFilter = stackFilter !== null || licenseFilter !== null || tagFilter !== null
   const resetExtraFilters = () => {
     setStackFilter(null)
     setLicenseFilter(null)
+    setTagFilter(null)
   }
 
   // 本周精选：优先展示管理员配置的推荐项目；未配置时取最近更新的项目。
@@ -1812,6 +1889,18 @@ function Home({
 
   const formatCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
   const formatInteger = (value: number) => new Intl.NumberFormat('zh-CN').format(value)
+  const formatRelativeTime = (value: string) => {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    const minutes = Math.floor((Date.now() - date.getTime()) / 60000)
+    if (minutes < 1) return '刚刚'
+    if (minutes < 60) return `${minutes} 分钟前`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours} 小时前`
+    const days = Math.floor(hours / 24)
+    if (days < 30) return `${days} 天前`
+    return date.toLocaleDateString('zh-CN')
+  }
 
   return (
     <main>
@@ -1880,11 +1969,29 @@ function Home({
                     ))}
                   </div>
                 </div>
+                <div className="filter-popover-group">
+                  <span className="filter-popover-label">标签</span>
+                  <div className="filter-option-list">
+                    {availableTags.length === 0 && <span className="filter-popover-empty">暂无可选标签</span>}
+                    {availableTags.map((tag) => (
+                      <button key={tag.name} type="button" className={tagFilter === tag.name ? 'active' : ''} onClick={() => setTagFilter(tagFilter === tag.name ? null : tag.name)}>{tag.name} <small>{tag.count}</small></button>
+                    ))}
+                  </div>
+                </div>
                 {hasExtraFilter && <button type="button" className="filter-popover-reset" onClick={resetExtraFilters}>清除筛选</button>}
               </div>
             )}
           </div>
         </div>
+        {hotTags.length > 0 && (
+          <div className="hot-tags-row" aria-label="热门标签">
+            {hotTags.slice(0, 12).map((tag) => (
+              <button key={tag.name} type="button" className={tagFilter === tag.name ? 'active' : ''} onClick={() => setTagFilter(tagFilter === tag.name ? null : tag.name)}>
+                {tag.name} <small>{tag.count}</small>
+              </button>
+            ))}
+          </div>
+        )}
 
         {catalogState !== 'online' && (
           <div className={`catalog-notice ${catalogState}`}>
@@ -1935,6 +2042,27 @@ function Home({
           </div>
         </section>
       )}
+      {activity.length > 0 && (
+        <section className="content-section compact-section">
+          <div className="section-heading">
+            <div><span className="section-kicker">COMMUNITY</span><h2>社区动态</h2></div>
+          </div>
+          <div className="activity-list">
+            {activity.map((item, index) => (
+              <button key={`${item.type}-${item.project_slug}-${index}`} type="button" className="activity-row" onClick={() => { if (item.project_slug) onOpenProjectSlug(item.project_slug) }}>
+                <span className={`activity-icon is-${item.type}`}>
+                  {item.type === 'project_published' ? <Rocket size={14} /> : item.type === 'project_updated' ? <RefreshCw size={14} /> : <MessageSquare size={14} />}
+                </span>
+                <span className="activity-text">
+                  <strong>{item.type === 'comment' ? `${item.title} 有新评论` : item.type === 'project_published' ? `项目发布：${item.title}` : `项目更新：${item.title}`}</strong>
+                  {item.summary && <small>{item.summary}</small>}
+                </span>
+                <span className="activity-time">{formatRelativeTime(item.created_at)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="content-section compact-section">
         <div className="section-heading">
           <div><span className="section-kicker">OPEN API / FOR AGENTS</span><h2>开放能力</h2></div>
@@ -1953,6 +2081,7 @@ function Home({
       <footer className="site-footer">
         <span>© 2026 新猿译码</span>
         <span>一套面向 Agent 开发者的开放索引</span>
+        <a className="footer-rss" href="/feed.xml" title="RSS 订阅最新项目">RSS 订阅 <ArrowUpRight size={12} /></a>
         <span className={`gateway-state ${gatewayState.status}`}>
           <span className="gateway-state-dot" />
           {gatewayState.status === 'online'

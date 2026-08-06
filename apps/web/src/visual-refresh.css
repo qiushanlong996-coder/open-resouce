@@ -1009,3 +1009,113 @@ a {
   border: 1px solid color-mix(in srgb, #b42318 40%, var(--line));
   border-radius: 12px;
 }
+
+/* 首页热门标签与社区动态。 */
+.hot-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -10px 0 22px;
+}
+.hot-tags-row button {
+  min-height: 26px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+}
+.hot-tags-row button small {
+  color: var(--text-tertiary);
+  margin-left: 2px;
+}
+.hot-tags-row button:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 30%, var(--line));
+}
+.hot-tags-row button.active {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+.hot-tags-row button.active small {
+  color: rgba(255, 255, 255, .82);
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: left;
+  transition: transform .16s ease, border-color .16s ease, background-color .16s ease;
+}
+.activity-row:hover {
+  border-color: var(--focus-line);
+  background: var(--surface-muted);
+  transform: translateY(-1px);
+}
+.activity-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--blue);
+  background: var(--soft-blue);
+}
+.activity-icon.is-comment {
+  color: #1f793d;
+  background: color-mix(in srgb, #eaf7ee 80%, var(--surface));
+}
+.activity-icon.is-project_updated {
+  color: #a36c18;
+  background: color-mix(in srgb, #fff7e8 82%, var(--surface));
+}
+.activity-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.activity-text strong {
+  font-size: 13px;
+}
+.activity-text small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-time {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.footer-rss {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-tertiary);
+  text-decoration: none;
+  font-size: 10px;
+}
+.footer-rss:hover {
+  color: var(--blue);
+}
