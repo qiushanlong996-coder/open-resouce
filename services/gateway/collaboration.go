@@ -565,6 +565,17 @@ func resolveCollaborationTarget(
 	if slug == "" {
 		return collaborationTarget{markdown: project.Description}, nil
 	}
+	// 尚未建文档的项目以 overview 虚拟文档对外（与阅读端同规则）：
+	// 协作地址 ?document=overview 也要能编辑项目正文，否则会误报文档不存在。
+	if slug == publishedDocumentSlug {
+		stored, err := projectDocumentRepositoryStore.ListByProject(ctx, project.ID)
+		if err != nil {
+			return collaborationTarget{}, err
+		}
+		if len(stored) == 0 {
+			return collaborationTarget{markdown: project.Description}, nil
+		}
+	}
 	document, found, err := projectDocumentRepositoryStore.FindBySlug(ctx, project.ID, slug)
 	if err != nil {
 		return collaborationTarget{}, err

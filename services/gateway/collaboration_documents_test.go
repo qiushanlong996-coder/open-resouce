@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,6 +52,82 @@ func dialCollaboration(
 		t.Fatalf("init message from %s = %#v", address, initial)
 	}
 	return connection, initial
+}
+
+// TestResolveCollaborationTargetOverviewFallback 覆盖「只有项目正文、没有真实文档」
+// 的旧项目：阅读端以 overview 虚拟文档对外，协作地址 ?document=overview 也必须
+// 能编辑项目正文，而不是误报文档不存在（生产实测 404 的根因）。
+func TestResolveCollaborationTargetOverviewFallback(t *testing.T) {
+	project := managedProject{
+		ID: "project-body-only", Slug: "body-only", Name: "只有正文的项目",
+		Description: "# 项目正文\n\n这是一段可以被协作编辑的正文。",
+		Status:      "published",
+	}
+
+	t.Run("无文档时 overview 映射项目正文", func(t *testing.T) {
+		original := projectDocumentRepositoryStore
+		projectDocumentRepositoryStore = newMemoryProjectDocumentRepository()
+		t.Cleanup(func() { projectDocumentRepositoryStore = original })
+
+		target, err := resolveCollaborationTarget(context.Background(), project, publishedDocumentSlug)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.documentID != "" || target.markdown != project.Description {
+			t.Fatalf("target = %#v, want project body", target)
+		}
+	})
+
+	t.Run("空 slug 映射项目正文", func(t *testing.T) {
+		original := projectDocumentRepositoryStore
+		projectDocumentRepositoryStore = newMemoryProjectDocumentRepository()
+		t.Cleanup(func() { projectDocumentRepositoryStore = original })
+
+		target, err := resolveCollaborationTarget(context.Background(), project, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.markdown != project.Description {
+			t.Fatalf("target = %#v", target)
+		}
+	})
+
+	t.Run("有文档时按真实 slug 解析", func(t *testing.T) {
+		original := projectDocumentRepositoryStore
+		repo := newMemoryProjectDocumentRepository()
+		projectDocumentRepositoryStore = repo
+		t.Cleanup(func() { projectDocumentRepositoryStore = original })
+
+		guide, err := repo.Create(context.Background(), project.ID, "author-1", projectDocumentInput{
+			Slug: "guide", Title: "指南", Markdown: "# 指南",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		target, err := resolveCollaborationTarget(context.Background(), project, "guide")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.documentID != guide.ID || target.markdown != guide.Markdown {
+			t.Fatalf("target = %#v", target)
+		}
+	})
+
+	t.Run("有文档但 overview 不是真实文档时报文档不存在", func(t *testing.T) {
+		original := projectDocumentRepositoryStore
+		repo := newMemoryProjectDocumentRepository()
+		projectDocumentRepositoryStore = repo
+		t.Cleanup(func() { projectDocumentRepositoryStore = original })
+
+		if _, err := repo.Create(context.Background(), project.ID, "author-1", projectDocumentInput{
+			Slug: "guide", Title: "指南", Markdown: "# 指南",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := resolveCollaborationTarget(context.Background(), project, publishedDocumentSlug); !errors.Is(err, errDocumentNotFound) {
+			t.Fatalf("err = %v, want errDocumentNotFound", err)
+		}
+	})
 }
 
 // seedCollaborationDocuments 在测试项目下建两篇文档。

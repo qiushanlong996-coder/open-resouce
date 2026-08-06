@@ -3033,3 +3033,64 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
   （连接被关闭），验证一律从服务器本机 curl 完成。
 - 前端发布只保留最近 5 个版本，本次清理后剩
   `20260806-search-file-admin` 与 `f5186b0-20260805082625`。
+
+## 2026-08-06：IP 归属地恢复 + 协作编辑 404 修复 + 登录页 UI 打磨
+
+### 问题一：用户 IP 归属地不显示
+
+根因：新应用服务器（156.225.28.10）迁移时没有带 ip2region 数据文件，
+`/etc/open-resouce/gateway.env` 也没有 `IP_REGION_*` 配置，网关启动时
+归属地解析器保持 noop，评论/用户列表的归属地静默为空。
+
+修复（运维侧，无代码改动）：
+
+1. 从 `lionsoul2014/ip2region` 仓库 `data/` 目录下载
+   `ip2region_v4.xdb`（11MB）与 `ip2region_v6.xdb`（37MB）到
+   `/var/lib/open-resouce/`（注意：文件名是 `ip2region_v4.xdb`，
+   不是旧文档里的 `ip2region.xdb`，仓库已改名）。
+2. `gateway.env` 补 `IP_REGION_V4_DB_PATH` / `IP_REGION_V6_DB_PATH`，
+   重启后日志出现 `IP region resolution enabled ipv4=true ipv6=true`。
+3. 环境变量示例 `deploy/systemd/open-resouce-gateway.env.example` 已补齐，
+   后续机器照抄即可。
+
+### 问题二：协作编辑连接失败
+
+根因：旧项目（只有项目正文、未建真实文档，如 `maomi`）在阅读端以
+`overview` 虚拟文档对外，但协作 WebSocket 的目标解析只查真实文档表，
+`?document=overview` 一律 404 `document_not_found`（nginx 日志与网关日志均确认）。
+
+修复（`services/gateway/collaboration.go`）：
+
+- `resolveCollaborationTarget` 增加与阅读端一致的规则：slug 为 `overview`
+  且项目无真实文档时，协作目标映射为项目正文；有真实文档时仍按 slug
+  解析真实文档（此时 `overview` 若不存在仍 404，语义不变）。
+- 新增 `TestResolveCollaborationTargetOverviewFallback`，覆盖
+  无文档 overview→正文、空 slug→正文、有文档按真实 slug、有文档但
+  overview 非真实文档仍报不存在四种情况。
+
+### 问题三：登录页 UI 太丑
+
+根因与修复（`apps/web/src/visual-refresh.css`）：
+
+- GitHub 登录按钮：`visual-refresh.css` 的 `.provider-button` 通用规则把
+  文字色覆盖成深色，而 App.css 的 `.provider-button.github` 背景仍是深色
+  `#24292f`，深底深字看不清。改为浅色底 + 深色文字 + 描边，并给
+  GitHub / 微信两个按钮统一 hover 轻抬。
+- 输入框聚焦：原来只有边框变色、再叠一层全局 outline，观感生硬；改为
+  柔和品牌色光圈（`box-shadow 3px` ring）+ 圆角，`:focus` 去 outline。
+- 「忘记密码 / 返回登录」：`.auth-secondary` 加 `align-self:center` 与
+  自动宽度，保证水平居中。
+- 按钮整体：第三方登录按钮 46px 高、13px 字号；弹窗主按钮统一
+  46px + 圆角；登录/注册切换做成胶囊分段控件。
+- 全站：`button/a/input/textarea:focus-visible` 从高饱和描边改为
+  柔和的品牌色光圈。
+
+### 部署与验证
+
+- 后端：Linux 网关交叉编译上传，保留 `gateway.previous` 回滚点后原子替换重启；
+  日志确认 `IP region resolution enabled ipv4=true ipv6=true`、
+  `search index ready documents=7`，`/healthz` `/readyz` 正常。
+- 前端：发布目录 `20260806-login-ui-ipregion-collab`（326 文件），
+  站点软链 `/var/www/open-resouce/current` 已切换；公网首页引用
+  `index-Cb3wmgSK.js` / `index-CaQ4MAi7.css`，CSS 校验包含全部新规则。
+- `go test ./services/gateway` 全量通过（含新增协作目标解析测试）。

@@ -553,3 +553,85 @@ button svg,
   .detail-copy h1 { font-size: clamp(32px, 10vw, 42px); }
   .reader-back-to-top { width: 44px; height: 44px; }
 }
+
+/* ==================== 登录/注册弹窗统一打磨 ==================== */
+
+/* 第三方登录按钮：GitHub 用浅色底 + 深色文字，避免深底深字看不清；
+   微信保留品牌浅绿底。两者统一高度、圆角与 hover 轻抬。 */
+.provider-button {
+  height: 46px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.provider-button.github {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, var(--line));
+}
+.provider-button.github:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: color-mix(in srgb, var(--ink) 42%, var(--line));
+  transform: translateY(-1px);
+}
+.provider-button.wechat {
+  color: #1f793d;
+  background: color-mix(in srgb, #eaf7ee 86%, var(--surface));
+  border: 1px solid color-mix(in srgb, #1f793d 28%, var(--line));
+}
+.provider-button.wechat:hover:not(:disabled) {
+  background: color-mix(in srgb, #1f793d 12%, var(--surface));
+  border-color: color-mix(in srgb, #1f793d 46%, var(--line));
+  transform: translateY(-1px);
+}
+
+/* 邮箱表单：输入框更高、带圆角；聚焦用柔和光圈替代生硬双描边。 */
+.auth-form input {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-control);
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+.auth-form input::placeholder { color: var(--text-tertiary); }
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent);
+}
+
+/* 登录/注册主按钮与弹窗按钮统一尺寸。 */
+.login-modal .primary-button {
+  height: 46px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-control);
+}
+
+/* 登录/注册切换做成胶囊分段控件。 */
+.auth-mode-tabs {
+  border-radius: 999px;
+}
+.auth-mode-tabs button {
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+/* 「忘记密码 / 返回登录」始终水平居中。 */
+.auth-secondary {
+  align-self: center;
+  width: auto;
+  padding: 0 18px;
+}
+
+/* 弹窗标题与说明的层级微调。 */
+.login-modal h2 { font-size: 22px; letter-spacing: -0.01em; }
+.login-modal > p { max-width: 300px; margin-left: auto; margin-right: auto; }
+
+/* 全局焦点态：把生硬的高饱和描边换成柔和的品牌色光圈。 */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 58%, transparent);
+  outline-offset: 2px;
+}
