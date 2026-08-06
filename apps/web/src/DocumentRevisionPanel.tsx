@@ -213,7 +213,7 @@ export default function DocumentRevisionPanel({
                 title={selected?.current ? '这就是当前正文所处的版本' : '把正文回滚到该版本'}
                 onClick={() => void restore()}
               >
-                <RotateCcw size={14} /> {restoring ? '回滚中…' : `回滚到 v${selectedVersion ?? '—'}`}
+                <RotateCcw size={14} /> {restoring ? '回滚中…' : `回滚到 v${selectedVersion ?? '-'}`}
               </button>
             </div>
 

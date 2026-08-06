@@ -1694,7 +1694,7 @@ function Home({
 
       <section className="content-section" id="project-grid">
         <div className="section-heading">
-          <div><span className="section-kicker">PROJECT INDEX / 01</span><h2>{activeTab === '探索' ? '探索项目' : activeTab}</h2></div>
+          <div><span className="section-kicker">PROJECT INDEX</span><h2>{activeTab === '探索' ? '探索项目' : activeTab}</h2></div>
           <button className="outline-button">查看全部 <ChevronRight size={15} /></button>
         </div>
         <div className="filter-row">
@@ -1717,12 +1717,12 @@ function Home({
       </section>
 
       <section className="editorial-band">
-        <div><span className="section-kicker">FROM THE COMMUNITY / 02</span><h2>好的项目，值得被读懂。</h2><p>项目不只是一个仓库地址。我们希望让每个 Agent 的背景、设计选择和使用方式都能被清楚地留下来。</p></div>
+        <div><span className="section-kicker">FROM THE COMMUNITY</span><h2>好的项目，值得被读懂。</h2><p>项目不只是一个仓库地址。我们希望让每个 Agent 的背景、设计选择和使用方式都能被清楚地留下来。</p></div>
         <div className="editorial-quote"><MessageSquare size={20} /><p>“把复杂的 Agent 工程，整理成可以被下一位开发者接住的知识。”</p><span>新猿译码编辑部</span></div>
       </section>
 
       <section className="content-section compact-section">
-        <div className="section-heading"><div><span className="section-kicker">CURATED NOTE / 03</span><h2>本周精选</h2></div><button className="text-button">阅读编辑手记 <ArrowUpRight size={15} /></button></div>
+        <div className="section-heading"><div><span className="section-kicker">CURATED NOTE</span><h2>本周精选</h2></div><button className="text-button">阅读编辑手记 <ArrowUpRight size={15} /></button></div>
         <div className="curated-row">
           <div className="curated-cover cover-blue"><div className="cover-label">FIELD NOTE 07</div><span>Agent<br />Observability</span></div>
           <div className="curated-copy"><span className="meta-label">编辑推荐 · 6 分钟阅读</span><h3>为什么 Agent 需要自己的“运行日志”？</h3><p>从单次回答到可回放的任务链路，观察每一步工具调用，才能让实验走向生产。</p><button className="text-button">打开文章 <ArrowUpRight size={15} /></button></div>
@@ -1911,7 +1911,7 @@ function ProjectDetail({
           <button className="icon-button" title="更多操作" aria-label="更多操作"><MoreHorizontal size={18} /></button>
         </div>
       </section>
-      <div className="detail-stats"><div><strong>{project.views}</strong><span>浏览</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '—'}</strong><span>当前版本</span></div></div>
+      <div className="detail-stats"><div><strong>{project.views}</strong><span>浏览</span></div><div><strong>{project.downloads}</strong><span>下载</span></div><div><strong>{project.stars}</strong><span>Stars</span></div><div><strong>{project.comments}</strong><span>讨论</span></div><div><strong>{project.currentVersion ? `v${project.currentVersion}` : '-'}</strong><span>当前版本</span></div></div>
       <nav className="detail-tabs">{['项目概览', '文档阅读', '代码预览', '下载资源'].map((tab) => <button key={tab} className={detailTab === tab ? 'active' : ''} onClick={() => setDetailTab(tab)}>{tab}</button>)}</nav>
 
       {collaborationEditing && currentUser ? (
@@ -2135,7 +2135,7 @@ function DocumentView({ project, onOpenProfile, documentState, documentTree, act
   return (
     <section className="doc-workspace">
       {activeDocument && <ReadingProgressBar progress={scrollMetrics.progress} />}
-      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '—'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={`${item.level > 1 ? 'indent' : ''} ${item.id === activeHeadingId ? 'is-current' : ''}`.trim()} aria-current={item.id === activeHeadingId ? 'location' : undefined} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
+      <aside className="doc-sidebar"><div className="sidebar-heading"><span>文档目录</span><button className="icon-button quiet" title="收起目录" aria-label="收起目录"><ChevronDown size={15} /></button></div><div className="doc-project-label"><div className="mini-mark">{project.name.slice(0, 1)}</div><div><strong>{project.name}</strong><small>文档 v{activeDocument?.version ?? project.currentVersion ?? '-'}</small></div></div><nav className="doc-tree">{documentTree.length ? renderDocumentNodes(documentTree) : <span className="doc-tree-empty">暂无文档</span>}</nav>{activeDocument?.outline.length ? <nav className="doc-outline" aria-label="本文大纲"><span className="meta-label">ON THIS PAGE</span>{activeDocument.outline.map((item) => <button key={item.id} className={`${item.level > 1 ? 'indent' : ''} ${item.id === activeHeadingId ? 'is-current' : ''}`.trim()} aria-current={item.id === activeHeadingId ? 'location' : undefined} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{item.title}</button>)}</nav> : null}<div className="sidebar-bottom"><span className="meta-label">DOCUMENT STATUS</span><p><span className="status-dot" /> 已审核 · 公开可读</p></div></aside>
       <article className="document-article" onMouseUp={onSelection}>
         <div className="article-toolbar"><span className="meta-label">{activeDocument ? activeDocument.title : '文档'}</span>{activeDocument && activeDocument.revision ? <span className="article-revision-meta" title={`这篇文章的第 ${activeDocument.revision} 个修订版本`}><History size={12} /> 修订 v{activeDocument.revision}{activeDocument.updated_by_name ? ` · 最后由 ${activeDocument.updated_by_name} 更新` : ''}</span> : null}<div className="article-toolbar-actions">{activeDocument && <DocumentSearchBox keyword={searchKeyword} onKeywordChange={setSearchKeyword} total={documentSearch.total} activeIndex={documentSearch.activeIndex} onNext={documentSearch.next} onPrevious={documentSearch.previous} />}{activeDocument && <ReaderSettingsControl controller={readerPrefs} />}<button className="tool-button" title="复制文档链接" disabled={!activeDocument} onClick={() => void copyDocumentLink()}><Copy size={14} /> 链接</button>{activeDocument ? <a className="tool-button" title="下载 Markdown" href={markdownDownloadURL} download={`${project.slug}-${activeDocument.slug}.md`} onClick={() => showToast('Markdown 下载已开始')}><Download size={14} /> 下载</a> : <button className="tool-button" title="下载 Markdown" disabled><Download size={14} /> 下载</button>}</div></div>
         {documentState === 'offline' && <div className="document-sync-state offline"><span className="gateway-state-dot" />文档服务暂时不可用，请稍后重试。</div>}
@@ -2296,7 +2296,7 @@ function CommentCard({ comment, onOpenProfile, currentUserID, resolving, deletin
 function OverviewView({ project, onRead }: { project: Project; onRead: () => void }) {
   const highlights = project.highlights ?? ['项目结构清晰', '文档公开可读', '支持快速复用']
   const useCases = project.useCases ?? project.tags
-  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><MarkdownCanvas markdown={project.description} projectSlug={project.slug} /><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '—'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
+  return <section className="overview-view"><div className="overview-main"><span className="section-kicker">ABOUT THIS PROJECT</span><h2>{project.summary}</h2><MarkdownCanvas markdown={project.description} projectSlug={project.slug} /><div className="feature-list">{highlights.map((highlight) => <div key={highlight}><Check size={16} /><span>{highlight}</span></div>)}</div><button className="primary-button" onClick={onRead}>打开文档 <BookOpen size={16} /></button></div><div className={`overview-visual ${project.accent}`}><div className="visual-topline"><span>VERSION / {project.currentVersion ?? '-'}</span><span>READY</span></div><div className="overview-lines">{useCases.slice(0, 4).map((useCase) => <span key={useCase}>{useCase}</span>)}</div><div className="overview-bottom"><span>{useCases.length} 个适用场景</span><span>{project.status}</span></div></div></section>
 }
 
 function formatFileSize(bytes: number) {
@@ -2703,7 +2703,7 @@ function DownloadView({ project, onDownload }: { project: Project; onDownload: (
   const downloadControl = (kind: 'code' | 'document', label: string) => project.resources?.[kind]
     ? <a className="icon-button" title={label} aria-label={label} href={resourceURL(kind)}><Download size={16} /></a>
     : <button className="icon-button" title={label} aria-label={label} onClick={onDownload}><Download size={16} /></button>
-  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES / 04</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p>{project.resources?.code ? <a className="outline-button" href={resourceURL('code')}><Download size={15} /> 下载代码包</a> : <button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button>}</div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>{project.slug}-v{project.currentVersion ?? 'latest'}</strong><small>代码包 · {project.license}</small></div><span>v{project.currentVersion ?? '—'}</span>{downloadControl('code', '下载代码包')}</div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档</strong><small>文档 · 作者维护</small></div><span>DOC</span>{downloadControl('document', '下载文档')}</div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
+  return <section className="download-view"><div className="download-intro"><span className="section-kicker">RELEASES</span><h2>选择一个资源开始。</h2><p>当前展示的是项目公开资源。下载记录会计入项目统计，资源由作者维护。</p>{project.resources?.code ? <a className="outline-button" href={resourceURL('code')}><Download size={15} /> 下载代码包</a> : <button className="outline-button" onClick={onDownload}><Download size={15} /> 下载代码包</button>}</div><div className="resource-list"><div className="resource-row"><div className="resource-icon"><Code2 size={18} /></div><div><strong>{project.slug}-v{project.currentVersion ?? 'latest'}</strong><small>代码包 · {project.license}</small></div><span>v{project.currentVersion ?? '-'}</span>{downloadControl('code', '下载代码包')}</div><div className="resource-row"><div className="resource-icon"><FileText size={18} /></div><div><strong>项目文档</strong><small>文档 · 作者维护</small></div><span>DOC</span>{downloadControl('document', '下载文档')}</div><div className="resource-row"><div className="resource-icon"><Play size={18} /></div><div><strong>产品演示</strong><small>Bilibili 外链</small></div><span>VIDEO</span><button className="icon-button" title="打开演示视频" aria-label="打开演示视频" onClick={onDownload}><ArrowUpRight size={16} /></button></div></div></section>
 }
 
 function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
@@ -3323,7 +3323,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
             <button type="button" title="无序列表" aria-label="无序列表" onClick={() => insertMarkdown('\n- ', '\n', '列表项')}>• 列表</button>
             <button type="button" title="任务列表" aria-label="任务列表" onClick={() => insertMarkdown('\n- [ ] ', '\n', '待办事项')}>☑ 任务</button>
             <button type="button" title="引用" aria-label="引用" onClick={() => insertMarkdown('\n> ', '\n', '引用内容')}>❝ 引用</button>
-            <button type="button" title="分割线" aria-label="分割线" onClick={() => insertMarkdown('\n\n---\n\n')}>— 分割线</button>
+            <button type="button" title="插入分割线" aria-label="插入分割线" onClick={() => insertMarkdown('\n\n---\n\n')}>分割线</button>
             <span className="toolbar-divider" aria-hidden="true" />
             <button type="button" title="链接" aria-label="链接" onClick={() => insertMarkdown('[', '](https://)', '链接文字')}>🔗 链接</button>
             <button type="button" title="表格" aria-label="表格" onClick={() => insertMarkdown('\n| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |\n')}>▦ 表格</button>

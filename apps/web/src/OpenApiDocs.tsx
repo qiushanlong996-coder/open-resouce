@@ -41,9 +41,9 @@ const ENDPOINTS: { method: string; path: string; purpose: string }[] = [
 
 const FIELDS: { field: string; rule: string }[] = [
   { field: 'slug', rule: '^[a-z0-9]+(?:-[a-z0-9]+)*$，≤ 80，全平台唯一' },
-  { field: 'name', rule: '2–120 字符' },
-  { field: 'summary', rule: '10–300 字符' },
-  { field: 'description', rule: '20–50000 字符（Markdown）' },
+  { field: 'name', rule: '2-120 字符' },
+  { field: 'summary', rule: '10-300 字符' },
+  { field: 'description', rule: '20-50000 字符（Markdown）' },
   { field: 'category', rule: '非空，≤ 80' },
   { field: 'tags / tech_stack', rule: '各 ≤ 10 项' },
   { field: 'license', rule: '非空，≤ 40' },
@@ -158,7 +158,7 @@ export default function OpenApiDocs({ onClose }: { onClose: () => void }) {
             <h3><KeyRound size={17} /> 鉴权</h3>
             <p>
               所有开放接口位于 <code>/api/v1/open/*</code>，使用 Bearer AccessKey 鉴权，并以该
-              AccessKey 所属账号的身份执行——创建的项目会归属到该账号，并出现在其作者中心。
+              AccessKey 所属账号的身份执行，创建的项目会归属到该账号，并出现在其作者中心。
             </p>
             <div className="oad-callout">
               <strong>如何获取 AccessKey</strong>
@@ -223,7 +223,7 @@ export default function OpenApiDocs({ onClose }: { onClose: () => void }) {
 
             <div className="oad-endpoint">
               <div className="oad-endpoint-head"><span className="oad-method">POST</span><code>/api/v1/open/projects/{'{id}'}/documents</code></div>
-              <p>（可选）追加知识库文档。字段：<code>slug</code>（<code>^[a-z0-9-]+$</code>，≤ 160）、<code>title</code>（1–200）、<code>markdown</code>（≤ 200000），可选 <code>parent_id</code>。</p>
+              <p>（可选）追加知识库文档。字段：<code>slug</code>（<code>^[a-z0-9-]+$</code>，≤ 160）、<code>title</code>（1-200）、<code>markdown</code>（≤ 200000），可选 <code>parent_id</code>。</p>
               <CodeBlock label="请求" code={DOC_CURL} />
             </div>
           </section>

@@ -7,9 +7,9 @@ const errorMessage = (value: unknown, fallback: string) =>
   value instanceof Error ? value.message : fallback
 
 function formatDate(value?: string | null) {
-  if (!value) return '—'
+  if (!value) return '-'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString()
 }
 
 export default function AccessKeyManager({ onClose }: { onClose: () => void }) {

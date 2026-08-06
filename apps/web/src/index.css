@@ -1,5 +1,38 @@
+/* 自托管 Latin 显示/正文字体（Cabinet Grotesk，font-display: swap 避免阻塞与回流）。
+   中文继续走系统字体栈，保证本地化阅读质量与体积可控。 */
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: url('/fonts/cabinet-grotesk-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: url('/fonts/cabinet-grotesk-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: url('/fonts/cabinet-grotesk-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: url('/fonts/cabinet-grotesk-800.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  font-family: "Segoe UI Variable", "HarmonyOS Sans SC", "Microsoft YaHei UI", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Cabinet Grotesk", "Segoe UI Variable", "HarmonyOS Sans SC", "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   color: var(--ink);
   background: var(--page);
   font-synthesis: none;

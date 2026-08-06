@@ -28,14 +28,14 @@ const errorMessage = (value: unknown, fallback: string) =>
   value instanceof Error ? value.message : fallback
 
 function formatDate(value?: string | null) {
-  if (!value) return '—'
+  if (!value) return '-'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString()
 }
 
 // renderLastLogin 展示最近一次登录的 IP 归属地与时间。
 //
-// 三种情况要分开表达，不能混成一个「—」：
+// 三种情况要分开表达，不能混成一个「-」：
 //   - 从未登录过（本功能上线前的存量用户）→「暂无记录」；
 //   - 登录过但归属地判定不出来（内网来源、IP 库无此段）→ 只显示时间；
 //   - 两者都有 → 归属地为主、时间为辅。
@@ -718,7 +718,7 @@ function ApiKeysPanel() {
                   <td>{formatDate(key.created_at)}</td>
                   <td>{key.revoked_at ? <span className="admin-badge danger">已撤销</span> : <span className="admin-badge ok">有效</span>}</td>
                   <td>
-                    {key.revoked_at ? <span className="admin-badge muted">—</span>
+                    {key.revoked_at ? <span className="admin-badge muted">-</span>
                       : <button className="admin-btn danger" disabled={busy === key.id} onClick={() => void doRevoke(key)}>撤销</button>}
                   </td>
                 </tr>
@@ -787,9 +787,9 @@ function AuditPanel() {
                 <tr key={entry.id}>
                   <td>{formatDate(entry.created_at)}</td>
                   <td><span className="admin-badge muted" title={entry.action}>{actionLabel(entry.action)}</span></td>
-                  <td className="admin-mono">{entry.actor_email || entry.actor_id || '—'}</td>
-                  <td className="admin-mono">{entry.target || '—'}</td>
-                  <td>{entry.detail || '—'}</td>
+                  <td className="admin-mono">{entry.actor_email || entry.actor_id || '-'}</td>
+                  <td className="admin-mono">{entry.target || '-'}</td>
+                  <td>{entry.detail || '-'}</td>
                 </tr>
               ))}
             </tbody>

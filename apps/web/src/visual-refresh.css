@@ -635,3 +635,85 @@ textarea:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--blue) 58%, transparent);
   outline-offset: 2px;
 }
+
+/* ==================== 全站排版与浏览器表面打磨 ==================== */
+
+/* 标题：平衡断行 + 轻微收紧字距，靠字重与字号拉开层级。 */
+h1, h2, h3, h4 {
+  text-wrap: balance;
+}
+.section-heading h2,
+.compact-section h2,
+.editorial-band h2,
+.detail-copy h1,
+.overview-main h2,
+.download-intro h2,
+.curated-copy h3,
+.article-content h1,
+.login-modal h2 {
+  letter-spacing: -0.015em;
+}
+
+/* 主按钮文字层级：粗一点，避免和正文混在一起。 */
+.primary-button,
+.login-button,
+.provider-button,
+.admin-btn.primary {
+  font-weight: 600;
+}
+
+/* 数字与统计：等宽数字，避免跳列。 */
+.metrics-strip strong,
+.detail-stats strong,
+.card-footer span,
+.admin-stat .value,
+.admin-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 浏览器表面细节（选择、光标、滚动条、链接下划线）统一走主题色。 */
+::selection {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+input, textarea {
+  caret-color: var(--blue);
+}
+a {
+  text-underline-offset: 3px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-tertiary) 46%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-tertiary) 40%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-tertiary) 62%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 卡片悬停：用带主题色调的柔和投影，而不是纯黑硬阴影。 */
+.project-card:hover {
+  box-shadow: 0 18px 44px -26px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+/* 区段标签：克制、统一，不与标题抢层级。 */
+.section-kicker,
+.meta-label,
+.eyebrow {
+  letter-spacing: 1.2px;
+  font-weight: 600;
+}

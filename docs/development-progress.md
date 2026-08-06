@@ -3094,3 +3094,44 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
   站点软链 `/var/www/open-resouce/current` 已切换；公网首页引用
   `index-Cb3wmgSK.js` / `index-CaQ4MAi7.css`，CSS 校验包含全部新规则。
 - `go test ./services/gateway` 全量通过（含新增协作目标解析测试）。
+
+## 2026-08-06：安装 TasteSkill 与 Impeccable，全站 UI 与字体打磨
+
+### 安装
+
+- 按用户要求从 GitHub 拉取并安装两个设计 skill 到 `~/.codex/skills/`：
+  - `taste-skill`：`leonxlnx/taste-skill` 仓库 `skills/taste-skill`
+    （Anti-Slop 前端审美技能，读 brief、反 AI 模板化）。
+  - `impeccable`：`pbakaus/impeccable` 仓库 `.claude/skills/impeccable`
+    （全栈前端设计技能，含 typeset / polish / craft-floor 等 playbook）。
+- 两者在下一个会话起自动可用；本会话已按其 SKILL.md 与
+  `typeset.md` / `craft-floor.md` 流程执行应用。
+
+### 应用（定向打磨，保留品牌与世界，未推翻重做）
+
+设计读法：社区/内容平台，首页 Persuade、文档与后台 Operate/Read；
+保持现有 Apple 风、单一蓝色 accent 的世界，按「字体 → 节奏 → 色彩收敛 →
+浏览器表面」的顺序做现代杠杆。
+
+1. **字体**：自托管 Cabinet Grotesk（400/500/700/800，共约 80KB woff2，
+   `font-display: swap`），替换原先纯系统字体栈；中文继续走
+   HarmonyOS Sans SC / PingFang SC / Microsoft YaHei 系统栈。
+   先试了 Geist，但 Impeccable 机械检测器把 Geist 标记为「过度使用字体」，
+   按技能要求换成更有辨识度的 Cabinet Grotesk 后检测清零。
+2. **排版层级**：标题 `text-wrap: balance` + 轻微负字距；主按钮加粗；
+   统计数字启用等宽数字（tabular-nums）避免跳列。
+3. **浏览器表面**（craft-floor 的「cheapest signal」）：`::selection`
+   品牌蓝高亮、输入框 `caret-color`、细滚动条、链接 `text-underline-offset`，
+   全部走主题 token，浅/深色自适应。
+4. **文案清扫（taste-skill 硬规则）**：移除全部编号 eyebrow
+   （PROJECT INDEX / 01 等）；可见文案零 em-dash/en-dash
+   （`—`/`–` 全部换成 `-` 或重构句式）；编辑器「— 分割线」改为「分割线」。
+5. **悬停质感**：项目卡片悬停补带主题色调的柔和投影，替代纯黑硬阴影。
+
+### 验证与部署
+
+- Impeccable 机械检测器对改动文件输出 `[]`（零发现）。
+- 前端构建通过；发布目录 `20260806-taste-impeccable-ui`（330 文件，
+  含 4 个字体文件），站点软链已切换；公网首页引用
+  `index-BIej2CX-.js` / `index-DhXAynXW.css`，
+  4 个字重 `cabinet-grotesk-*.woff2` 均 200。
