@@ -230,6 +230,12 @@ func main() {
 		contentReportRepositoryStore = newMySQLContentReportRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
+	} else {
+		// 无 DATABASE_URL 时使用内存认证仓库，保持本地 Demo / 联调
+		// 可注册、可登录，与文档、项目等 seed fallback 的本地模式一致；
+		// 数据仅存内存，进程退出即失，不应在生产使用。
+		authRepositoryStore = newMemoryAuthRepository()
+		slog.Info("in-memory auth repository enabled (no DATABASE_URL)")
 	}
 
 	if redisURL := strings.TrimSpace(os.Getenv("REDIS_URL")); redisURL != "" {

@@ -2957,3 +2957,79 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
 但没有查证就下结论，既没说清是什么，也没给出解法。
 用户拿归属地信息质疑后才真正去取证，一查正文就写着解法。
 **看到异常 IP 应该先把它的响应正文和证书打出来看，而不是先猜。**
+
+## 2026-08-06：修复线上搜索再次全空（启动时索引为空自动回填）
+
+### 现象
+
+`https://www.openresource.cn/api/v1/search?q=…` 对任意关键词都返回 200 且 `data` 为空；
+同一时间 MySQL 里有 7 个已发布项目（`111 / maomi / my-project / search-regression / sr-2026…×3`）。
+
+### 根因
+
+生产 ES 索引 `open_resouce_documents` 存在、映射为当前 v2（含 `cjk_loose` 单字召回），
+但 **count=0（空索引）**。索引被清空后（旧机下线/数据盘重建等），网关重启时
+`warmSearchIndex` 只做 `Ensure`（缺索引就建、不灌数据），而单条写入事件不会再发生，
+于是搜索一直空结果——和 08-04 修过的「映射/召回」问题不是同一层。
+
+### 修复
+
+1. `searchIndex` 接口新增 `Count`，ES 实现走 `GET /{index}/_count`（索引缺失视为 0）。
+2. `warmSearchIndex` 启动时：`Ensure` 后查 `Count`，**索引为空则从 MySQL 全量回填**
+   （`rebuildSearchIndex`），非空则不动。失败只告警，不阻断服务启动。
+3. 新增测试：`Count` 协议与缺失索引归零、空索引启动回填、非空索引不重建。
+4. 交叉编译 Linux/amd64 网关，SFTP 上传应用服务器（`156.225.28.10`），
+   保留 `gateway.previous` 回滚点后原子替换并重启 systemd。
+
+### 验证
+
+- 重启日志按预期出现 `search index is empty; rebuilding from MySQL` →
+  `search index rebuilt on startup indexed=7 skipped=0`。
+- ES 索引与 MySQL 已发布项目逐条对齐（7/7），无跳过。
+- 公网回归：`q=猫` 命中「猫咪好可爱啊…」；`q=快速开始` 命中 2 条。
+  `atlas / RAG` 仍为 0 属预期：这四个是代码内置种子演示项目，不在 MySQL、从未进索引。
+- `systemctl is-active open-resouce-gateway` = active，`/healthz`、`/readyz` 均 200。
+
+### 注意事项
+
+- 改映射/分析器仍必须走管理员 `POST /api/v1/admin/search/reindex?recreate=1`；
+  本次启动回填只负责「索引空了」的自愈，不负责映射升级。
+- 启动回填的超时窗口为 15 分钟；若项目量级增长到万级文档，需重新评估窗口与是否改为
+  异步批量写入。
+- 应用服务器重启过程中曾出现两次瞬时启动失败（systemd 自动拉起后成功），
+  疑似与旧进程端口释放/MySQL 慢连接竞态有关，未影响最终结果，后续观察。
+
+## 2026-08-06：移动端文件页排版 + 管理端按钮样式修复上线
+
+### 已完成
+
+1. **移动端文件页（代码预览）工具栏**：单行 flex 在窄屏把「复制代码」等按钮挤出
+   屏幕（390px 实测溢出到 471px）、面包屑被压成 0 宽。修复：`source-head`
+   允许换行、面包屑独占一行（`code-toolbar-left` 占满宽度）、操作按钮自动换行。
+2. **管理端按钮文本样式**：`admin-btn` 基础类补齐
+   `display:inline-flex / align-items:center / justify-content:center / gap:6px /
+   white-space:nowrap / line-height:1 / text-decoration:none`，图标+文字按钮不再
+   基线错位、间距不一致；删除原先只在审核卡片里补的重复规则。
+3. **本地开发便利**：无 `DATABASE_URL` 时网关启用内存认证仓库（此前注册/登录
+   一律 503，本地无法完整联调）；生产有数据库不受影响。
+
+### 验证
+
+- `go test ./services/gateway` 全量通过。
+- 前端 `tsc -b` + Vite 生产构建通过（依赖先按 `pnpm-lock.yaml` 补装：
+  emoji-mart / milkdown / pinyin-pro 等此前未安装）。
+- 移动端文件页 DOM 实测（390px / 320px / 600px）：工具栏不再水平溢出，
+  面包屑可见，「复制代码」按钮回到视口内。
+- 发布目录 `20260806-search-file-admin`（326 个文件），站点软链
+  `/var/www/open-resouce/current` 指向新版本；公网首页引用
+  `index-B88DlnDE.js` / `index-snNmSxrB.css`，资源 200。
+
+### 部署注意事项（踩坑）
+
+- **站点软链是 `/var/www/open-resouce/current`（绝对目标），不是
+  `releases/current`**。本次第一次部署误建了后者，公网仍服务旧版；
+  已修正并删除误建的 `releases/current`。
+- 开发机（装阿里郎/云壳）访问 `www.openresource.cn` 时断时续
+  （连接被关闭），验证一律从服务器本机 curl 完成。
+- 前端发布只保留最近 5 个版本，本次清理后剩
+  `20260806-search-file-admin` 与 `f5186b0-20260805082625`。

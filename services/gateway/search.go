@@ -90,6 +90,8 @@ type searchIndex interface {
 	// Recreate 删除并按当前映射重建索引。
 	// 分析器与字段映射改动对已存在的索引无效，只能重建。
 	Recreate(ctx context.Context) error
+	// Count 返回索引内的文档数，用于启动时判断索引是否需要回填。
+	Count(ctx context.Context) (int64, error)
 	Index(ctx context.Context, document searchDocument) error
 	Delete(ctx context.Context, id string) error
 	// DeleteByProject 删除某项目下的全部记录，用于项目下架或重建前清理。
@@ -104,6 +106,7 @@ type noopSearchIndex struct{}
 
 func (noopSearchIndex) Ensure(context.Context) error                  { return nil }
 func (noopSearchIndex) Recreate(context.Context) error                { return nil }
+func (noopSearchIndex) Count(context.Context) (int64, error)          { return 0, nil }
 func (noopSearchIndex) Index(context.Context, searchDocument) error   { return nil }
 func (noopSearchIndex) Delete(context.Context, string) error          { return nil }
 func (noopSearchIndex) DeleteByProject(context.Context, string) error { return nil }
@@ -310,6 +313,27 @@ func (index *elasticSearchIndex) Recreate(ctx context.Context) error {
 		return fmt.Errorf("recreate search index: status %d: %s", status, truncateForLog(payload))
 	}
 	return nil
+}
+
+// Count 返回索引内的文档数。索引不存在时视为空索引，返回 0。
+func (index *elasticSearchIndex) Count(ctx context.Context) (int64, error) {
+	status, payload, err := index.do(ctx, http.MethodGet, "/"+index.indexName+"/_count", nil)
+	if err != nil {
+		return 0, err
+	}
+	if status == http.StatusNotFound {
+		return 0, nil
+	}
+	if status != http.StatusOK {
+		return 0, fmt.Errorf("count search index: status %d: %s", status, truncateForLog(payload))
+	}
+	var decoded struct {
+		Count int64 `json:"count"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return 0, fmt.Errorf("decode count response: %w", err)
+	}
+	return decoded.Count, nil
 }
 
 func (index *elasticSearchIndex) Index(ctx context.Context, document searchDocument) error {

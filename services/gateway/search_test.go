@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,8 @@ type fakeElastic struct {
 	searchBody string
 	// indexExists 控制 HEAD /index 的返回。
 	indexExists bool
+	// docCount 是 /_count 的返回数。
+	docCount int64
 	// failStatus 非零时所有写操作返回该状态码。
 	failStatus int
 }
@@ -49,7 +52,8 @@ func newFakeElastic(t *testing.T) *fakeElastic {
 			Method: request.Method, Path: request.URL.Path,
 			Query: request.URL.RawQuery, Auth: username, Body: string(payload),
 		})
-		searchBody, indexExists, failStatus := fake.searchBody, fake.indexExists, fake.failStatus
+		searchBody, indexExists, failStatus, docCount :=
+			fake.searchBody, fake.indexExists, fake.failStatus, fake.docCount
 		fake.Unlock()
 
 		switch {
@@ -59,6 +63,14 @@ func newFakeElastic(t *testing.T) *fakeElastic {
 			} else {
 				writer.WriteHeader(http.StatusNotFound)
 			}
+		case strings.HasSuffix(request.URL.Path, "/_count"):
+			writer.Header().Set("Content-Type", "application/json")
+			if !indexExists {
+				writer.WriteHeader(http.StatusNotFound)
+				_, _ = writer.Write([]byte(`{"error":"index_not_found_exception","status":404}`))
+				return
+			}
+			_, _ = writer.Write([]byte(fmt.Sprintf(`{"count":%d}`, docCount)))
 		case strings.HasSuffix(request.URL.Path, "/_search"):
 			writer.Header().Set("Content-Type", "application/json")
 			if searchBody == "" {
@@ -149,6 +161,112 @@ func TestElasticIndexEnsureSkipsWhenIndexExists(t *testing.T) {
 	if requests[0].Method != http.MethodHead {
 		t.Fatalf("first request should probe the index: %#v", requests[0])
 	}
+}
+
+func TestElasticIndexCount(t *testing.T) {
+	fake := newFakeElastic(t)
+	fake.indexExists = true
+	fake.docCount = 7
+
+	count, err := fake.index(t).Count(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 7 {
+		t.Fatalf("count = %d, want 7", count)
+	}
+	requests := fake.captured()
+	if len(requests) != 1 || requests[0].Method != http.MethodGet ||
+		requests[0].Path != "/test-index/_count" {
+		t.Fatalf("count request = %#v", requests)
+	}
+}
+
+func TestElasticIndexCountMissingIndexIsZero(t *testing.T) {
+	fake := newFakeElastic(t)
+	fake.indexExists = false
+
+	count, err := fake.index(t).Count(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0 for missing index", count)
+	}
+}
+
+// TestWarmSearchIndexRebuildsWhenEmpty 验证启动自愈：
+// 索引为空时从 MySQL 全量回填，非空时不动索引。
+// 对应生产「索引丢失或被重建后没有任何写入事件」导致搜索长期空结果的场景。
+func TestWarmSearchIndexRebuildsWhenEmpty(t *testing.T) {
+	seedPublished := func(t *testing.T) {
+		t.Helper()
+		repository := newMemoryManagedProjectRepository()
+		now := time.Now().UTC()
+		project, err := repository.Create(context.Background(), "owner-1", managedProjectInput{
+			Slug: "demo", Name: "演示项目", Summary: "一个用于验证启动回填的示例项目",
+			Description: "# 标题\n\n项目正文。", Category: "Coding Agent",
+			Tags: []string{"Agent", "检索"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.Submit(context.Background(), "owner-1", project.ID, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.Review(context.Background(), project.ID, "owner-1", "approve", "", now); err != nil {
+			t.Fatal(err)
+		}
+		managedProjectRepositoryStore = repository
+	}
+
+	setup := func(t *testing.T, docCount int64) *fakeElastic {
+		t.Helper()
+		originalIndex, originalProjects, originalDocuments :=
+			searchIndexStore, managedProjectRepositoryStore, projectDocumentRepositoryStore
+		projectDocumentRepositoryStore = newMemoryProjectDocumentRepository()
+		fake := newFakeElastic(t)
+		fake.indexExists = true
+		fake.docCount = docCount
+		searchIndexStore = fake.index(t)
+		t.Cleanup(func() {
+			searchIndexStore, managedProjectRepositoryStore, projectDocumentRepositoryStore =
+				originalIndex, originalProjects, originalDocuments
+		})
+		return fake
+	}
+
+	indexedWrites := func(fake *fakeElastic) int {
+		count := 0
+		for _, request := range fake.captured() {
+			if request.Method == http.MethodPut && strings.Contains(request.Path, "/_doc/") {
+				count++
+			}
+		}
+		return count
+	}
+
+	t.Run("空索引从 MySQL 回填", func(t *testing.T) {
+		fake := setup(t, 0)
+		seedPublished(t)
+		waitForBackgroundTasks()
+		warmSearchIndex()
+		waitForBackgroundTasks()
+		if writes := indexedWrites(fake); writes == 0 {
+			t.Fatalf("空索引应触发全量回填，实际没有写入: %#v", fake.captured())
+		}
+	})
+
+	t.Run("非空索引不重建", func(t *testing.T) {
+		fake := setup(t, 3)
+		seedPublished(t)
+		waitForBackgroundTasks()
+		warmSearchIndex()
+		waitForBackgroundTasks()
+		if writes := indexedWrites(fake); writes != 0 {
+			t.Fatalf("非空索引不应触发回填: %#v", fake.captured())
+		}
+	})
 }
 
 // TestElasticIndexRecreateDeletesThenCreates 验证重建会先删再建。

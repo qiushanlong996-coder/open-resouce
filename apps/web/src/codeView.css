@@ -113,4 +113,23 @@
   .code-reader-no { min-width: 26px; }
   .code-reader-gutter { padding: 0 8px 0 10px; }
   .code-crumb { max-width: 130px; }
+
+  /* 移动端文件页工具栏：面包屑独占一行，操作按钮可换行。
+     修复单行 flex 把「复制代码」等按钮挤出屏幕、面包屑被压成 0 宽的问题。 */
+  .source-head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .code-toolbar-left {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+  .source-head-actions {
+    flex-wrap: wrap;
+  }
+  .code-breadcrumb {
+    max-width: 100%;
+  }
 }

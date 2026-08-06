@@ -282,18 +282,36 @@ func syncProjectSearchIndex(project managedProject, action string) {
 	})
 }
 
-// warmSearchIndex 在启动时确保索引存在。失败只告警，不阻断服务启动。
+// warmSearchIndex 在启动时确保索引存在；索引为空时从 MySQL 全量回填。
+// 索引一旦丢失或重建，不会有单条写入事件触发同步，只靠管理员手动重建
+// 会让搜索长期空结果。启动时发现空索引自动回填，避免同类问题再次发生。
+// 失败只告警，不阻断服务启动。
 func warmSearchIndex() {
 	if !searchIndexStore.Available() {
 		return
 	}
 	runBestEffort(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		if err := searchIndexStore.Ensure(ctx); err != nil {
 			slog.Warn("ensure search index failed", "error", err)
 			return
 		}
-		slog.Info("search index ready")
+		count, err := searchIndexStore.Count(ctx)
+		if err != nil {
+			slog.Warn("count search index failed", "error", err)
+			return
+		}
+		if count > 0 {
+			slog.Info("search index ready", "documents", count)
+			return
+		}
+		slog.Warn("search index is empty; rebuilding from MySQL")
+		indexed, skipped, err := rebuildSearchIndex(ctx)
+		if err != nil {
+			slog.Error("startup search index rebuild failed", "error", err)
+			return
+		}
+		slog.Info("search index rebuilt on startup", "indexed", indexed, "skipped", skipped)
 	})
 }
