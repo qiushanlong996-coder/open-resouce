@@ -1,23 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, LayoutDashboard, Users, FolderKanban, KeyRound, ScrollText, Search, RefreshCw, Copy,
-  ClipboardCheck, ExternalLink, Flag,
+  ClipboardCheck, ExternalLink, Flag, MessageSquare,
 } from 'lucide-react'
 import {
   getAdminStats, getAdminUsers, banUser, unbanUser,
   getAdminProjects, takedownProject, getApiKeys, issueApiKey, revokeApiKey, getAdminAudit,
   getAdminUserStats, getPendingProjectReviews, reviewProject, getAdminReports, resolveReport,
+  getAdminComments, setAdminCommentHidden,
   type AuthUser, type AdminStats, type AdminUser, type ManagedProject, type ApiKey, type AdminAuditEntry,
-  type AdminUserStats, type ContentReport,
+  type AdminUserStats, type ContentReport, type AdminComment,
 } from './api/client'
 import './admin.css'
 
-type ModuleID = 'overview' | 'reviews' | 'reports' | 'users' | 'projects' | 'apikeys' | 'audit'
+type ModuleID = 'overview' | 'reviews' | 'reports' | 'comments' | 'users' | 'projects' | 'apikeys' | 'audit'
 
 const MODULES: { id: ModuleID; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
   { id: 'reviews', label: '内容审核', icon: ClipboardCheck },
   { id: 'reports', label: '举报处理', icon: Flag },
+  { id: 'comments', label: '评论管理', icon: MessageSquare },
   { id: 'users', label: '用户管理', icon: Users },
   { id: 'projects', label: '项目管理', icon: FolderKanban },
   { id: 'apikeys', label: '开放 API', icon: KeyRound },
@@ -83,6 +85,7 @@ export default function AdminConsole({ onClose, currentUser }: { onClose: () => 
             {active === 'overview' && <OverviewPanel />}
             {active === 'reviews' && <ReviewsPanel />}
             {active === 'reports' && <ReportsPanel />}
+            {active === 'comments' && <CommentsPanel />}
             {active === 'users' && <UsersPanel currentUser={currentUser} />}
             {active === 'projects' && <ProjectsPanel />}
             {active === 'apikeys' && <ApiKeysPanel />}
@@ -405,6 +408,94 @@ function ReportsPanel() {
                         <button className="admin-btn" disabled={busy === report.id} onClick={() => void handle(report, 'dismiss')}>驳回</button>
                       </span>
                       : <span className="admin-badge muted">已归档</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+    </div>
+  )
+}
+
+const COMMENT_STATUS_LABELS: Record<string, string> = {
+  open: '未解决',
+  resolved: '已解决',
+}
+
+function commentStatusBadgeClass(status: string) {
+  return status === 'resolved' ? 'ok' : 'warn'
+}
+
+function CommentsPanel() {
+  const [comments, setComments] = useState<AdminComment[]>([])
+  const [status, setStatus] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true)
+    setError('')
+    getAdminComments(status, signal)
+      .then((response) => setComments(response.data))
+      .catch((value) => { if (!signal?.aborted) setError(errorMessage(value, '评论列表加载失败')) })
+      .finally(() => { if (!signal?.aborted) setLoading(false) })
+  }, [status])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
+  const toggleHidden = async (comment: AdminComment) => {
+    setBusy(comment.id)
+    setError('')
+    try {
+      await setAdminCommentHidden(comment.id, !comment.hidden)
+      load()
+    } catch (value) {
+      setError(errorMessage(value, '评论状态更新失败'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-toolbar">
+        <select className="admin-btn" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="all">全部</option>
+          <option value="open">未解决</option>
+          <option value="resolved">已解决</option>
+          <option value="hidden">已隐藏</option>
+        </select>
+        <button className="admin-btn" onClick={() => load()}><RefreshCw size={15} /> 刷新</button>
+        <span className="admin-toolbar-note">隐藏评论为软删除，可随时恢复；用户删除的评论不在此列。</span>
+      </div>
+      {error && <div className="admin-error">{error}</div>}
+      {loading ? <div className="admin-loading">正在加载…</div>
+        : comments.length === 0 ? <div className="admin-empty">没有匹配的评论。</div>
+          : <table className="admin-table">
+            <thead>
+              <tr><th>时间</th><th>项目 / 文档</th><th>作者</th><th>内容</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {comments.map((comment) => (
+                <tr key={comment.id}>
+                  <td>{formatDate(comment.created_at)}</td>
+                  <td>
+                    <strong>{comment.project_name || '-'}</strong>
+                    {comment.document_title && <small className="admin-mono" style={{ display: 'block' }}>{comment.document_title}</small>}
+                    <small className="admin-mono" style={{ display: 'block' }}>{comment.id}</small>
+                  </td>
+                  <td>{comment.author_name}</td>
+                  <td className="admin-comment-body" title={comment.body}>{comment.body}</td>
+                  <td><span className={`admin-badge ${comment.hidden ? 'danger' : commentStatusBadgeClass(comment.status)}`}>{comment.hidden ? '已隐藏' : (COMMENT_STATUS_LABELS[comment.status] ?? comment.status)}</span></td>
+                  <td>
+                    <button className={`admin-btn ${comment.hidden ? '' : 'danger'}`} disabled={busy === comment.id} onClick={() => void toggleHidden(comment)}>
+                      {comment.hidden ? '恢复' : '隐藏'}
+                    </button>
                   </td>
                 </tr>
               ))}

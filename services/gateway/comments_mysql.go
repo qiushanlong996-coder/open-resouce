@@ -407,4 +407,73 @@ func (repository *mysqlCommentRepository) CountAll(ctx context.Context) (int, er
 	return count, nil
 }
 
+func (repository *mysqlCommentRepository) ListAllAdmin(
+	ctx context.Context, status string,
+) ([]adminCommentRecord, error) {
+	const query = `
+		SELECT c.id, c.document_id, c.parent_id, c.author_id, c.author_name, c.body_text,
+		       c.status, c.created_at, c.deleted_at,
+		       COALESCE(pd.title, ''), COALESCE(p.slug, ''), COALESCE(p.name, '')
+		FROM document_comments c
+		LEFT JOIN project_documents pd ON pd.id = c.document_id
+		LEFT JOIN managed_projects p ON p.id = pd.project_id
+		WHERE (? = 'hidden' AND c.deleted_at IS NOT NULL)
+		   OR (? <> 'hidden' AND c.deleted_at IS NULL)
+		ORDER BY c.created_at DESC, c.id
+		LIMIT 500`
+	rows, err := repository.db.QueryContext(ctx, query, status, status)
+	if err != nil {
+		return nil, fmt.Errorf("list admin comments: %w", err)
+	}
+	defer rows.Close()
+
+	records := make([]adminCommentRecord, 0)
+	for rows.Next() {
+		var record adminCommentRecord
+		var parentID, authorID sql.NullString
+		var deletedAt sql.NullTime
+		if err := rows.Scan(
+			&record.ID, &record.DocumentID, &parentID, &authorID, &record.AuthorName,
+			&record.Body, &record.Status, &record.CreatedAt, &deletedAt,
+			&record.DocumentTitle, &record.ProjectSlug, &record.ProjectName,
+		); err != nil {
+			return nil, fmt.Errorf("scan admin comment: %w", err)
+		}
+		record.ParentID = parentID.String
+		record.AuthorID = authorID.String
+		record.Hidden = deletedAt.Valid
+		if status == "open" && record.Status != "open" {
+			continue
+		}
+		if status == "resolved" && record.Status != "resolved" {
+			continue
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate admin comments: %w", err)
+	}
+	return records, nil
+}
+
+func (repository *mysqlCommentRepository) SetAdminHidden(
+	ctx context.Context, commentID string, hidden bool,
+) (bool, error) {
+	var deletedAt any
+	if hidden {
+		deletedAt = time.Now().UTC()
+	}
+	result, err := repository.db.ExecContext(ctx,
+		`UPDATE document_comments SET deleted_at = ?, updated_at = ? WHERE id = ?`,
+		deletedAt, time.Now().UTC(), commentID)
+	if err != nil {
+		return false, fmt.Errorf("set admin comment hidden: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read admin comment update result: %w", err)
+	}
+	return affected > 0, nil
+}
+
 var _ commentRepository = (*mysqlCommentRepository)(nil)

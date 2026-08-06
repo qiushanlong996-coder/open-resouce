@@ -886,3 +886,63 @@ a {
   width: 34px;
   height: 34px;
 }
+
+/* 作者中心：项目评论与批注管理。 */
+.author-comments {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.author-comments h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.author-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.author-comment {
+  padding: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.author-comment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.author-comment-meta strong {
+  font-size: 11px;
+  color: var(--ink);
+}
+.author-comment-meta span {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.author-comment p {
+  margin: 6px 0 8px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.author-comment p em {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--blue);
+  font-style: normal;
+}
+.author-comment-status {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: #b97812;
+  background: color-mix(in srgb, #d19a3e 16%, var(--surface));
+}
+.author-comment-status.resolved {
+  color: #35a653;
+  background: color-mix(in srgb, #35a653 15%, var(--surface));
+}

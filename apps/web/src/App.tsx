@@ -75,6 +75,7 @@ import {
   getProjectCollaborationAccess,
   getProjectCollaborators,
   getProjectCollaborationWebSocketURL,
+  getAuthorProjectComments,
   getAuthorProjectMetrics,
   getProjects,
   getServiceInfo,
@@ -111,6 +112,7 @@ import {
   type ManagedProject,
   type ManagedProjectInput,
   type ProjectDocument,
+  type AuthorCommentItem,
   type ProjectMetrics,
   type CollaborationAccess,
   type ProjectCollaborator,
@@ -772,8 +774,9 @@ function App() {
   // 关键词检索统一交给搜索面板（ES），这里只做分类与收藏的本地筛选。
   const filteredProjects = useMemo(() => catalogProjects.filter((project) => {
     if (activeTab === '我的收藏' && !saved.includes(project.id)) return false
+    if (activeTab === '我的关注' && !followed.includes(project.id)) return false
     return activeCategory === '全部项目' || project.category === activeCategory
-  }), [activeCategory, activeTab, catalogProjects, saved])
+  }), [activeCategory, activeTab, catalogProjects, saved, followed])
 
   const showToast = (message: string) => {
     setToast(message)
@@ -1503,6 +1506,9 @@ function App() {
                 <button onClick={() => { setActiveTab('我的收藏'); closeProject(); closeHeaderPopover() }}>
                   查看我的收藏
                 </button>
+                <button onClick={() => { setActiveTab('我的关注'); closeProject(); closeHeaderPopover() }}>
+                  查看我的关注
+                </button>
                 <button onClick={() => { setAuthorCenterOpen(true); closeHeaderPopover() }}>
                   作者项目中心
                 </button>
@@ -1582,6 +1588,13 @@ function App() {
           gatewayState={gatewayState}
           catalogState={catalogState}
           onOpenDocs={() => setOpenDocsOpen(true)}
+          onSubmitProject={() => {
+            if (currentUser) {
+              setAuthorCenterOpen(true)
+            } else {
+              setLoginOpen(true)
+            }
+          }}
         />
       )}
 
@@ -1653,6 +1666,7 @@ function Home({
   gatewayState,
   catalogState,
   onOpenDocs,
+  onSubmitProject,
 }: {
   activeTab: string
   activeCategory: string
@@ -1664,6 +1678,7 @@ function Home({
   gatewayState: GatewayState
   catalogState: CatalogState
   onOpenDocs: () => void
+  onSubmitProject: () => void
 }) {
   const [stats, setStats] = useState<SiteStats | null>(null)
   const [statsState, setStatsState] = useState<'loading' | 'ready' | 'offline'>('loading')
@@ -1763,7 +1778,7 @@ function Home({
           <p>浏览真实可用的 Agent 项目，阅读实现文档，查看关键代码，并把好的想法带回你的工作流。</p>
           <div className="hero-actions">
             <button className="primary-button" onClick={() => document.getElementById('project-grid')?.scrollIntoView({ behavior: 'smooth' })}>开始探索 <ArrowUpRight size={16} /></button>
-            <button className="text-button" onClick={() => window.open('https://github.com', '_blank')}>提交开源项目 <Upload size={16} /></button>
+            <button className="text-button" onClick={onSubmitProject}>提交开源项目 <Upload size={16} /></button>
           </div>
         </div>
         <div className="hero-visual hero-media-card" aria-label="AI 开源项目动态插画">
@@ -3094,6 +3109,9 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   usePageScrollLock()
   const [projects, setProjects] = useState<ManagedProject[]>([])
   const [metricsByProject, setMetricsByProject] = useState<Record<string, ProjectMetrics>>({})
+  const [authorComments, setAuthorComments] = useState<AuthorCommentItem[]>([])
+  const [authorCommentsLoading, setAuthorCommentsLoading] = useState(false)
+  const [authorCommentsError, setAuthorCommentsError] = useState('')
   const [input, setInput] = useState<ManagedProjectInput>(emptyManagedProject)
   const [activeProject, setActiveProject] = useState<ManagedProject | null>(null)
   const [tagsText, setTagsText] = useState('')
@@ -3231,6 +3249,24 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   }
 
   useEffect(loadProjects, [])
+
+  useEffect(() => {
+    if (!activeProject) {
+      setAuthorComments([])
+      return
+    }
+    const controller = new AbortController()
+    setAuthorCommentsLoading(true)
+    setAuthorCommentsError('')
+    getAuthorProjectComments(activeProject.id, controller.signal)
+      .then((response) => setAuthorComments(response.data))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setAuthorCommentsError(reason instanceof ApiError ? reason.message : '评论加载失败')
+      })
+      .finally(() => setAuthorCommentsLoading(false))
+    return () => controller.abort()
+  }, [activeProject?.id])
 
   const projectPayload = useMemo<ManagedProjectInput>(() => ({
     ...input,
@@ -3528,6 +3564,26 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
               showToast={showAuthorToast}
             />
           </Suspense>}
+          {activeProject && (
+            <div className="author-comments">
+              <h3>项目评论 {authorComments.length > 0 ? `(${authorComments.length})` : ''}</h3>
+              {authorCommentsLoading ? <p className="empty-copy">正在加载评论…</p>
+                : authorCommentsError ? <p className="empty-copy">{authorCommentsError}</p>
+                  : authorComments.length === 0 ? <p className="empty-copy">暂无评论。</p>
+                    : <div className="author-comment-list">
+                      {authorComments.map((item) => (
+                        <div className="author-comment" key={item.id}>
+                          <span className="author-comment-meta">
+                            <strong>{item.document_title || item.document_id}</strong>
+                            <span>{item.author_name} · {new Date(item.created_at).toLocaleString('zh-CN')}</span>
+                          </span>
+                          <p>{item.quote && <em>“{item.quote}”</em>}{item.body}</p>
+                          <span className={`author-comment-status ${item.status === 'resolved' ? 'resolved' : ''}`}>{item.status === 'resolved' ? '已解决' : '未解决'}</span>
+                        </div>
+                      ))}
+                    </div>}
+            </div>
+          )}
         </aside>
         <form ref={editorPageRef} className="document-project-editor" onSubmit={(event) => void saveProject(event)}>
           <div className="document-title-row">

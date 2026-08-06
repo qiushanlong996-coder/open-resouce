@@ -262,6 +262,18 @@ func (nilRepliesCommentRepository) Resolve(
 	}, true, nil
 }
 
+func (nilRepliesCommentRepository) ListAllAdmin(
+	_ context.Context, _ string,
+) ([]adminCommentRecord, error) {
+	return []adminCommentRecord{}, nil
+}
+
+func (nilRepliesCommentRepository) SetAdminHidden(
+	_ context.Context, _ string, _ bool,
+) (bool, error) {
+	return false, nil
+}
+
 // TestCommentResponsesNeverReturnNullReplies 锁定单条评论响应中的 replies 始终是数组。
 // 若序列化为 null，客户端对其调用数组方法会在渲染阶段抛异常并导致页面白屏。
 func TestCommentResponsesNeverReturnNullReplies(t *testing.T) {

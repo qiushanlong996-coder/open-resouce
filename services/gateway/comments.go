@@ -77,11 +77,16 @@ type commentRepository interface {
 	UpdateComment(ctx context.Context, documentID, commentID, actorID, body, updatedAt string) (documentComment, bool, error)
 	UpdateReply(ctx context.Context, documentID, parentID, replyID, actorID, body, updatedAt string) (documentComment, bool, error)
 	Resolve(ctx context.Context, documentID, commentID, actorID, resolvedAt string) (documentComment, bool, error)
+	// ListAllAdmin 返回全站评论（可选隐藏），供管理端评论治理。
+	ListAllAdmin(ctx context.Context, status string) ([]adminCommentRecord, error)
+	// SetAdminHidden 隐藏/恢复评论（软删除），返回是否找到该评论。
+	SetAdminHidden(ctx context.Context, commentID string, hidden bool) (bool, error)
 }
 
 type memoryCommentRepository struct {
 	sync.RWMutex
 	byDocument map[string][]documentComment
+	hiddenByID map[string]bool
 }
 
 func newMemoryCommentRepository() *memoryCommentRepository {
@@ -95,7 +100,7 @@ func newMemoryCommentRepository() *memoryCommentRepository {
 				Status: "open", CreatedAt: "2026-07-26T11:42:00Z",
 			},
 		},
-	}}
+	}, hiddenByID: map[string]bool{}}
 }
 
 func (repository *memoryCommentRepository) List(_ context.Context, documentID string) ([]documentComment, error) {
@@ -230,6 +235,63 @@ func (repository *memoryCommentRepository) Resolve(_ context.Context, documentID
 		return *comment, true, nil
 	}
 	return documentComment{}, false, nil
+}
+
+func (repository *memoryCommentRepository) ListAllAdmin(
+	_ context.Context, status string,
+) ([]adminCommentRecord, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	records := make([]adminCommentRecord, 0)
+	for _, comments := range repository.byDocument {
+		for _, comment := range comments {
+			hidden := repository.hiddenByID[comment.ID]
+			if status == "open" && comment.Status != "open" {
+				continue
+			}
+			if status == "resolved" && comment.Status != "resolved" {
+				continue
+			}
+			if status == "hidden" && !hidden {
+				continue
+			}
+			if (status == "" || status == "all") && hidden {
+				continue
+			}
+			parentID := ""
+			if comment.ParentID != nil {
+				parentID = *comment.ParentID
+			}
+			records = append(records, adminCommentRecord{
+				ID: comment.ID, DocumentID: comment.DocumentID, ParentID: parentID,
+				AuthorID: comment.AuthorID, AuthorName: comment.Author,
+				Body: comment.Body, Status: comment.Status,
+				CreatedAt: comment.CreatedAt, Hidden: hidden,
+			})
+		}
+	}
+	return records, nil
+}
+
+func (repository *memoryCommentRepository) SetAdminHidden(
+	_ context.Context, commentID string, hidden bool,
+) (bool, error) {
+	repository.Lock()
+	defer repository.Unlock()
+	found := false
+	for _, comments := range repository.byDocument {
+		for _, comment := range comments {
+			if comment.ID == commentID {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		return false, nil
+	}
+	repository.hiddenByID[commentID] = hidden
+	return true, nil
 }
 
 // CountAll 返回全部评论（含回复）数量，供管理概览统计。

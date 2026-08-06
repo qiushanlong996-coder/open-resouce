@@ -181,6 +181,13 @@
 .admin-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 /* 缺失信息的弱化表达（如尚无登录记录的存量用户）。 */
 .admin-muted { color: var(--text-tertiary); }
+/* 管理端评论治理：正文单行截断，悬停看全文。 */
+.admin-comment-body {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .admin-badge {
   display: inline-flex;

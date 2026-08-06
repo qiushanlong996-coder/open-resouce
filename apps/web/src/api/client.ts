@@ -565,6 +565,30 @@ export function getAuthorProjectMetrics(projectID: string, signal?: AbortSignal)
   )
 }
 
+export type AuthorCommentItem = {
+  id: string
+  document_id: string
+  document_title: string
+  author_name: string
+  body: string
+  quote: string
+  status: string
+  created_at: string
+}
+
+export type AuthorCommentListResponse = {
+  data: AuthorCommentItem[]
+  request_id: string
+}
+
+// 作者后台评论与批注管理：项目下所有文档的评论（所有者/编辑者可见）。
+export function getAuthorProjectComments(projectID: string, signal?: AbortSignal) {
+  return apiRequest<AuthorCommentListResponse>(
+    `/api/v1/author/projects/${encodeURIComponent(projectID)}/comments`,
+    { signal },
+  )
+}
+
 export function createAuthorProject(input: ManagedProjectInput) {
   return apiRequest<ManagedProjectResponse>('/api/v1/author/projects', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
@@ -825,6 +849,39 @@ export function submitReport(input: ReportInput) {
 export function getAdminReports(status?: string, signal?: AbortSignal) {
   const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
   return apiRequest<ContentReportListResponse>(`/api/v1/admin/reports${suffix}`, { signal })
+}
+
+export type AdminComment = {
+  id: string
+  document_id: string
+  document_title: string
+  project_slug: string
+  project_name: string
+  parent_id?: string
+  author_id?: string
+  author_name: string
+  body: string
+  status: string
+  created_at: string
+  hidden: boolean
+}
+
+export type AdminCommentListResponse = {
+  data: AdminComment[]
+  request_id: string
+}
+
+// 管理端评论治理：status 可选 all / open / resolved / hidden。
+export function getAdminComments(status?: string, signal?: AbortSignal) {
+  const suffix = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : ''
+  return apiRequest<AdminCommentListResponse>(`/api/v1/admin/comments${suffix}`, { signal })
+}
+
+export function setAdminCommentHidden(commentID: string, hidden: boolean) {
+  return apiRequest<{ data: { id: string; hidden: boolean }; request_id: string }>(
+    `/api/v1/admin/comments/${encodeURIComponent(commentID)}/${hidden ? 'hide' : 'restore'}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+  )
 }
 
 export function resolveReport(id: string, action: 'resolve' | 'dismiss') {
