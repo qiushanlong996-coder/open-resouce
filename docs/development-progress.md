@@ -3240,3 +3240,27 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
 - `go test ./services/gateway` 全量通过（新增排行榜排序与 limit 校验测试）。
 - 前端构建通过；发布 `20260807-perf-lazy-dialogs` / `20260807-leaderboard-lazy`，
   站点软链指向后者；公网 `/api/v1/leaderboard` 返回真实数据。
+
+## 2026-08-07：功能审计第七、八轮（SEO/动态标题 + 推荐位管理）
+
+### 第七轮：SEO 与页面标题
+
+- `index.html`：`lang="zh-CN"`、meta description、theme-color、
+  OG/Twitter 分享卡片标签；
+- 应用内按当前页面动态更新 `document.title`（项目名 / 标签页 / 首页）。
+
+### 第八轮：推荐位管理（需求 5.3 #7）
+
+- 迁移 `000024`：`featured_projects`（project_id / sort_order / created_by）；
+- 后端：`GET /api/v1/featured`（公开，按序返回已发布推荐项目）、
+  `GET|PUT /api/v1/admin/featured`（管理员配置，校验只可推荐已发布项目，
+  写审计），内存 + MySQL 双实现；
+- 管理控制台新增「推荐位管理」模块：已发布项目勾选列表 + 保存（脏检查）；
+- 首页「本周精选」优先展示推荐项目，未配置时回退最近更新项目。
+
+### 验证与部署
+
+- 生产 MySQL 已应用 `000024`（`featured_projects` 表存在）。
+- `go test ./services/gateway` 全量通过（新增推荐位权限/排序/校验测试）。
+- 发布 `20260807-featured-mgmt`，公网 `/api/v1/featured` 返回空列表
+  （尚未配置推荐），`/api/v1/admin/featured` 匿名 401。

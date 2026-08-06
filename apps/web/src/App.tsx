@@ -81,6 +81,7 @@ import {
   getServiceInfo,
   getSiteStats,
   getLeaderboard,
+  getFeaturedProjects,
   login,
   logout,
   logoutAll,
@@ -562,6 +563,17 @@ function App() {
     window.localStorage.setItem('xinyuan-theme-mode', themeMode)
     window.localStorage.setItem('xinyuan-skin', skin)
   }, [themeMode, skin, systemDark])
+
+  // 按当前页面动态更新浏览器标题，利于分享与多标签识别。
+  useEffect(() => {
+    if (selectedProject) {
+      document.title = `${selectedProject.name} · 新猿译码`
+    } else if (activeTab && activeTab !== '探索') {
+      document.title = `${activeTab} · 新猿译码`
+    } else {
+      document.title = '新猿译码 · Agent 开源项目分享平台'
+    }
+  }, [selectedProject, activeTab])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1690,6 +1702,7 @@ function Home({
   const [statsState, setStatsState] = useState<'loading' | 'ready' | 'offline'>('loading')
   const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([])
   const [leaderboardState, setLeaderboardState] = useState<'loading' | 'ready' | 'offline'>('loading')
+  const [featuredSlug, setFeaturedSlug] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   const [stackFilter, setStackFilter] = useState<string | null>(null)
   const [licenseFilter, setLicenseFilter] = useState<string | null>(null)
@@ -1703,6 +1716,14 @@ function Home({
         setStatsState('ready')
       })
       .catch(() => setStatsState('offline'))
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getFeaturedProjects(controller.signal)
+      .then((response) => setFeaturedSlug(response.data[0]?.slug ?? ''))
+      .catch(() => setFeaturedSlug(''))
     return () => controller.abort()
   }, [])
 
@@ -1777,13 +1798,17 @@ function Home({
     setLicenseFilter(null)
   }
 
-  // 本周精选：取当前目录里最近更新的项目，避免挂死文案。
+  // 本周精选：优先展示管理员配置的推荐项目；未配置时取最近更新的项目。
   const curated = useMemo(() => {
     if (filteredProjects.length === 0) return null
+    if (featuredSlug) {
+      const featured = filteredProjects.find((project) => project.slug === featuredSlug)
+      if (featured) return featured
+    }
     return [...filteredProjects].sort((left, right) => (left.updated ?? '').localeCompare(right.updated ?? ''))[
       filteredProjects.length - 1
     ] ?? filteredProjects[0]
-  }, [filteredProjects])
+  }, [filteredProjects, featuredSlug])
 
   const formatCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
   const formatInteger = (value: number) => new Intl.NumberFormat('zh-CN').format(value)

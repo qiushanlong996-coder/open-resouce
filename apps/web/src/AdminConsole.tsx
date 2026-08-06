@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, LayoutDashboard, Users, FolderKanban, KeyRound, ScrollText, Search, RefreshCw, Copy,
-  ClipboardCheck, ExternalLink, Flag, MessageSquare,
+  ClipboardCheck, ExternalLink, Flag, MessageSquare, Star,
 } from 'lucide-react'
 import {
   getAdminStats, getAdminUsers, banUser, unbanUser,
   getAdminProjects, takedownProject, getApiKeys, issueApiKey, revokeApiKey, getAdminAudit,
   getAdminUserStats, getPendingProjectReviews, reviewProject, getAdminReports, resolveReport,
   getAdminComments, setAdminCommentHidden,
+  getAdminFeatured, setAdminFeatured,
   type AuthUser, type AdminStats, type AdminUser, type ManagedProject, type ApiKey, type AdminAuditEntry,
   type AdminUserStats, type ContentReport, type AdminComment,
 } from './api/client'
 import './admin.css'
 
-type ModuleID = 'overview' | 'reviews' | 'reports' | 'comments' | 'users' | 'projects' | 'apikeys' | 'audit'
+type ModuleID = 'overview' | 'reviews' | 'reports' | 'comments' | 'featured' | 'users' | 'projects' | 'apikeys' | 'audit'
 
 const MODULES: { id: ModuleID; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
   { id: 'reviews', label: '内容审核', icon: ClipboardCheck },
   { id: 'reports', label: '举报处理', icon: Flag },
   { id: 'comments', label: '评论管理', icon: MessageSquare },
+  { id: 'featured', label: '推荐位管理', icon: Star },
   { id: 'users', label: '用户管理', icon: Users },
   { id: 'projects', label: '项目管理', icon: FolderKanban },
   { id: 'apikeys', label: '开放 API', icon: KeyRound },
@@ -86,6 +88,7 @@ export default function AdminConsole({ onClose, currentUser }: { onClose: () => 
             {active === 'reviews' && <ReviewsPanel />}
             {active === 'reports' && <ReportsPanel />}
             {active === 'comments' && <CommentsPanel />}
+            {active === 'featured' && <FeaturedPanel />}
             {active === 'users' && <UsersPanel currentUser={currentUser} />}
             {active === 'projects' && <ProjectsPanel />}
             {active === 'apikeys' && <ApiKeysPanel />}
@@ -413,6 +416,90 @@ function ReportsPanel() {
               ))}
             </tbody>
           </table>}
+    </div>
+  )
+}
+
+function FeaturedPanel() {
+  const [candidates, setCandidates] = useState<ManagedProject[]>([])
+  const [featuredIDs, setFeaturedIDs] = useState<string[]>([])
+  const [initialFeatured, setInitialFeatured] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true)
+    setError('')
+    getAdminFeatured(signal)
+      .then((response) => {
+        setCandidates(response.data.candidates)
+        const ids = response.data.featured.map((project) => project.id)
+        setFeaturedIDs(ids)
+        setInitialFeatured(ids)
+      })
+      .catch((value) => { if (!signal?.aborted) setError(errorMessage(value, '推荐位加载失败')) })
+      .finally(() => { if (!signal?.aborted) setLoading(false) })
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
+  const dirty = JSON.stringify([...featuredIDs].sort()) !== JSON.stringify([...initialFeatured].sort())
+
+  const toggle = (projectID: string) => {
+    setFeaturedIDs((current) => current.includes(projectID)
+      ? current.filter((id) => id !== projectID)
+      : [...current, projectID])
+  }
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await setAdminFeatured(featuredIDs)
+      load()
+    } catch (value) {
+      setError(errorMessage(value, '推荐位保存失败'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-toolbar">
+        <button className="admin-btn primary" disabled={saving || !dirty} onClick={() => void save()}>
+          {saving ? '保存中…' : '保存推荐'}
+        </button>
+        <button className="admin-btn" onClick={() => load()}><RefreshCw size={15} /> 刷新</button>
+        <span className="admin-toolbar-note">勾选已发布项目进入首页「本周精选」，顺序即展示顺序。</span>
+      </div>
+      {error && <div className="admin-error">{error}</div>}
+      {loading ? <div className="admin-loading">正在加载…</div>
+        : candidates.length === 0 ? <div className="admin-empty">还没有已发布项目。</div>
+          : <div className="featured-candidate-list">
+            {candidates.map((project) => {
+              const selected = featuredIDs.includes(project.id)
+              return (
+                <label className={`featured-candidate ${selected ? 'selected' : ''}`} key={project.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggle(project.id)}
+                  />
+                  <span className="featured-candidate-text">
+                    <strong>{project.name}</strong>
+                    <small className="admin-mono">{project.slug} · {project.category}</small>
+                  </span>
+                  {selected && <span className="admin-badge ok">推荐中</span>}
+                </label>
+              )
+            })}
+          </div>}
     </div>
   )
 }

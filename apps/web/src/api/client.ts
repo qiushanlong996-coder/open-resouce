@@ -1116,6 +1116,31 @@ export function getLeaderboard(limit = 8, signal?: AbortSignal) {
   return apiRequest<LeaderboardResponse>(`/api/v1/leaderboard?limit=${limit}`, { signal })
 }
 
+// 前台推荐项目（公开）：管理员在后台配置，首页「本周精选」优先展示。
+export function getFeaturedProjects(signal?: AbortSignal) {
+  return apiRequest<ManagedProjectListResponse>('/api/v1/featured', { signal })
+}
+
+export type AdminFeaturedResponse = {
+  data: {
+    featured: ManagedProject[]
+    candidates: ManagedProject[]
+  }
+  request_id: string
+}
+
+export function getAdminFeatured(signal?: AbortSignal) {
+  return apiRequest<AdminFeaturedResponse>('/api/v1/admin/featured', { signal })
+}
+
+export function setAdminFeatured(projectIDs: string[]) {
+  return apiRequest<{ data: { featured: string[] }; request_id: string }>('/api/v1/admin/featured', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_ids: projectIDs }),
+  })
+}
+
 export function getProjects(
   filters: { query?: string; category?: string; page?: number; pageSize?: number; sort?: 'updated' | 'downloads' | 'stars' },
   signal?: AbortSignal,

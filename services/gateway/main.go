@@ -101,8 +101,10 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/search/hot", searchHotTermsHandler)
 	mux.HandleFunc("/api/v1/stats", siteStatsHandler)
 	mux.HandleFunc("/api/v1/leaderboard", leaderboardHandler)
+	mux.HandleFunc("/api/v1/featured", publicFeaturedHandler)
 	mux.HandleFunc("/api/v1/admin/reviews", adminReviewsHandler)
 	mux.HandleFunc("/api/v1/admin/reviews/", adminReviewActionHandler)
+	mux.HandleFunc("/api/v1/admin/featured", adminFeaturedHandler)
 	mux.HandleFunc("/api/v1/admin/search/reindex", searchReindexHandler)
 	mux.HandleFunc("/api/v1/admin/stats", adminStatsHandler)
 	mux.HandleFunc("/api/v1/admin/users", adminUsersHandler)
@@ -235,6 +237,7 @@ func main() {
 		apiKeyRepositoryStore = newMySQLAPIKeyRepository(database)
 		adminAuditRepositoryStore = newMySQLAdminAuditRepository(database)
 		contentReportRepositoryStore = newMySQLContentReportRepository(database)
+		featuredProjectRepositoryStore = newMySQLFeaturedProjectRepository(database)
 		readinessCheck = database.PingContext
 		slog.Info("mysql comment repository enabled")
 	} else {
