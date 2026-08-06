@@ -547,6 +547,24 @@ export function getAuthorProjects(signal?: AbortSignal) {
   return apiRequest<ManagedProjectListResponse>('/api/v1/author/projects', { signal })
 }
 
+export type ProjectMetrics = {
+  views: number
+  downloads: number
+}
+
+export type ProjectMetricsResponse = {
+  data: ProjectMetrics
+  request_id: string
+}
+
+// 作者后台项目数据概览：仅项目所有者可见。
+export function getAuthorProjectMetrics(projectID: string, signal?: AbortSignal) {
+  return apiRequest<ProjectMetricsResponse>(
+    `/api/v1/author/projects/${encodeURIComponent(projectID)}/metrics`,
+    { signal },
+  )
+}
+
 export function createAuthorProject(input: ManagedProjectInput) {
   return apiRequest<ManagedProjectResponse>('/api/v1/author/projects', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),

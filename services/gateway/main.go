@@ -95,6 +95,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents", authorProjectDocumentsHandler)
 	mux.HandleFunc("/api/v1/author/projects/{projectID}/documents/", authorProjectDocumentsHandler)
 	mux.HandleFunc("/api/v1/author/projects/", authorProjectHandler)
+	mux.HandleFunc("/api/v1/author/projects/{projectID}/metrics", authorProjectMetricsHandler)
 	mux.HandleFunc("/api/v1/search", searchHandler)
 	mux.HandleFunc("/api/v1/search/hot", searchHotTermsHandler)
 	mux.HandleFunc("/api/v1/stats", siteStatsHandler)

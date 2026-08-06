@@ -3166,3 +3166,25 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
   （projects=7 / updated_today=1 / documents=1）。
 - 前端发布 `20260807-feature-audit-round1`（330 文件），站点软链已切换，
   首页引用 `index-CgV7dgn3.js` / `index-CFi2TeP7.css`。
+
+## 2026-08-07：功能审计第二轮（顶栏标签真实排序 + 作者项目数据概览）
+
+### 已实现
+
+1. **顶栏导航标签真实化**：此前「趋势 / 最新更新 / 社区」只改标题、列表不变。
+   现在：
+   - 趋势：按浏览量降序。
+   - 最新更新：按 `updated_at` 降序。
+   - 社区：按讨论数（comments）降序。
+   - 探索：保持原顺序；分类与「更多筛选」在排序前生效。
+   `Project` 类型新增 `updatedAt / viewsValue / starsValue` 原始排序字段。
+2. **作者后台项目数据概览**：新增 `GET /api/v1/author/projects/{id}/metrics`
+   （仅项目所有者，返回 views/downloads），作者项目列表每行展示
+   「浏览 N · 下载 N」。
+
+### 验证与部署
+
+- `go test ./services/gateway` 新增作者指标权限测试（401/403/200）通过。
+- 前端构建通过；发布 `20260807-feature-audit-round2`（330 文件），
+  首页引用 `index-oRJWK6Pn.js`；后端二进制替换重启后
+  `/api/v1/author/projects/x/metrics` 匿名返回 401（路由已注册）。

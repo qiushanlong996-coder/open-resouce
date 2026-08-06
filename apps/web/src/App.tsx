@@ -75,6 +75,7 @@ import {
   getProjectCollaborationAccess,
   getProjectCollaborators,
   getProjectCollaborationWebSocketURL,
+  getAuthorProjectMetrics,
   getProjects,
   getServiceInfo,
   getSiteStats,
@@ -110,6 +111,7 @@ import {
   type ManagedProject,
   type ManagedProjectInput,
   type ProjectDocument,
+  type ProjectMetrics,
   type CollaborationAccess,
   type ProjectCollaborator,
   type ProjectDetail as APIProjectDetail,
@@ -199,6 +201,10 @@ type Project = {
   accent: string
   status: string
   repo: string
+  // 用于「趋势 / 最新更新」排序的原始值；种子演示项目缺失时回退。
+  updatedAt?: string
+  viewsValue?: number
+  starsValue?: number
   highlights?: string[]
   useCases?: string[]
   currentVersion?: string
@@ -353,6 +359,9 @@ function mapProjectSummary(project: ProjectSummary): Project {
     accent: demoProject?.accent ?? 'blue',
     status: project.status,
     repo: demoProject?.repo ?? '',
+    updatedAt: project.updated_at,
+    viewsValue: project.metrics.views ?? 0,
+    starsValue: project.metrics.stars ?? 0,
     highlights: demoProject?.highlights,
     useCases: demoProject?.useCases,
     currentVersion: demoProject?.currentVersion,
@@ -1715,6 +1724,19 @@ function Home({
     [filteredProjects, stackFilter, licenseFilter],
   )
 
+  // 顶栏标签的真实语义：趋势按浏览量、最新更新按时间、社区按讨论数。
+  const sortedProjects = useMemo(() => {
+    const sorted = [...visibleProjects]
+    if (activeTab === '趋势') {
+      sorted.sort((left, right) => (right.viewsValue ?? 0) - (left.viewsValue ?? 0))
+    } else if (activeTab === '最新更新') {
+      sorted.sort((left, right) => (right.updatedAt ?? '').localeCompare(left.updatedAt ?? ''))
+    } else if (activeTab === '社区') {
+      sorted.sort((left, right) => right.comments - left.comments)
+    }
+    return sorted
+  }, [visibleProjects, activeTab])
+
   const hasExtraFilter = stackFilter !== null || licenseFilter !== null
   const resetExtraFilters = () => {
     setStackFilter(null)
@@ -1812,9 +1834,9 @@ function Home({
           </div>
         )}
 
-        {visibleProjects.length ? (
+        {sortedProjects.length ? (
           <div className="project-grid">
-            {visibleProjects.map((project) => <ProjectCard key={project.id} project={project} isSaved={saved.includes(project.id)} onOpen={() => onOpenProject(project)} onToggleSaved={() => onToggleSaved(project.id)} />)}
+            {sortedProjects.map((project) => <ProjectCard key={project.id} project={project} isSaved={saved.includes(project.id)} onOpen={() => onOpenProject(project)} onToggleSaved={() => onToggleSaved(project.id)} />)}
           </div>
         ) : <div className="empty-state"><Search size={24} /><h3>没有找到匹配项目</h3><p>{hasExtraFilter ? '试试调整技术栈或许可证筛选条件。' : '试试其他关键词或清空筛选条件。'}</p></div>}
       </section>
@@ -3071,6 +3093,7 @@ function formatSavedRelative(timestamp: number, now: number) {
 function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   usePageScrollLock()
   const [projects, setProjects] = useState<ManagedProject[]>([])
+  const [metricsByProject, setMetricsByProject] = useState<Record<string, ProjectMetrics>>({})
   const [input, setInput] = useState<ManagedProjectInput>(emptyManagedProject)
   const [activeProject, setActiveProject] = useState<ManagedProject | null>(null)
   const [tagsText, setTagsText] = useState('')
@@ -3189,7 +3212,20 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
   const loadProjects = () => {
     setLoading(true)
     getAuthorProjects()
-      .then((response) => setProjects(response.data))
+      .then(async (response) => {
+        setProjects(response.data)
+        const entries = await Promise.all(response.data.map(async (project) => {
+          try {
+            const metrics = await getAuthorProjectMetrics(project.id)
+            return [project.id, metrics.data] as const
+          } catch {
+            return null
+          }
+        }))
+        setMetricsByProject(Object.fromEntries(
+          entries.filter((entry): entry is readonly [string, ProjectMetrics] => entry !== null),
+        ))
+      })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '项目加载失败'))
       .finally(() => setLoading(false))
   }
@@ -3481,7 +3517,7 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
           <h3>我的项目</h3>
           {loading ? <p>正在加载…</p> : projects.length === 0 ? <p className="empty-copy">还没有项目草稿。</p> : projects.map((project) =>
             <button className={activeProject?.id === project.id ? 'active' : ''} key={project.id} onClick={() => selectProject(project)}>
-              <strong>{project.name}</strong><small>{statusLabel(project.status)} · v{project.current_version}</small>
+              <strong>{project.name}</strong><small>{statusLabel(project.status)} · v{project.current_version}{metricsByProject[project.id] ? ` · 浏览 ${metricsByProject[project.id].views} · 下载 ${metricsByProject[project.id].downloads}` : ''}</small>
             </button>)}
           {activeProject && <Suspense fallback={<p>正在加载文档目录…</p>}>
             <ProjectDocumentTree
