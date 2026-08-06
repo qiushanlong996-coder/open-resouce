@@ -1097,6 +1097,25 @@ export function getSiteStats(signal?: AbortSignal) {
   return apiRequest<SiteStatsResponse>('/api/v1/stats', { signal })
 }
 
+export type LeaderboardUser = {
+  id: string
+  display_name: string
+  level: number
+  experience: number
+  avatar: string
+  avatar_frame: string
+}
+
+export type LeaderboardResponse = {
+  data: LeaderboardUser[]
+  request_id: string
+}
+
+// 公开贡献者排行榜：按经验降序，排除被封禁用户。
+export function getLeaderboard(limit = 8, signal?: AbortSignal) {
+  return apiRequest<LeaderboardResponse>(`/api/v1/leaderboard?limit=${limit}`, { signal })
+}
+
 export function getProjects(
   filters: { query?: string; category?: string; page?: number; pageSize?: number; sort?: 'updated' | 'downloads' | 'stars' },
   signal?: AbortSignal,

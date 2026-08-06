@@ -3219,3 +3219,24 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
 - `go test ./services/gateway` 全量通过（新增 admin/author 评论两组测试）。
 - 前端构建通过；发布 `20260807-feature-audit-round3` / `-round4`，
   站点软链指向 round4；三条新路由公网匿名均返回 401（已注册且鉴权）。
+
+## 2026-08-07：功能审计第五、六轮（懒加载优化 + 贡献者排行榜）
+
+### 第五轮：首屏性能
+
+- 将 AdminConsole / AccessKeyManager / OpenApiDocs / UserProfile /
+  AvatarFramePicker / ReportDialog / AiAssistant 改为 React.lazy 按需加载，
+  主 JS 包从约 623KB 降到 567KB（gzip 190KB → 177KB）。
+
+### 第六轮：贡献者排行榜（二期 #8）
+
+- 后端 `GET /api/v1/leaderboard?limit=1..50`（公开，排除被封禁用户），
+  按经验降序返回 id / 昵称 / 等级 / 经验 / 头像 / 头像框；
+- 首页新增「开发者榜单」区块（Top 8，两列卡片，移动端单列），
+  点击行打开用户公开主页。
+
+### 验证与部署
+
+- `go test ./services/gateway` 全量通过（新增排行榜排序与 limit 校验测试）。
+- 前端构建通过；发布 `20260807-perf-lazy-dialogs` / `20260807-leaderboard-lazy`，
+  站点软链指向后者；公网 `/api/v1/leaderboard` 返回真实数据。

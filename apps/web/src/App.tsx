@@ -80,6 +80,7 @@ import {
   getProjects,
   getServiceInfo,
   getSiteStats,
+  getLeaderboard,
   login,
   logout,
   logoutAll,
@@ -120,8 +121,8 @@ import {
   type ProjectSummary,
   type ServiceInfo,
   type SiteStats,
+  type LeaderboardUser,
 } from './api/client'
-import AiAssistant from './AiAssistant'
 import type { RichMarkdownEditorHandle } from './RichMarkdownEditor'
 import {
   BilibiliEmbed,
@@ -132,14 +133,9 @@ import {
   MermaidDiagram,
 } from './DocumentReader'
 import ErrorBoundary from './ErrorBoundary'
-import ReportDialog, { type ReportTarget } from './ReportDialog'
-import AdminConsole from './AdminConsole'
-import AccessKeyManager from './AccessKeyManager'
-import OpenApiDocs from './OpenApiDocs'
 import { BrandMark } from './BrandMark'
 import { LevelAvatar, LevelBadge } from './LevelAvatar'
-import { UserProfile } from './UserProfile'
-import { AvatarFramePicker } from './AvatarFramePicker'
+import type { ReportTarget } from './ReportDialog'
 import { bilibiliEmbedURL, useDocumentSearch } from './documentReaderUtils'
 import {
   BackToTopButton,
@@ -165,6 +161,13 @@ const CollaborativeMarkdownEditor = lazy(() => import('./CollaborativeMarkdownEd
 const ProjectDocumentTree = lazy(() => import('./ProjectDocumentTree'))
 const DocumentSearchPanel = lazy(() => import('./DocumentSearchPanel'))
 const DocumentRevisionPanel = lazy(() => import('./DocumentRevisionPanel'))
+const AiAssistant = lazy(() => import('./AiAssistant'))
+const ReportDialog = lazy(() => import('./ReportDialog'))
+const AdminConsole = lazy(() => import('./AdminConsole'))
+const AccessKeyManager = lazy(() => import('./AccessKeyManager'))
+const OpenApiDocs = lazy(() => import('./OpenApiDocs'))
+const UserProfile = lazy(() => import('./UserProfile').then((module) => ({ default: module.UserProfile })))
+const AvatarFramePicker = lazy(() => import('./AvatarFramePicker').then((module) => ({ default: module.AvatarFramePicker })))
 
 // 顶栏浮层是互斥的：同一时刻最多只有一个下拉面板可见，null 表示全部关闭。
 type HeaderPopover = 'theme' | 'notification' | 'account' | 'mobileMenu' | null
@@ -1588,6 +1591,7 @@ function App() {
           gatewayState={gatewayState}
           catalogState={catalogState}
           onOpenDocs={() => setOpenDocsOpen(true)}
+          onOpenProfile={(userId) => setProfileUserId(userId)}
           onSubmitProject={() => {
             if (currentUser) {
               setAuthorCenterOpen(true)
@@ -1598,13 +1602,13 @@ function App() {
         />
       )}
 
-      {openDocsOpen && <OpenApiDocs onClose={() => setOpenDocsOpen(false)} />}
+      {openDocsOpen && <Suspense fallback={null}><OpenApiDocs onClose={() => setOpenDocsOpen(false)} /></Suspense>}
 
-      {profileUserId && <ErrorBoundary label="用户主页"><UserProfile
+      {profileUserId && <Suspense fallback={null}><ErrorBoundary label="用户主页"><UserProfile
         userId={profileUserId}
         onClose={() => setProfileUserId(null)}
         onOpenProject={(slug) => { setProfileUserId(null); openProjectBySlug(slug) }}
-      /></ErrorBoundary>}
+      /></ErrorBoundary></Suspense>}
 
       {toast && <div className="toast"><Check size={16} /> {toast}</div>}
       {loginOpen && <LoginModal
@@ -1628,29 +1632,29 @@ function App() {
           showToast('项目状态已更新')
         }}
       /></ErrorBoundary>}
-      {adminConsoleOpen && currentUser?.is_admin && <ErrorBoundary label="管理控制台"><AdminConsole
+      {adminConsoleOpen && currentUser?.is_admin && <Suspense fallback={null}><ErrorBoundary label="管理控制台"><AdminConsole
         onClose={closeAdminConsole}
         currentUser={currentUser}
-      /></ErrorBoundary>}
-      {accessKeyOpen && currentUser && <ErrorBoundary label="AccessKey 管理"><AccessKeyManager
+      /></ErrorBoundary></Suspense>}
+      {accessKeyOpen && currentUser && <Suspense fallback={null}><ErrorBoundary label="AccessKey 管理"><AccessKeyManager
         onClose={() => setAccessKeyOpen(false)}
-      /></ErrorBoundary>}
-      {avatarFramePickerOpen && currentUser && <ErrorBoundary label="头像与头像框"><AvatarFramePicker
+      /></ErrorBoundary></Suspense>}
+      {avatarFramePickerOpen && currentUser && <Suspense fallback={null}><ErrorBoundary label="头像与头像框"><AvatarFramePicker
         currentUser={currentUser}
         onClose={() => setAvatarFramePickerOpen(false)}
         onChanged={(user) => setCurrentUser(user)}
-      /></ErrorBoundary>}
-      {reportTarget && <ReportDialog
+      /></ErrorBoundary></Suspense>}
+      {reportTarget && <Suspense fallback={null}><ReportDialog
         target={reportTarget}
         onClose={() => setReportTarget(null)}
         onSubmitted={(message) => { setReportTarget(null); showToast(message) }}
-      />}
-      <AiAssistant
+      /></Suspense>}
+      <Suspense fallback={null}><AiAssistant
         projectSlug={selectedProject?.slug ?? null}
         projectName={selectedProject?.name ?? null}
         currentUser={currentUser}
         onRequestLogin={() => setLoginOpen(true)}
-      />
+      /></Suspense>
     </div>
   )
 }
@@ -1666,6 +1670,7 @@ function Home({
   gatewayState,
   catalogState,
   onOpenDocs,
+  onOpenProfile,
   onSubmitProject,
 }: {
   activeTab: string
@@ -1678,10 +1683,13 @@ function Home({
   gatewayState: GatewayState
   catalogState: CatalogState
   onOpenDocs: () => void
+  onOpenProfile: (userId: string) => void
   onSubmitProject: () => void
 }) {
   const [stats, setStats] = useState<SiteStats | null>(null)
   const [statsState, setStatsState] = useState<'loading' | 'ready' | 'offline'>('loading')
+  const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([])
+  const [leaderboardState, setLeaderboardState] = useState<'loading' | 'ready' | 'offline'>('loading')
   const [filterOpen, setFilterOpen] = useState(false)
   const [stackFilter, setStackFilter] = useState<string | null>(null)
   const [licenseFilter, setLicenseFilter] = useState<string | null>(null)
@@ -1695,6 +1703,17 @@ function Home({
         setStatsState('ready')
       })
       .catch(() => setStatsState('offline'))
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getLeaderboard(8, controller.signal)
+      .then((response) => {
+        setLeaderboard(response.data)
+        setLeaderboardState('ready')
+      })
+      .catch(() => setLeaderboardState('offline'))
     return () => controller.abort()
   }, [])
 
@@ -1872,6 +1891,25 @@ function Home({
           </>
         )}
       </section>
+      {leaderboardState === 'ready' && leaderboard.length > 0 && (
+        <section className="content-section compact-section">
+          <div className="section-heading">
+            <div><span className="section-kicker">CONTRIBUTORS</span><h2>开发者榜单</h2></div>
+            <span className="meta-label">按社区经验值排序</span>
+          </div>
+          <div className="leaderboard-list">
+            {leaderboard.map((user, index) => (
+              <button type="button" className="leaderboard-row" key={user.id} onClick={() => onOpenProfile(user.id)}>
+                <span className="leaderboard-rank">#{index + 1}</span>
+                <LevelAvatar level={user.level} initials={user.display_name.slice(0, 1)} size="sm" name={user.display_name} avatar={user.avatar} frame={user.avatar_frame} />
+                <span className="leaderboard-name">{user.display_name}</span>
+                <LevelBadge level={user.level} />
+                <span className="leaderboard-exp">{user.experience} 经验</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="content-section compact-section">
         <div className="section-heading">
           <div><span className="section-kicker">OPEN API / FOR AGENTS</span><h2>开放能力</h2></div>

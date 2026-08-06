@@ -946,3 +946,56 @@ a {
   color: #35a653;
   background: color-mix(in srgb, #35a653 15%, var(--surface));
 }
+
+/* 首页开发者榜单。 */
+.leaderboard-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: left;
+  transition: transform .16s ease, border-color .16s ease, background-color .16s ease;
+}
+.leaderboard-row:hover {
+  border-color: var(--focus-line);
+  background: var(--surface-muted);
+  transform: translateY(-1px);
+}
+.leaderboard-rank {
+  width: 30px;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.leaderboard-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.leaderboard-exp {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .leaderboard-list {
+    grid-template-columns: 1fr;
+  }
+}

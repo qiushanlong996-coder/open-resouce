@@ -92,6 +92,16 @@ type publicUserRecord struct {
 	CreatedAt   time.Time
 }
 
+// leaderboardUser 是贡献者排行榜的公开条目（不含邮箱、密码等敏感字段）。
+type leaderboardUser struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Level       int    `json:"level"`
+	Experience  int    `json:"experience"`
+	Avatar      string `json:"avatar"`
+	AvatarFrame string `json:"avatar_frame"`
+}
+
 // zodiacAvatarFrameIDs 是 12 星座预设头像框 id 的 Go 侧白名单，
 // 必须与前端 avatarFrameData.ts 的 AVATAR_FRAME_IDS 保持一致。
 var zodiacAvatarFrameIDs = map[string]struct{}{
@@ -180,6 +190,8 @@ type authRepository interface {
 	FindPublicUserByID(ctx context.Context, id string) (publicUserRecord, bool, error)
 	// UsersByIDs 批量返回用户资料，用于举报列表等场景补全举报人信息。
 	UsersByIDs(ctx context.Context, ids []string) (map[string]authUser, error)
+	// Leaderboard 返回按经验降序的公开贡献者榜单（排除被封禁用户）。
+	Leaderboard(ctx context.Context, limit int) ([]leaderboardUser, error)
 	// CountUsers 返回注册用户总数，供管理概览统计。
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers 分页返回用户摘要，search 非空时按邮箱/昵称模糊匹配，同时返回匹配总数。
@@ -293,6 +305,36 @@ func (repository *memoryAuthRepository) ListUsers(
 	page := make([]adminUserSummary, end-offset)
 	copy(page, matched[offset:end])
 	return page, total, nil
+}
+
+func (repository *memoryAuthRepository) Leaderboard(
+	_ context.Context, limit int,
+) ([]leaderboardUser, error) {
+	repository.RLock()
+	defer repository.RUnlock()
+	users := make([]authUser, 0, len(repository.usersByEmail))
+	for _, user := range repository.usersByEmail {
+		users = append(users, user)
+	}
+	sort.Slice(users, func(left, right int) bool {
+		if users[left].Experience == users[right].Experience {
+			return users[left].ID < users[right].ID
+		}
+		return users[left].Experience > users[right].Experience
+	})
+	if limit > len(users) {
+		limit = len(users)
+	}
+	result := make([]leaderboardUser, 0, limit)
+	for _, user := range users[:limit] {
+		result = append(result, leaderboardUser{
+			ID: user.ID, DisplayName: user.DisplayName,
+			Level: levelForUser(user.Email, user.Experience),
+			Experience: user.Experience,
+			Avatar: user.Avatar, AvatarFrame: user.AvatarFrame,
+		})
+	}
+	return result, nil
 }
 
 func (repository *memoryAuthRepository) UserStats(_ context.Context, days int) (userStatsData, error) {
@@ -1112,6 +1154,36 @@ func (repository *mysqlAuthRepository) ListUsers(
 		result = append(result, summary)
 	}
 	return result, total, rows.Err()
+}
+
+func (repository *mysqlAuthRepository) Leaderboard(
+	ctx context.Context, limit int,
+) ([]leaderboardUser, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := repository.db.QueryContext(ctx,
+		`SELECT u.id, u.email, u.display_name, u.avatar, u.avatar_frame, u.experience
+		 FROM users u
+		 WHERE NOT EXISTS (SELECT 1 FROM user_bans b WHERE b.user_id = u.id)
+		 ORDER BY u.experience DESC, u.id ASC
+		 LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("leaderboard: %w", err)
+	}
+	defer rows.Close()
+	result := make([]leaderboardUser, 0)
+	for rows.Next() {
+		var entry leaderboardUser
+		var email string
+		if err := rows.Scan(&entry.ID, &email, &entry.DisplayName,
+			&entry.Avatar, &entry.AvatarFrame, &entry.Experience); err != nil {
+			return nil, fmt.Errorf("scan leaderboard user: %w", err)
+		}
+		entry.Level = levelForUser(email, entry.Experience)
+		result = append(result, entry)
+	}
+	return result, rows.Err()
 }
 
 func (repository *mysqlAuthRepository) UserStats(ctx context.Context, days int) (userStatsData, error) {
