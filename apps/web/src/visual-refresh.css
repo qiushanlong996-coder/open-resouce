@@ -999,3 +999,13 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+/* 文档提示条与错误边界：去掉粗侧边条，改为细边框圆角卡片。 */
+.callout {
+  border: 1px solid color-mix(in srgb, var(--blue) 32%, transparent);
+  border-radius: 12px;
+}
+.error-boundary {
+  border: 1px solid color-mix(in srgb, #b42318 40%, var(--line));
+  border-radius: 12px;
+}
