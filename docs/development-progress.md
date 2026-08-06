@@ -3315,3 +3315,18 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
 - 前端构建通过；发布 `20260807-feed-tags-activity`（330 文件）。
 - 公网验证：`/feed.xml` 200 `application/atom+xml`；`/api/v1/tags` 返回
   真实聚合；`/api/v1/activity` 返回动态；`/projects/maomi` 200（深链可达）。
+
+## 2026-08-07：自拟需求第二批（sitemap / 作者资源移除 / 最近浏览）
+
+1. **SEO 站点地图**：`GET /sitemap.xml`（另注册 `/api/v1/sitemap`），收录
+   首页与全部已发布项目深链（含 lastmod）；Nginx 增加 `location = /sitemap.xml`
+   转发，公网 200 `application/xml`。
+2. **作者后台资源移除**：项目设置里的封面 / 文档 / 代码包上传后显示
+   「已上传 + 移除」按钮，可清空对应对象键（保存后生效）。
+3. **最近浏览**：打开项目写入 localStorage（本设备最多 8 条），首页新增
+   「最近浏览」横向卡片行，可一键清空。
+
+### 验证与部署
+
+- `go test` 新增 sitemap 测试通过；前端构建通过；
+  发布 `20260807-sitemap-recent-resources`（330 文件）。

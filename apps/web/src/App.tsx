@@ -499,6 +499,17 @@ function App() {
   const [gatewayState, setGatewayState] = useState<GatewayState>({ status: 'checking' })
   const [catalogProjects, setCatalogProjects] = useState<Project[]>(projects)
   const [catalogState, setCatalogState] = useState<CatalogState>('checking')
+  const [recentProjectSlugs, setRecentProjectSlugs] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('openresource:recent-projects')
+      const parsed: unknown = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string').slice(0, 8)
+        : []
+    } catch {
+      return []
+    }
+  })
   const [detailState, setDetailState] = useState<CatalogState>('online')
   const [documentState, setDocumentState] = useState<CatalogState>('online')
   const [documentTree, setDocumentTree] = useState<DocumentNode[]>([])
@@ -924,6 +935,15 @@ function App() {
     window.history.replaceState(window.history.state, '', url.toString())
   }
 
+  const clearRecentProjects = () => {
+    setRecentProjectSlugs([])
+    try {
+      window.localStorage.removeItem('openresource:recent-projects')
+    } catch {
+      /* 忽略。 */
+    }
+  }
+
   // openProfile 打开某个用户的公开主页弹窗（评论作者、项目作者点击进入）。
   const openProfile = (userId: string) => {
     if (userId) setProfileUserId(userId)
@@ -955,6 +975,16 @@ function App() {
   const openProject = (project: Project) => {
     selectedProjectSlug.current = project.slug
     setSelectedProject(project)
+    // 记录最近浏览（localStorage，本设备最多 8 条）。
+    setRecentProjectSlugs((current) => {
+      const next = [project.slug, ...current.filter((slug) => slug !== project.slug)].slice(0, 8)
+      try {
+        window.localStorage.setItem('openresource:recent-projects', JSON.stringify(next))
+      } catch {
+        /* 隐私模式等场景忽略。 */
+      }
+      return next
+    })
     // 同步到 URL：/projects/{slug} 可分享、可直达、可后退。
     const url = new URL(window.location.href)
     url.pathname = `/projects/${encodeURIComponent(project.slug)}`
@@ -1646,6 +1676,10 @@ function App() {
           onOpenDocs={() => setOpenDocsOpen(true)}
           onOpenProfile={(userId) => setProfileUserId(userId)}
           onOpenProjectSlug={(slug) => openProjectBySlug(slug)}
+          recentProjects={recentProjectSlugs
+            .map((slug) => catalogProjects.find((project) => project.slug === slug))
+            .filter((project): project is Project => Boolean(project))}
+          onClearRecent={clearRecentProjects}
           onSubmitProject={() => {
             if (currentUser) {
               setAuthorCenterOpen(true)
@@ -1726,6 +1760,8 @@ function Home({
   onOpenDocs,
   onOpenProfile,
   onOpenProjectSlug,
+  recentProjects,
+  onClearRecent,
   onSubmitProject,
 }: {
   activeTab: string
@@ -1740,6 +1776,8 @@ function Home({
   onOpenDocs: () => void
   onOpenProfile: (userId: string) => void
   onOpenProjectSlug: (slug: string) => void
+  recentProjects: Project[]
+  onClearRecent: () => void
   onSubmitProject: () => void
 }) {
   const [stats, setStats] = useState<SiteStats | null>(null)
@@ -2006,6 +2044,23 @@ function Home({
           </div>
         ) : <div className="empty-state"><Search size={24} /><h3>没有找到匹配项目</h3><p>{hasExtraFilter ? '试试调整技术栈或许可证筛选条件。' : '试试其他关键词或清空筛选条件。'}</p></div>}
       </section>
+
+      {recentProjects.length > 0 && (
+        <section className="content-section compact-section">
+          <div className="section-heading">
+            <div><span className="section-kicker">RECENT</span><h2>最近浏览</h2></div>
+            <button className="text-button" onClick={onClearRecent}>清空</button>
+          </div>
+          <div className="recent-row">
+            {recentProjects.map((project) => (
+              <button key={project.id} type="button" className="recent-card" onClick={() => onOpenProject(project)}>
+                <span className={`recent-cover ${project.accent}`}>{project.name.slice(0, 1)}</span>
+                <span className="recent-info"><strong>{project.name}</strong><small>{project.category}</small></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="editorial-band">
         <div><span className="section-kicker">FROM THE COMMUNITY</span><h2>好的项目，值得被读懂。</h2><p>项目不只是一个仓库地址。我们希望让每个 Agent 的背景、设计选择和使用方式都能被清楚地留下来。</p></div>
@@ -3853,9 +3908,9 @@ function AuthorProjectCenter({ onClose, onChanged }: { onClose: () => void; onCh
             <label>技术栈（逗号分隔）<input value={stackText} onChange={(event) => setStackText(event.target.value)} /></label>
           </div>
           <div className="form-grid project-files">
-            <label>封面图<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'image', 'cover_object_key') }} /><small>{input.cover_object_key ? '已上传' : uploading === 'image' ? '上传中…' : '最大 10 MB'}</small></label>
-            <label>项目文档<input type="file" accept=".pdf,.md,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'document', 'document_object_key') }} /><small>{input.document_object_key ? '已上传' : uploading === 'document' ? '上传中…' : '最大 50 MB'}</small></label>
-            <label>代码包<input type="file" accept=".zip,.tar,.gz,.tgz" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'code', 'code_object_key') }} /><small>{input.code_object_key ? '已上传' : uploading === 'code' ? '上传中…' : '最大 500 MB'}</small></label>
+            <label>封面图<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'image', 'cover_object_key') }} /><small>{input.cover_object_key ? <>已上传 <button type="button" onClick={() => update('cover_object_key', '')}>移除</button></> : uploading === 'image' ? '上传中…' : '最大 10 MB'}</small></label>
+            <label>项目文档<input type="file" accept=".pdf,.md,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'document', 'document_object_key') }} /><small>{input.document_object_key ? <>已上传 <button type="button" onClick={() => update('document_object_key', '')}>移除</button></> : uploading === 'document' ? '上传中…' : '最大 50 MB'}</small></label>
+            <label>代码包<input type="file" accept=".zip,.tar,.gz,.tgz" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file, 'code', 'code_object_key') }} /><small>{input.code_object_key ? <>已上传 <button type="button" onClick={() => update('code_object_key', '')}>移除</button></> : uploading === 'code' ? '上传中…' : '最大 500 MB'}</small></label>
           </div>
           </details>
           {error && <div className="auth-error">{error}</div>}

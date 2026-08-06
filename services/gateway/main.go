@@ -106,6 +106,8 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/api/v1/activity", activityHandler)
 	mux.HandleFunc("/feed.xml", feedHandler)
 	mux.HandleFunc("/api/v1/feed", feedHandler)
+	mux.HandleFunc("/sitemap.xml", sitemapHandler)
+	mux.HandleFunc("/api/v1/sitemap", sitemapHandler)
 	mux.HandleFunc("/api/v1/admin/reviews", adminReviewsHandler)
 	mux.HandleFunc("/api/v1/admin/reviews/", adminReviewActionHandler)
 	mux.HandleFunc("/api/v1/admin/featured", adminFeaturedHandler)

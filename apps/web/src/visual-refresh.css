@@ -1119,3 +1119,74 @@ a {
 .footer-rss:hover {
   color: var(--blue);
 }
+
+/* 首页最近浏览：横向滚动卡片。 */
+.recent-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.recent-card {
+  flex: 0 0 auto;
+  width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: left;
+  scroll-snap-align: start;
+  transition: transform .16s ease, border-color .16s ease, background-color .16s ease;
+}
+.recent-card:hover {
+  border-color: var(--focus-line);
+  background: var(--surface-muted);
+  transform: translateY(-1px);
+}
+.recent-cover {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+.recent-cover.blue { background: #134c91; }
+.recent-cover.orange { background: #a85222; }
+.recent-cover.green { background: #27634a; }
+.recent-cover.purple { background: #574a87; }
+.recent-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.recent-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.recent-info small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+/* 作者中心资源小标签里的移除按钮。 */
+.project-files small button {
+  margin-left: 4px;
+  padding: 0;
+  color: var(--blue);
+  background: transparent;
+  border: 0;
+  font-size: 10px;
+}
