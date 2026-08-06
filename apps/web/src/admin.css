@@ -447,6 +447,13 @@
   color: var(--text-tertiary, #86868b);
 }
 
+/* 管理端项目文件资源状态。 */
+.resource-badges {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 720px) {
   .admin-shell { grid-template-columns: 1fr; }
   .admin-nav {

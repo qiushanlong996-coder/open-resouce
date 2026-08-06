@@ -779,7 +779,7 @@ function ProjectsPanel() {
         : projects.length === 0 ? <div className="admin-empty">没有项目。</div>
           : <table className="admin-table">
             <thead>
-              <tr><th>名称</th><th>标识</th><th>分类</th><th>状态</th><th>更新时间</th><th>操作</th></tr>
+              <tr><th>名称</th><th>标识</th><th>分类</th><th>文件资源</th><th>状态</th><th>更新时间</th><th>操作</th></tr>
             </thead>
             <tbody>
               {projects.map((project) => (
@@ -787,6 +787,17 @@ function ProjectsPanel() {
                   <td>{project.name}</td>
                   <td className="admin-mono">{project.slug}</td>
                   <td>{project.category}</td>
+                  <td>
+                    <span className="resource-badges" title={[
+                      project.cover_object_key && `封面：${project.cover_object_key}`,
+                      project.document_object_key && `文档：${project.document_object_key}`,
+                      project.code_object_key && `代码包：${project.code_object_key}`,
+                    ].filter(Boolean).join('\n')}>
+                      <span className={`admin-badge ${project.cover_object_key ? 'ok' : 'muted'}`}>封面</span>
+                      <span className={`admin-badge ${project.document_object_key ? 'ok' : 'muted'}`}>文档</span>
+                      <span className={`admin-badge ${project.code_object_key ? 'ok' : 'muted'}`}>代码</span>
+                    </span>
+                  </td>
                   <td><span className={`admin-badge ${statusBadgeClass(project.status)}`}>{STATUS_LABELS[project.status] ?? project.status}</span></td>
                   <td>{formatDate(project.updated_at)}</td>
                   <td>
