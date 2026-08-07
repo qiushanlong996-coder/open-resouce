@@ -602,9 +602,14 @@ function App() {
         return
       }
       const documentSlug = new URLSearchParams(window.location.search).get('document')
+      const tabParam = new URLSearchParams(window.location.search).get('tab')
+      const validTabs = ['项目概览', '文档阅读', '代码预览', '下载资源']
       openProjectBySlug(
         decodeURIComponent(match[1]),
-        documentSlug ? () => openDocument(documentSlug) : undefined,
+        () => {
+          if (documentSlug) openDocument(documentSlug)
+          if (tabParam && validTabs.includes(tabParam)) setDetailTab(tabParam)
+        },
       )
     }
     openFromURL()

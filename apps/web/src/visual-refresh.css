@@ -1200,3 +1200,31 @@ a {
 .related-section .section-heading {
   margin-bottom: 18px;
 }
+
+/* ==================== 移动端横向溢出修复 ==================== */
+@media (max-width: 760px) {
+  /* 首页分类胶囊行：允许换行，避免整行被裁掉。 */
+  .filter-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  /* 详情操作按钮区：按钮多时换行，避免挤到屏外。 */
+  .detail-actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  /* 详情元信息：长仓库地址/许可证可断行，禁止把页面撑宽。 */
+  .detail-meta span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* 文档阅读工具栏：面包屑/搜索/操作按钮换行，不再横向溢出。 */
+  .article-toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .article-toolbar-actions {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}
