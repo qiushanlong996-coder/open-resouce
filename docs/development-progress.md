@@ -3368,3 +3368,45 @@ Content-Type: text/html;charset=GB2312      <- 中文地区拦截设备
   越界元素清零；代码预览/下载资源/项目概览/登录/管理台/作者中心/通知
   均无页面级溢出（OpenAPI 代码块为容器内横向滚动，属正常）。
 - 发布 `20260807-mobile-layout-fixes`（330 文件）。
+
+## 2026-08-08：新服务器 38.60.78.93 完整部署
+
+### 背景
+
+用户指定将整套项目部署到新机器 `38.60.78.93`（root，凭据见本机
+`password.md`，不入库）。中间件（MySQL / Redis / ES）继续复用
+`www.lovenuaa.xyz`。
+
+### 中间件放行
+
+- firewalld 增加 rich rule：放行 `38.60.78.93` 到 3306 / 6379 / 9200
+  （此前仅放行生产应用服务器 156.225.28.10）。
+- MySQL 新建 `open_resouce_app`@`38.60.78.93`（独立强密码，授权
+  `open_resouce.*` 的 SELECT/INSERT/UPDATE/DELETE，权限与生产账号一致）。
+
+### 新服务器部署内容
+
+- 系统：CentOS Stream 9（3.5G 内存 / 40G 盘），安装 nginx 1.20.1。
+- 网关：Linux 静态二进制 → `/opt/open-resouce/current/bin/gateway`，
+  systemd 单元 + `/etc/open-resouce/gateway.env`（DB/Redis/ES/管理员邮箱/
+  IP 归属地库指向），`PrivateTmp`、`MemoryMax=768M`。
+- ip2region v4/v6 xdb 下载到 `/var/lib/open-resouce/`。
+- 前端：dist 347 个文件 → `releases/20260808-142525`，
+  `/var/www/open-resouce/current` 软链指向该版本。
+- Nginx：`:80 default_server`，静态资源 + `/api` 代理（含协作 WS）、
+  `/feed.xml`、`/sitemap.xml`；深链 `try_files ... /index.html`。
+
+### 验证
+
+- 网关日志：mysql / redis / ES / IP region 全部启用，
+  `search index ready documents=7`，`/readyz` 正常。
+- 经 Nginx 公网验证（本机直连 200）：
+  首页、`/api/v1/stats`（projects=7）、`/api/v1/search?q=猫`（命中 maomi）、
+  `/feed.xml`、`/sitemap.xml`、`/projects/maomi` 深链均 200。
+
+### 注意事项
+
+- 可选密钥未配置（旧机下线丢失）：OSS / SMTP / Anthropic / GitHub / 微信
+  均未写入新机器 env，对应功能（上传、密码重置邮件、AI 助手、第三方登录）
+  会显示未启用/降级，不影响浏览、搜索、评论、文档与代码浏览。
+- 新机器部署用独立库账号与独立 PUBLIC_BASE_URL（http://38.60.78.93）。
