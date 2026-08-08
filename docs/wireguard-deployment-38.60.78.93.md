@@ -127,7 +127,7 @@ wg show wg0 | grep -B2 'latest handshake'
 ## 8. 运维要点
 
 - **公网 IP 是配置里的硬编码值**。香港那台在 2026-08-07 被厂商换过 IP，如果这台也换，需要改所有客户端 `Endpoint`。若厂商给的 IP 不稳定，建议挂个域名到 `Endpoint`（WireGuard 支持域名，且会在握手失败时重新解析）。
-- **`PersistentKeepalive = 25`** 让客户端每 25 秒发一个保活包，维持 NAT 映射，手机切换网络后恢复更快。
+- **`PersistentKeepalive = 15`** 让客户端每 15 秒发一个保活包，维持 NAT 映射。**原值 25 秒偏长**，很多家用路由器与运营商 CGNAT 的 UDP 映射超时在 20~30 秒，见第 10 节。
 - **换密钥**：删掉 `/etc/wireguard/client-<name>.*` 后重跑 `/root/setup_wg.sh`，会生成新密钥并重写 `wg0.conf` 与客户端配置，然后 `systemctl restart wg-quick@wg0`。
 - **MTU** 用默认 1420，未做调整。若在某些网络下出现「能握手、能 ping，但网页打不开」，是典型的 PMTU 黑洞，在客户端 `[Interface]` 里加 `MTU = 1380` 试。
 - **`rpcbind` 在 UDP/TCP 111 对公网暴露**（外网 `rpcinfo -T udp -p` 能拿到完整程序列表）。在一台 UDP 全开又没有防火墙的机器上，这是可被利用的放大反射源。建议 `systemctl disable --now rpcbind rpcbind.socket`——本次**未执行**，待确认没有 NFS 依赖后再动。
@@ -138,3 +138,48 @@ wg show wg0 | grep -B2 'latest handshake'
 2. **`tcpdump` 的抓包点早于 netfilter**。「eth0 上抓不到包」可以直接排除本机所有防火墙、SELinux、服务配置因素，把问题定位到实例之外。反过来，抓到了就说明厂商映射没问题。
 3. **UDP 通不通要用回包来判**：在服务端起多端口 UDP echo，同时抓包 + 本地探测，可以三向区分「包没到 eth0」（上游丢）/「到了但没回包」（本机丢）/「完整回环」（全通）。单向发包看不出任何结论。
 4. **改包/改网络前留退路**：死人开关（`systemd-run --on-active`）+ 长驻已认证会话 + 厂商控制台，三者至少有一个。已建立的 SSH 会话不受共享库替换影响，是最后的抢救手段。
+
+## 10. 首次使用即断流的排查（2026-08-08）
+
+手机导入后用了几分钟就「显示已连接但打不开网页」。**服务端全程健康，问题在客户端 NAT 映射与 iOS 的网络扩展挂起。**
+
+### 10.1 逐项排除
+
+| 检查项 | 结果 | 结论 |
+| --- | --- | --- |
+| `wg0` / NAT / `ip_forward` | active，masquerade 1 条，转发开 | 排除 |
+| conntrack | 82 / 65536 | 排除 |
+| 内核丢包 `IpInHdrErrors` / `IpReasmFails` / `UdpInErrors` | 全 0；`wg0` errors/dropped 全 0 | 排除 MTU 与分片问题 |
+| 服务器自身出网 | 出口 `38.60.78.93`，google 200 | 排除 |
+| 入向 UDP 是否被运营商封 | 从客户端网络打 443 → 4/4 到达 eth0；51820 与 4500 echo 回包正常 | 排除端口/IP 级封锁 |
+| 网卡入向速率 | 45 pps、< 1 Mbps，`rx_dropped` 增量 0 | 排除 UDP 洪水（80 端口 1472 字节包只是背景扫描噪声，20 秒 11 个） |
+
+### 10.2 真正的原因（两个叠加）
+
+**一、客户端公网 `address:port` 频繁变化。** 抓包里手机源端口依次为 `64760 → 50927 → 50819 → 52595`。WireGuard 的服务端**无法主动定位客户端**，只能往「最近一次收到合法认证报文的那个 `address:port`」回包（endpoint roaming）。映射一被回收，服务器手上的地址立刻作废，**下行全部黑洞，上行仍通**——症状就是「已连接但打不开网页」。计数器可以直接确诊：
+
+```
+endpoint 一直钉在旧地址不变
+tx 缓慢增长      ← 服务端在往死地址重发握手
+rx 完全冻结      ← 客户端的包一个都没进来
+握手年龄单调增长
+```
+
+**二、iOS 的网络扩展会被挂起。** 有一段 8 分钟的窗口，服务端收到手机的包数为 **0**——而 `PersistentKeepalive = 25` 本应每 25 秒必有一包。说明那段时间手机上的 WireGuard 根本没在发包（屏幕锁着、无 App 主动发流量时的常见行为）。
+
+这解释了为什么「关 Wi-Fi 用流量、再连回 Wi-Fi」能修好：**网络路径变化会强制 iOS 重建 UDP socket 并立刻发握手**，服务端随即漂移到新地址。而只打开「按需连接（On-Demand）」**无效**——它只保证隧道处于开启状态，路径没变化时 iOS 不会重建 socket，会继续用那个已作废的映射。
+
+### 10.3 处置
+
+1. `PersistentKeepalive` 从 25 降到 **15**，低于常见 NAT 的 UDP 超时（`/root/setup_wg.sh` 与三个客户端配置、二维码均已更新，客户端需重新导入才生效）。
+2. 部署 `wg-monitor` 服务（`/root/wg-monitor.sh` + `/etc/systemd/system/wg-monitor.service`，日志 `/var/log/wg-monitor.log`，已 logrotate 保留 7 天），每 30 秒记录每个 peer 的 `endpoint / 握手年龄 / rx / tx`。下次断流可以直接定位到分钟，并区分「客户端没发包」和「发了但服务端没收到」：
+
+   ```bash
+   tail -50 /var/log/wg-monitor.log
+   awk '{print $1,$2,$4,$5,$6}' /var/log/wg-monitor.log | tail -20   # 看 rx 是否冻结
+   ```
+3. 若降 keepalive 后仍反复断，说明是 iOS 挂起为主因，服务端无解——考虑在这台机器上同时部署 sing-box（TCP 443，与 WireGuard 的 UDP 443 不冲突），iOS 侧的 sing-box/Shadowrocket 对休眠唤醒的处理比 WireGuard 的 NE 稳。
+
+### 10.4 方法沉淀
+
+**「已连接但打不开」几乎总是下行黑洞，判据是服务端的 `rx` 冻结而 `tx` 仍在增长。** 这一条能立刻把问题从「服务端配置/MTU/防火墙」切到「客户端地址变了或客户端没发包」，不必再去翻 NAT 规则和内核参数。再看 `endpoint` 是否停在旧地址、握手年龄是否单调增长，就能确认。
